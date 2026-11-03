@@ -41,6 +41,12 @@ export type Blueprint = {
   identity: string;
   /** What every build of this kind must contain, in the order it is built. */
   requirements: string[];
+  /* The pages a professional site of this kind has — the design spec's
+     predefined architecture. In a project of files each is a route; in a
+     single-page build each is a section or a view of the one document, and
+     only those that belong on one page are built. Customised to the business,
+     never padded: a page the brief has no use for is left out. */
+  pages?: string[];
   /** Worth having, and the first thing to cut when the document runs long. */
   optionalFeatures: string[];
   depth: {
@@ -148,6 +154,7 @@ THE PHONE IS THE DESIGN, NOT A CONCESSION TO IT:
 - A GUTTER AT EVERY WIDTH, from one container rule: never under 16px, never text against the glass.
 - BELOW 768px THE HEADER IS THE BRAND AND A MENU BUTTON, and nothing else. The inline link list takes \`hidden md:flex\`; the button takes \`flex md:hidden\` and opens a panel that is already in the markup.
 - Forms on a phone: one full-width field per line, labels above, 44px on anything you tap. Images take \`max-width: 100%\`, \`height: auto\`, \`object-fit: cover\`. Tables scroll inside their own box.
+- Below 1024px an app's sidebar becomes a drawer and its stat cards stack.
 
 WHAT IS TRUE — it outranks how the page looks:
 - NEVER invent business data — revenue, growth, customer or user counts, ratings, review counts, uptime, conversion — unless the brief supplied it. These go out under a real company's name, and the plausible ones are the worst, because nobody catches them.

@@ -20,6 +20,21 @@ export const saas: Blueprint = {
   identity:
     "The marketing site of a software or AI product: it shows the product working, makes the case for it to one kind of buyer, and turns them into a trial, a demo request or a place on the waitlist.",
 
+  pages: [
+    "Homepage",
+    "Features",
+    "Product overview",
+    "Pricing",
+    "Integrations",
+    "Documentation",
+    "About",
+    "Contact",
+    "Login",
+    "Sign-up",
+    "Customer dashboard, where required",
+    "Billing / account management, where required",
+  ],
+
   requirements: [
     "Navigation — the wordmark, links to Product, Pricing, FAQ and any other section that exists, a quiet 'Log in' only if the brief says there is an app to log in to, and the primary call to action as a button. Sticky, and it collapses to a working menu on a phone.",
     "Hero — an eyebrow naming the category, a headline that names the outcome for the buyer in at most ten words, a subhead of at most thirty words, the primary call to action (start a trial, join the waitlist or book a demo — whichever the brief implies) and one quieter secondary action. Beside or under it, the product itself drawn in HTML and CSS: a framed window with the product's real objects in it.",

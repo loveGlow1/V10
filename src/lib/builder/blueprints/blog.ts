@@ -24,6 +24,19 @@ export const blog: Blueprint = {
   identity:
     "A publication with something to read in it: a front page that ranks its stories, at least one full article a person can actually read, and the archive around them.",
 
+  pages: [
+    "Homepage",
+    "Blog listing",
+    "Article details",
+    "Categories",
+    "Tags",
+    "Author profile",
+    "Search",
+    "About",
+    "Contact",
+    "Author / CMS dashboard, where required",
+  ],
+
   requirements: [
     "Masthead — the publication's name set as a wordmark with some typographic conviction, a tagline, and the primary category navigation.",
     "Lead story — one featured article given the space to be one: category, headline, a two-sentence standfirst, author with role, date, reading time, and an inline-SVG or CSS artwork panel.",

@@ -19,6 +19,20 @@ export const landing: Blueprint = {
   identity:
     "A marketing page that takes one audience from not knowing this offer exists to taking one specific action. Every section is evidence for that action.",
 
+  pages: [
+    "Navigation",
+    "Hero",
+    "About / introduction",
+    "Services",
+    "Features / benefits",
+    "Portfolio or gallery, where relevant",
+    "Testimonials",
+    "Pricing, where relevant",
+    "FAQ",
+    "Contact / lead form",
+    "Footer",
+  ],
+
   requirements: [
     "Navigation — the wordmark, three to five anchors that jump to real sections on this page, and the primary call to action as a button. Sticky, and it collapses to a working menu on a phone.",
     "Hero — a headline that names the audience and the outcome in their words, not the company's ('Ship your Rails app on Friday', not 'Welcome to Acme'). A subhead of at most twenty-five words. The primary call to action, one quieter secondary action beside it, and a line of risk-reducing detail under them. A piece of artwork built from inline SVG or CSS — a product frame, a diagram, a shape — never an <img> to a URL you invented.",

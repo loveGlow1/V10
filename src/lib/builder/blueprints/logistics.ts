@@ -19,6 +19,20 @@ export const logistics: Blueprint = {
   identity:
     "The site of a courier, freight, delivery or shipping company: a tracking number gets a shipment's real status and timeline, the services and coverage are clear, and a quote request reaches the company.",
 
+  pages: [
+    "Homepage",
+    "Services",
+    "About",
+    "Shipment tracking",
+    "Request a quote",
+    "Contact",
+    "Login",
+    "Sign-up",
+    "Customer dashboard",
+    "Shipment details",
+    "Shipment history",
+  ],
+
   requirements: [
     "Navigation — the wordmark, links to Track, Services, Coverage, Business and Contact, a 'Log in' link, and 'Get a quote' as the primary button. Sticky, and it collapses to a working menu on a phone.",
     "Hero — the promise in plain words (speed, reach, reliability — at most ten words), and a tracking input front and centre: a field for the tracking number and a Track button. Under it, 'Get a quote' and a line on coverage.",

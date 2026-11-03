@@ -29,7 +29,7 @@
  * defensible and slightly wrong every time — the greys go muddy, the accent
  * fights the photographs, the type scale has no rhythm. These are written by
  * hand, each one internally coherent, each one a look somebody would recognise.
- * Nine of them, because nine distinct systems that are all good beats an
+ * Twelve of them, because twelve distinct systems that are all good beats an
  * infinite space that is mostly not — and each now carries an art direction,
  * a motion personality and a hand-written alternate theme, not only values.
  *
@@ -108,6 +108,12 @@ export type ArtDirection = {
 export type DesignDNA = {
   /** What this system is called, for the step line and for the record. */
   name: string;
+  /* Which of the nine design blueprints (A–I) this system is the house
+     version of, and for which businesses: the shared vocabulary between the
+     design spec, the build log and the model. Several systems may serve one
+     blueprint — Warm craft and Modern commercial are both premium commerce,
+     for a bakery and for a gadget brand. */
+  blueprint: string;
   /** The register it was derived from. */
   register: string;
   /** One line on what this looks like, for the model to hold in mind. */
@@ -160,6 +166,7 @@ export type DesignDNA = {
 
 const EDITORIAL: DesignDNA = {
   name: "Editorial serif",
+  blueprint: "A · Luxury editorial — real estate, architecture, interiors, fashion, premium brands",
   register: "luxury editorial",
   intent:
     "Quiet and expensive. Large serif headings with real air around them, almost no ornament, and the photographs doing the work. Nothing is rounded, nothing glows.",
@@ -230,6 +237,7 @@ const EDITORIAL: DesignDNA = {
 
 const CRAFT: DesignDNA = {
   name: "Warm craft",
+  blueprint: "D · Premium commerce — food, craft, makers and local business",
   register: "warm documentary",
   intent:
     "Made by somebody. Warm paper ground, a clay accent, softly rounded corners and generous line height. Reads as a person's workshop rather than a brand system.",
@@ -295,6 +303,7 @@ const CRAFT: DesignDNA = {
 
 const CLINICAL: DesignDNA = {
   name: "Clinical precision",
+  blueprint: "C · Modern minimal — professional services, health, consultants",
   register: "clean clinical",
   intent:
     "Calm and exact. Cool neutrals, one trustworthy blue, hairline rules and small radii. Nothing decorative — every element is legible before it is anything else.",
@@ -372,6 +381,7 @@ const CLINICAL: DesignDNA = {
 
 const TECHNICAL: DesignDNA = {
   name: "Technical",
+  blueprint: "B · Cinematic dark (technical) — developer tools and technical SaaS",
   register: "technical documentary",
   intent:
     "Built, not styled. Near-neutral surfaces, a monospace accent for data and labels, sharp corners and dense information. Confidence comes from precision rather than from colour.",
@@ -442,6 +452,7 @@ const TECHNICAL: DesignDNA = {
 
 const COMMERCIAL: DesignDNA = {
   name: "Modern commercial",
+  blueprint: "D · Premium commerce — products, services and online stores",
   register: "clear commercial",
   intent:
     "Contemporary and direct. A crisp neutral ground, one confident accent used sparingly, medium radii and soft shadows. The default when nothing in the brief asks for a stronger point of view.",
@@ -490,9 +501,9 @@ const COMMERCIAL: DesignDNA = {
   },
   art: {
     composition:
-      "Confident product storytelling: a direct headline with the product or service shown working, then alternating text-and-visual rows of different weights, and one strong closing call.",
+      "Confident product storytelling: a direct headline with the product or service shown working, then alternating text-and-visual rows of different weights, and one strong closing call. In a store the product leads: large imagery, a clear grid of products, then the detail that sells one — price, options, delivery — with the path to checkout never more than a tap away.",
     components:
-      "Medium radii, soft layered surfaces separated by tone rather than borders, the accent reserved for the primary action, secondary actions as quiet text buttons.",
+      "Medium radii, soft layered surfaces separated by tone rather than borders, the accent reserved for the primary action, secondary actions as quiet text buttons. Product cards are refined and consistent — one image ratio, name, price, at most one badge — and prices are always visible, never behind a click.",
     imagery:
       "The product or service in real use by the people it is for, in bright natural light.",
     trust:
@@ -513,6 +524,7 @@ const COMMERCIAL: DesignDNA = {
 
 const PRESS: DesignDNA = {
   name: "Press",
+  blueprint: "E · Editorial magazine — blogs, news, publications, media",
   register: "editorial reportage",
   intent:
     "A publication. Serif headlines set tight, a paper-white ground, rules instead of boxes, and one red reserved for what is breaking. Ranked rather than gridded — the lead story is unmistakably the lead.",
@@ -554,11 +566,11 @@ const PRESS: DesignDNA = {
   },
   art: {
     composition:
-      "Ranked, not gridded: a dominant lead story, then columns of decreasing weight, rules between items, dense datelines and bylines.",
+      "Ranked, not gridded: a dominant lead story, then columns of decreasing weight, rules between items, dense datelines and bylines. Featured articles lead, categories are always one click away, and an article page is built for reading: a measure of 60–72 characters, a clear heading hierarchy, and the image that tells the story at the top.",
     components:
-      "No radii, column rules, kickers in small caps, headlines as the links, buttons rare and plain.",
+      "No radii, column rules, kickers in small caps, headlines as the links, buttons rare and plain. Article cards share one image ratio and show the category, headline, standfirst, byline and date in that order.",
     imagery:
-      "Press photography as it happened, every frame captioned and credited.",
+      "Press photography as it happened, every frame captioned and credited, and image-led storytelling on features — one strong photograph per story, never repeated across stories.",
     trust:
       "Belief through attribution: bylines, dates, corrections, sources and a clear section structure.",
   },
@@ -585,6 +597,7 @@ const PRESS: DesignDNA = {
 
 const LUMINOUS: DesignDNA = {
   name: "Luminous dark",
+  blueprint: "B · Cinematic dark — AI, technology, premium SaaS, digital products",
   register: "luminous technology",
   intent:
     "Deep and luminous. Near-black layered surfaces with light falling across them, one pale violet accent, large precise geometric headings. A flagship product launch, never a crypto template.",
@@ -636,7 +649,7 @@ const LUMINOUS: DesignDNA = {
     composition:
       "Cinematic chapters: a full-height opening statement, the product revealed in one large framed visual, then sections that each make one claim and show one piece of evidence for it.",
     components:
-      "Surfaces separated by light rather than borders — a 1px top highlight, a slightly lifted surface — glass only where text sits over imagery, primary buttons in the pale accent, secondary as ghost text.",
+      "Surfaces separated by light rather than borders — a 1px top highlight, a slightly lifted surface — glass only where text sits over imagery, primary buttons in the pale accent, secondary as ghost text. One controlled gradient and a subtle glow may sit behind the main visual; never neon, never on text, never more than one per screen.",
     imagery:
       "The real product interface, abstract light and geometry drawn in CSS or SVG, real hardware or people in low-key light. Never robots, glowing brains or circuit-board stock.",
     trust:
@@ -657,6 +670,7 @@ const LUMINOUS: DesignDNA = {
 
 const SANCTUARY: DesignDNA = {
   name: "Calm sanctuary",
+  blueprint: "A · Luxury editorial (hospitality) — hotels, spas, wellness, retreats",
   register: "restorative calm",
   intent:
     "Calm and restorative. Stone and linen grounds, a deep sage accent, light elegant serif headings and long, slow pacing. The page breathes the way the place should.",
@@ -725,6 +739,7 @@ const SANCTUARY: DesignDNA = {
 
 const CAPITAL: DesignDNA = {
   name: "Private capital",
+  blueprint: "G · Fintech precision — banking, investments, payments, wealth, property",
   register: "established authority",
   intent:
     "Established and assured. Ivory ground, deep navy ink and accent, a refined serif for headings and exact tabular figures. A private bank or a landmark property, never a template for one.",
@@ -772,7 +787,7 @@ const CAPITAL: DesignDNA = {
     composition:
       "Measured and architectural: a wide opening statement, then content on a strict grid — large property or portfolio photographs alternating with dense, tabular facts.",
     components:
-      "Small radii, fine rules, tabular numerals for every figure, understated buttons in a navy fill or a precise underline, labels in small caps.",
+      "Small radii, fine rules, tabular numerals for every figure, understated buttons in a navy fill or a precise underline, labels in small caps. Where there are accounts: account cards with the balance as the largest figure, transaction tables with consistent signs, currency and dates, and charts with labelled axes. A simulated or demonstration transaction is always labelled as one — never presented as money that really moved.",
     imagery:
       "Architecture and interiors in clean daylight with straight verticals; advisors as real people at work. Never handshakes, skylines at dusk or piles of coins.",
     trust:
@@ -791,7 +806,226 @@ const CAPITAL: DesignDNA = {
   },
 };
 
-export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS, LUMINOUS, SANCTUARY, CAPITAL];
+/* ── Three more directions the nine above could not hold ──────────────────
+ *
+ * A freight company, a construction firm and an industrial supplier were
+ * landing on Technical — a developer tool's grey hairlines — when what they
+ * need is a business that looks established and easy to deal with. Working
+ * software was landing on Clinical precision, a marketing page's system,
+ * when it needs one built for sidebars, tables and states. And a designer,
+ * an illustrator or a creative agency was landing on Editorial serif, which
+ * is quiet by design, when their site IS the portfolio and has to be loud.
+ * Each is reached the same way as the others: by the industry the brief
+ * names (BY_INDUSTRY), a look it names (NAMED), or the kind (BY_KIND). */
+
+const CORPORATE: DesignDNA = {
+  name: "Corporate professional",
+  blueprint: "F · Corporate professional — logistics, construction, consulting, industry",
+  register: "established industry",
+  intent:
+    "Solid and capable. A cool light ground, deep navy ink, one burnt-orange accent that means action, and a structured sans with industrial roots. A firm that moves freight or builds things, never a startup template.",
+  type: {
+    display: '"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* IBM Plex Sans: engineered, slightly mechanical, legible at every size —
+       the voice of an operation that runs on schedules and specifications. */
+    webfont: {
+      family: "IBM Plex Sans",
+      href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap",
+    },
+    ratio: 1.25,
+    base: 16,
+    displayLeading: 1.1,
+    displayTracking: "-0.015em",
+    displayWeight: 700,
+  },
+  color: {
+    ground: "#F5F7FA",
+    surface: "#FFFFFF",
+    ink: "#0B1B2E",
+    muted: "#4A5A6E",
+    line: "#D9DFE7",
+    accent: "#C2410C",
+    accentInk: "#FFFFFF",
+    success: "#166534",
+    danger: "#B91C1C",
+  },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 88, 120, 152],
+  radius: { sm: "4px", md: "6px", lg: "10px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(11,27,46,.08)", md: "0 10px 30px rgba(11,27,46,.10)" },
+  container: "1240px",
+  motion: {
+    fast: "130ms",
+    base: "220ms",
+    slow: "700ms",
+    ease: "cubic-bezier(.3,.6,.3,1)",
+    easeOut: "cubic-bezier(.2,1,.3,1)",
+    stagger: "60ms",
+    distance: "16px",
+    personality: "Efficient: short, firm reveals and crisp state changes. Motion that confirms rather than performs.",
+  },
+  art: {
+    composition:
+      "Structured and information-led: a strong opening with the core service and its proof, then services on a clear grid, a band of operational facts (coverage, fleet, years, response times as the brief supplies them), process steps and a prominent working tool such as tracking or a quote form.",
+    components:
+      "Modest radii, solid navy headers and footers, service cards with a short spec list, numbered process steps, form fields with visible labels, primary buttons in the orange accent and secondary in navy outline. Icons are line icons in a square, never cartoons.",
+    imagery:
+      "Real operations: warehouses, fleets, containers, sites, crews at work in daylight, shot straight and sharp. Never handshakes over a desk, globes made of light or generic skyline stock.",
+    trust:
+      "Belief through capability and specifics: certifications, coverage, safety record, named sectors served and response commitments, only as the brief supplies them. The call to act is concrete — request a quote, track a shipment, speak to the team.",
+  },
+  inverse: {
+    ground: "#0B1220",
+    surface: "#121B2B",
+    ink: "#EEF2F7",
+    muted: "#9AA8BA",
+    line: "#22304A",
+    accent: "#FB923C",
+    accentInk: "#1A0E05",
+    success: "#86EFAC",
+    danger: "#FCA5A5",
+  },
+};
+
+const DASHBOARD: DesignDNA = {
+  name: "Modern dashboard",
+  blueprint: "H · Modern dashboard — SaaS apps, CRMs, portals, management systems",
+  register: "working software",
+  intent:
+    "Calm, dense and exact. A soft grey ground, white working surfaces, one indigo accent for the primary action, and a friendly geometric sans. Software people use all day, built around its sidebar, its tables and its states.",
+  type: {
+    display: '"Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* Plus Jakarta Sans: open, even and quietly friendly — readable in a
+       table at 13px and confident as a page title, which is the whole job. */
+    webfont: {
+      family: "Plus Jakarta Sans",
+      href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap",
+    },
+    ratio: 1.2,
+    base: 15,
+    displayLeading: 1.15,
+    displayTracking: "-0.02em",
+    displayWeight: 700,
+  },
+  color: {
+    ground: "#F6F7F9",
+    surface: "#FFFFFF",
+    ink: "#111827",
+    muted: "#4B5563",
+    line: "#E5E7EB",
+    accent: "#4F46E5",
+    accentInk: "#FFFFFF",
+    success: "#15803D",
+    danger: "#B91C1C",
+  },
+  space: [4, 8, 12, 16, 20, 24, 32, 40, 56, 72, 96],
+  radius: { sm: "6px", md: "10px", lg: "14px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(17,24,39,.06)", md: "0 8px 24px rgba(17,24,39,.08)" },
+  container: "1440px",
+  motion: {
+    fast: "120ms",
+    base: "200ms",
+    slow: "500ms",
+    ease: "cubic-bezier(.4,0,.2,1)",
+    easeOut: "cubic-bezier(.16,1,.3,1)",
+    stagger: "40ms",
+    distance: "8px",
+    personality: "Instant and quiet: panels slide, rows highlight, toasts arrive and leave. Nothing decorative moves.",
+  },
+  art: {
+    composition:
+      "An application, not a page: a fixed sidebar naming this product's real sections, a slim top bar with search and the account, and a content area that opens on the overview — a row of stat cards read from the data, then the main table or board, then detail in a side panel or dialog.",
+    components:
+      "White cards on the grey ground with hairline borders, compact tables with sticky headers, sortable columns and status pills, segmented filters, inline-SVG charts with real axes, dialogs and drawers for create and edit, toasts for results. Every list has a designed empty state, a skeleton while loading and a stated error.",
+    imagery:
+      "Almost none. Avatars as monograms, icons in one consistent line style, charts and the interface itself drawn in code. A photograph inside working software is decoration.",
+    trust:
+      "Belief through the product behaving well: real-looking data in the domain's own words, responsive controls, clear confirmation of every change and an honest 'not connected yet' where a back end is missing. Never invented live figures.",
+  },
+  inverse: {
+    ground: "#0B0F17",
+    surface: "#121826",
+    ink: "#F3F4F6",
+    muted: "#9CA3AF",
+    line: "#1F2937",
+    accent: "#A5B4FC",
+    accentInk: "#111827",
+    success: "#86EFAC",
+    danger: "#FCA5A5",
+  },
+};
+
+const CREATIVE: DesignDNA = {
+  name: "Creative expressive",
+  blueprint: "I · Creative expressive — designers, agencies, studios, artists",
+  register: "expressive studio",
+  intent:
+    "Confident and distinctive. Warm paper ground, near-black ink, an electric blue accent, oversized expressive headings and layouts that break the grid on purpose. A studio whose website is part of the work.",
+  type: {
+    display: '"Syne", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* Syne: wide, idiosyncratic and unmistakable at display sizes — the
+       typeface does the introducing before a word is read. */
+    webfont: {
+      family: "Syne",
+      href: "https://fonts.googleapis.com/css2?family=Syne:wght@500;700;800&display=swap",
+    },
+    ratio: 1.414,
+    base: 17,
+    displayLeading: 0.98,
+    displayTracking: "-0.03em",
+    displayWeight: 800,
+  },
+  color: {
+    ground: "#F3EFE6",
+    surface: "#FFFFFF",
+    ink: "#111111",
+    muted: "#57534E",
+    line: "#D6CFC2",
+    accent: "#2B2BD9",
+    accentInk: "#FFFFFF",
+    success: "#2F6B3A",
+    danger: "#B42318",
+  },
+  space: [4, 8, 12, 16, 24, 32, 48, 80, 120, 168, 224],
+  radius: { sm: "0px", md: "0px", lg: "28px", pill: "999px" },
+  shadow: { sm: "none", md: "8px 8px 0 #111111" },
+  container: "1320px",
+  motion: {
+    fast: "150ms",
+    base: "300ms",
+    slow: "1000ms",
+    ease: "cubic-bezier(.65,0,.35,1)",
+    easeOut: "cubic-bezier(.16,1,.3,1)",
+    stagger: "110ms",
+    distance: "40px",
+    personality: "Expressive but controlled: big confident entrances, image reveals as the work scrolls in, a magnetic hover on the primary action. Never a gimmick that slows reading.",
+  },
+  art: {
+    composition:
+      "Asymmetric and image-led: an oversized name or statement that fills the first screen, then the work in a varied grid — a full-width piece, two side by side, one offset — each with a short line of context, then process, services and a direct way to get in touch.",
+    components:
+      "Oversized type, square cards with one bold hard shadow, project tiles that reveal their title on hover, a large outlined or solid accent button, a marquee of client names only when the brief supplies them. Labels in small uppercase with wide tracking.",
+    imagery:
+      "The work itself, large: project images, process shots and the person behind it, each with its own aspect ratio rather than forced into one. Never mock-up stock or a laptop on a desk.",
+    trust:
+      "Belief through the work: real projects with the problem, the approach and the result, clients and collaborators as the brief names them, and a voice with personality. The call to act is a direct conversation — an email, a booking, a brief.",
+  },
+  inverse: {
+    ground: "#0E0E0E",
+    surface: "#171717",
+    ink: "#F5F2EA",
+    muted: "#A8A29E",
+    line: "#2A2A2A",
+    accent: "#D4FF3A",
+    accentInk: "#0E0E0E",
+    success: "#86EFAC",
+    danger: "#FCA5A5",
+  },
+};
+
+export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS, LUMINOUS, SANCTUARY, CAPITAL, CORPORATE, DASHBOARD, CREATIVE];
 
 /* Which system each of the asset planner's registers gets.
  *
@@ -816,15 +1050,24 @@ const BY_KIND: Record<BuildKind, DesignDNA> = {
   ecommerce: COMMERCIAL,
   blog: PRESS,
   news: PRESS,
-  webapp: CLINICAL,
+  webapp: DASHBOARD,
   /* The spec's look for these: a neutral grey scale, one accent, hairlines
      rather than shadows. Technical for the product and the freight company,
      Clinical for money, where calm is the point; Editorial for a portfolio,
      where the work is the colour. */
   saas: TECHNICAL,
-  fintech: CLINICAL,
-  logistics: TECHNICAL,
+  fintech: CAPITAL,
+  logistics: CORPORATE,
   portfolio: EDITORIAL,
+};
+
+/* asset-planner's default register for the kinds whose own system should
+   win over it (see decideDesign). Kept in step with KIND_DEFAULTS there by
+   tools/check-domain.mjs. */
+export const KIND_DEFAULT_REGISTER: Partial<Record<BuildKind, string>> = {
+  webapp: "functional and unadorned",
+  logistics: "technical and functional",
+  fintech: "clinical trust",
 };
 
 /* A brief can also name the look outright, and when it does that beats
@@ -837,6 +1080,8 @@ const NAMED: { match: RegExp; system: DesignDNA }[] = [
   { match: /\b(newspaper|newsroom|publication|broadsheet)\b/i, system: PRESS },
   { match: /\b(handmade|artisan\w*|rustic|warm|earthy|organic)\b/i, system: CRAFT },
   { match: /\b(clean|minimal|medical|clinical|precise)\b/i, system: CLINICAL },
+  { match: /\b(bold|expressive|experimental|brutalist|avant[- ]garde|playful)\b/i, system: CREATIVE },
+  { match: /\b(corporate)\b/i, system: CORPORATE },
 ];
 
 /* The industry the brief names, which beats the photographic register.
@@ -872,6 +1117,18 @@ const BY_INDUSTRY: { match: RegExp; system: DesignDNA }[] = [
        and a fragment of nothing in English worth matching. */
     match: /\bAI\b|\b([Aa]rtificial intelligence|[Mm]achine learning|LLMs?|[Gg]enerative|[Nn]eural|[Ff]uturistic|[Dd]eep[- ]?tech|[Qq]uantum|[Rr]obotics?|[Aa]utonomous|[Aa]gentic)\b/,
     system: LUMINOUS,
+  },
+  {
+    match: /\b(creative agenc\w*|design studio|branding agenc\w*|graphic designers?|illustrators?|artists?|photographers?|videographers?|filmmakers?|musicians?|motion designers?|art directors?)\b/i,
+    system: CREATIVE,
+  },
+  {
+    match: /\b(logistics|freight|shipping company|haulage|trucking|couriers?|warehous\w*|construction|contractors?|engineering firm|manufactur\w*|industrial|consultanc\w*|consulting firm|security company|cleaning company|facilities management)\b/i,
+    system: CORPORATE,
+  },
+  {
+    match: /\b(crm|dashboard|admin panel|back office|internal tool|project management|inventory system|management system|customer portal)\b/i,
+    system: DASHBOARD,
   },
 ];
 
@@ -918,6 +1175,16 @@ export function decideDesign(register: string, kind: BuildKind, brief: string): 
       dna: industry.system,
       reason: `the brief names the industry — "${(brief.match(industry.match) ?? [""])[0].toLowerCase()}" — so ${industry.system.name.toLowerCase()}`,
     };
+  }
+
+  /* The kind's own design, when the register is only that kind's default —
+     asset-planner's answer to "what does this kind look like when the brief
+     does not say", not something the brief asked for. Without this, a web
+     app's "functional and unadorned" read as Technical, a freight company's
+     "technical and functional" as Technical and a fintech's "clinical trust"
+     as Clinical, before the kind's own system was ever reached. */
+  if (KIND_DEFAULT_REGISTER[kind] === register) {
+    return { dna: BY_KIND[kind], reason: `the house design for this kind of project — ${BY_KIND[kind].blueprint.split(" — ")[0]}` };
   }
 
   const matched = BY_REGISTER.find((entry) => entry.match.test(register));
@@ -1150,7 +1417,7 @@ export function isDark(dna: DesignDNA): boolean {
 export function designBrief(dna: DesignDNA): string {
   const scale = typeScale(dna.type);
 
-  return `THE DESIGN SYSTEM — ${dna.name}. Decided before you were called, and not a starting point to improve on.
+  return `THE DESIGN SYSTEM — ${dna.name} (design blueprint ${dna.blueprint}). Decided before you were called, and not a starting point to improve on.
 
 ${dna.intent}
 

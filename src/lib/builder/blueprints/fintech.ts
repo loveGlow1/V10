@@ -20,6 +20,22 @@ export const fintech: Blueprint = {
   identity:
     "The site of a financial company — a bank, lender, wallet, payments or investment product — that earns a customer's trust, explains plainly what it costs, and lets them open an account and see their own money once signed in.",
 
+  pages: [
+    "Homepage",
+    "Financial products",
+    "Services",
+    "Fees / pricing",
+    "Security",
+    "About",
+    "Contact",
+    "Login",
+    "Sign-up",
+    "Financial dashboard, where required",
+    "Accounts",
+    "Transactions",
+    "Settings",
+  ],
+
   requirements: [
     "Navigation — the wordmark, links to Personal or Business (whichever the brief serves), Pricing, Security and Help, a 'Log in' link, and 'Open an account' as the primary button. Sticky, and it collapses to a working menu on a phone.",
     "Hero — the outcome in plain words (at most ten), a subhead naming who it is for and the one number that matters (a rate, a fee, a speed), 'Open an account' and a quieter secondary action, and the product drawn in code: a phone or card showing a balance and recent transactions with real, local amounts.",
