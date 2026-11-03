@@ -56,7 +56,7 @@ for (const dir of [join(out, "lib/builder"), join(out, "lib"), join(out, "app/da
   }
 }
 
-const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageRemove, applySinglePageText, applySinglePageTextRuns } = await import(join(out, "lib/builder/visual-edit.js"));
+const { applyVisualEdit, applyClassChange, locateElement, describeChange, applySinglePageClasses, applySinglePageImage, applySinglePageRemove, applySinglePageText, applySinglePageTextRuns } = await import(join(out, "lib/builder/visual-edit.js"));
 const ts = createRequire(import.meta.url)("typescript");
 const parses = (source) => ts.createSourceFile("x.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX).parseDiagnostics.length === 0;
 
@@ -389,6 +389,26 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/const removePicked = useCallback/.test(bridge5) && /REMOVE_FOR_AGENT/.test(bridge5) && /onRemove=\{removePicked\}/.test(read5(new URL("../src/app/dashboard/components/workspace/PreviewPanel.tsx", import.meta.url), "utf8")), "Remove is done by hand, and what cannot be is handed on with its clean-up");
   has(/REMOVE_WORDS\.test\(/.test(overlay5), "typing “remove it” is a removal, not a request for the agent");
   has(/steps\.begin\("tidy"/.test(build5) && /broke\.length === 0 \? `Next:/.test(build5), "an agent edit tidies its own loose ends, and does not say them twice");
+}
+
+/* An uploaded picture, put into the image picked on a single page. */
+{
+  const page = '<html><body>\n<header><img class="logo h-8" src="/old-logo.png" alt="Logo"></header>\n<section><img class="hero w-full" src="https://cdn.example.com/a.jpg" srcset="https://cdn.example.com/a.jpg 1x, https://cdn.example.com/a@2x.jpg 2x" alt="Hero"></section>\n</body></html>';
+  const NEW = "https://store.example.com/p/123.png";
+  const hero = applySinglePageImage(page, { src: "index.html:3:9", tag: "img", className: "hero w-full", imageSrc: NEW });
+  has(hero.ok && hero.source.includes(`src="${NEW}"`) && !hero.source.includes("srcset") && hero.source.includes('src="/old-logo.png"'), "a picked picture takes the uploaded one, its srcset goes, and nothing else changes");
+  const moved = applySinglePageImage("<p>new line</p>\n" + page, { src: "index.html:2:9", tag: "img", className: "logo h-8", imageSrc: NEW });
+  has(moved.ok && moved.source.includes(`<img class="logo h-8" src="${NEW}"`), "the picture is still found after the page moved a line");
+  has(!applySinglePageImage(page, { src: "index.html:2:8", tag: "header", className: "", imageSrc: NEW }).ok, "only a picture takes an image — anything else goes to the agent");
+  has(!applySinglePageImage(page, { src: "index.html:2:9", tag: "img", className: "logo h-8", imageSrc: "javascript:alert(1)" }).ok, "an address a page may not load is refused");
+  const { readFileSync: read4 } = await import("node:fs");
+  const route = read4(join(process.cwd(), "src/app/api/projects/[id]/visual-edit/route.ts"), "utf8");
+  has(/loadAttachments\(\[edit\.change\.attachmentId\], owned\.projectId, owned\.userId\)/.test(route) && /publicImageAddress\(row\)/.test(route) && /applySinglePageImage\(html/.test(route), "an upload is checked as this person's, on this project, stored at its permanent address and swapped by hand");
+  const bridge = read4(join(process.cwd(), "src/app/dashboard/components/workspace/preview-bridge.ts"), "utf8");
+  const chat = read4(join(process.cwd(), "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+  const panel = read4(join(process.cwd(), "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+  has(/change: \{ attachmentId: image\.attachmentId \}/.test(bridge) && /tellFrame\(\{ preview: \{ src: target\.src, imageSrc: image\.thumb \} \}\)/.test(bridge), "the swap shows in place at once and saves by hand");
+  has(/shareComposerImages\(/.test(chat) && /COMPOSER_IMAGE_USED_EVENT/.test(chat) && /useComposerImages\(project\?\.id\)/.test(panel) && /composerImageUsed\(project\.id, image\.attachmentId\)/.test(panel), "the composer's pictures are offered in the editor, and one put in the page leaves the composer");
 }
 
 console.log(failed === 0 ? `\nAll ${passed} passed.` : `\n${failed} failed.`);

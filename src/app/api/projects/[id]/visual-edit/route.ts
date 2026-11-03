@@ -20,6 +20,7 @@ import { liveJob } from "@/lib/jobs/store";
 import { currentTree, storeTree } from "@/lib/builder/store-tree";
 import {
   applySinglePageClasses,
+  applySinglePageImage,
   applySinglePageRemove,
   applySinglePageText,
   applySinglePageTextRuns,
@@ -50,9 +51,12 @@ const GLOBAL_CSS = ["app/globals.css", "src/app/globals.css", "src/index.css", "
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordMessage } from "@/lib/thread-server";
 
+import { loadAttachments, publicImageAddress } from "@/lib/builder/attachments";
+
 import { ownedProject } from "../backend/owned";
 
 const MOST = 50;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GROUPS = new Set(["textColor", "background", "fontSize", "fontWeight", "fontFamily", "fontStyle", "padding", "align", "radius"]);
 
 /* The request is a person's hand edits, so it is read narrowly: anything that
@@ -88,6 +92,7 @@ function readEdits(body: unknown): VisualEdit[] {
           : undefined,
         classes: classes && classes.length > 0 ? classes : undefined,
         imageSrc: typeof change.imageSrc === "string" ? change.imageSrc.slice(0, 2000) : undefined,
+        attachmentId: typeof change.attachmentId === "string" && UUID.test(change.attachmentId) ? change.attachmentId : undefined,
         remove: change.remove === true ? true : undefined,
       },
     });
@@ -154,6 +159,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     );
   }
 
+  /* A picture uploaded in the composer or the visual editor, swapped in by
+     hand: the upload — this person's, on this project — becomes its permanent
+     address, the same one an edit would give it, and the swap is then an
+     ordinary image change. One that cannot be read is left for the agent. */
+  const unplaced = new Set<number>();
+  for (const [index, edit] of edits.entries()) {
+    if (!edit.change.attachmentId) continue;
+    const [row] = await loadAttachments([edit.change.attachmentId], owned.projectId, owned.userId);
+    const address = row ? await publicImageAddress(row) : null;
+    if (address) edit.change.imageSrc = address;
+    else unplaced.add(index);
+  }
+
   const current = await currentTree(service, owned.projectId);
 
   /* A single page: words typed into the preview, written into the one HTML
@@ -186,10 +204,25 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         }
         return;
       }
+      if (unplaced.has(index)) {
+        missed.push({ index, reason: "the uploaded picture could not be read" });
+        return;
+      }
+      /* A picture swapped by hand — the upload or an address. */
+      if (edit.change.imageSrc) {
+        const result = applySinglePageImage(html, { src: edit.src, tag: edit.tag, className: edit.className ?? "", imageSrc: edit.change.imageSrc });
+        if (!result.ok) missed.push({ index, reason: result.reason });
+        else {
+          html = result.source;
+          done.push(describeChange(edit));
+          doneEdits.push(edit);
+        }
+        return;
+      }
       const typed = typeof edit.change.text === "string";
       const typedRuns = Boolean(edit.change.textRuns?.length);
       const styled = Boolean(edit.change.classes?.length);
-      if ((!typed && !typedRuns && !styled) || edit.change.imageSrc) {
+      if (!typed && !typedRuns && !styled) {
         missed.push({ index, reason: "only typed text, quick styles and removals are applied by hand on a single page" });
         return;
       }
@@ -265,6 +298,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const needsAi: { index: number; reason: string }[] = [];
 
   edits.forEach((edit, index) => {
+    if (unplaced.has(index)) {
+      needsAi.push({ index, reason: "the uploaded picture could not be read" });
+      return;
+    }
     if (edit.change.remove) {
       needsAi.push({ index, reason: "removing from an app's code is done by the agent" });
       return;

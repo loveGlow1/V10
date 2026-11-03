@@ -61,7 +61,16 @@ import {
 } from "./database-connect";
 import { describeRunFailure, isBrowserNetworkError, sayFailure } from "@/lib/builder/run-failure";
 import { KIND_LABEL, type BuildKind } from "@/lib/builder/kinds";
-import { ASK_CHANNEL, VISUAL_ASK_EVENT, askChat, type VisualAsk, settleTypedEdits } from "./visual-ask";
+import {
+  ASK_CHANNEL,
+  COMPOSER_IMAGE_USED_EVENT,
+  VISUAL_ASK_EVENT,
+  askChat,
+  type VisualAsk,
+  settleTypedEdits,
+  shareComposerImages,
+  thumbnailOf,
+} from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
@@ -295,6 +304,9 @@ export default function ChatPanel({
   /* Files chosen for the message being written. They belong to the message, not
      to the project, so they are cleared once it is sent. */
   const [attached, setAttached] = useState<Attachment[]>([]);
+  /* A small picture of each attached image, by upload id — shown on its chip
+     and handed to the visual editor (visual-ask.ts shareComposerImages). */
+  const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
   const [uploading, setUploading] = useState(false);
   const [draft, setDraft] = useState("");
   /* The box grows with a long message, like Home's — see composer-height. */
@@ -700,6 +712,24 @@ export default function ChatPanel({
      model could be looked at and not chosen. Popover hands onClose to
      AnchoredPanel, which knows about both the card and the chip. */
 
+  /* The visual editor offers these pictures on any image picked in the
+     preview, and lets go of one here once it has put it in the page. */
+  useEffect(() => {
+    if (!project?.id) return;
+    shareComposerImages(
+      project.id,
+      attached.filter((file) => file.mime.startsWith("image/")).map((file) => ({ id: file.id, name: file.name, thumb: thumbs[file.id] ?? null })),
+    );
+  }, [project?.id, attached, thumbs]);
+  useEffect(() => {
+    const onUsed = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId: string; id: string }>).detail;
+      if (detail?.projectId === project?.id) setAttached((current) => current.filter((file) => file.id !== detail.id));
+    };
+    window.addEventListener(COMPOSER_IMAGE_USED_EVENT, onUsed);
+    return () => window.removeEventListener(COMPOSER_IMAGE_USED_EVENT, onUsed);
+  }, [project?.id]);
+
   async function attachFiles(files: FileList) {
     if (!project || !userId) return;
 
@@ -724,6 +754,8 @@ export default function ChatPanel({
       }
       if (result.attachment) {
         const added = result.attachment;
+        const thumb = await thumbnailOf(file);
+        setThumbs((current) => ({ ...current, [added.id]: thumb }));
         setAttached((current) => [...current, added]);
       }
     }
@@ -2102,7 +2134,12 @@ export default function ChatPanel({
                 key={file.id}
                 className="flex max-w-[220px] items-center gap-1.5 rounded-md border border-line/[0.1] bg-layer/[0.04] py-1 pl-2 pr-1 text-[12px] text-ink"
               >
-                <Paperclip className="h-3 w-3 shrink-0 -rotate-45 text-muted" />
+                {thumbs[file.id] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={thumbs[file.id] as string} alt="" className="h-5 w-5 shrink-0 rounded object-cover" />
+                ) : (
+                  <Paperclip className="h-3 w-3 shrink-0 -rotate-45 text-muted" />
+                )}
                 <span className="truncate">{file.name}</span>
                 <button
                   type="button"
