@@ -407,20 +407,29 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
     [load],
   );
 
+  /* Through the server, because a rename moves the app's address with it:
+     the slug, the preview link and — on a published app — the live address
+     (api/projects/[id]/rename). The old address redirects to the new one. */
   const rename = useCallback(async (id: string, name: string) => {
     if (!isSupabaseConfigured) return false;
-    const { error: updateError } = await createSupabaseBrowserClient()
-      .from("projects")
-      .update({ name })
-      .eq("id", id);
+    const response = await fetch(`/api/projects/${encodeURIComponent(id)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { name?: string; slug?: string | null; previewUrl?: string; error?: string } | null;
 
-    if (updateError) {
-      setError(describe(updateError));
+    if (!response?.ok || !body?.name) {
+      setError(body?.error ?? "That name couldn't be saved. Try again.");
       return false;
     }
     setError(null);
     setProjects((current) =>
-      current.map((project) => (project.id === id ? { ...project, name } : project)),
+      current.map((project) =>
+        project.id === id
+          ? { ...project, name: body.name as string, slug: body.slug ?? project.slug, preview_url: body.previewUrl ?? project.preview_url }
+          : project,
+      ),
     );
     return true;
   }, []);
