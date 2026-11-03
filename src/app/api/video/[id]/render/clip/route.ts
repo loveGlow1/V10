@@ -85,7 +85,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     state = url ? { state: "done", url } : { state: "failed", error: String(body.error ?? "fal could not make this clip.").slice(0, 500) };
   } else {
     /* The body only says something happened; the engine says what. */
-    const named = String(body.request_id ?? body.task_id ?? "");
+    const named = String(body.request_id ?? body.task_id ?? body.taskUUID ?? (Array.isArray(body.data) ? (body.data[0] as { taskUUID?: unknown } | undefined)?.taskUUID ?? "" : ""));
     if (named && named !== current.id) return NextResponse.json({ ok: true, ignored: true });
     state = await clipStatus(engine, current.id);
   }

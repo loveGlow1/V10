@@ -89,7 +89,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       version,
       kind,
       n,
-      error: "The MiniMax usage credit on n8n has run out, and no other engine is connected to take this over. Add MINIMAX_API_KEY to use the main API.",
+      error: "The MiniMax usage credit on n8n has run out, and no other engine is connected to take this over. Add RUNWARE_API_KEY or MINIMAX_API_KEY to carry on without it.",
       engine: kind === "clip" ? "n8n" : null,
       origin,
     });
@@ -102,7 +102,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!url && kind === "clip" && (await retryClip(service, { videoId: id, version, n, failed: "n8n", origin }))) {
     return NextResponse.json({ ok: true, retried: true });
   }
-  if (!url && kind === "voice" && process.env.MINIMAX_API_KEY) {
+  if (!url && kind === "voice" && (process.env.RUNWARE_API_KEY || process.env.MINIMAX_API_KEY)) {
     const plan = (await service.from("video_versions").select("plan").eq("video_id", id).eq("version", version).maybeSingle()).data?.plan as ProductionPlan | undefined;
     const { data: project } = await service.from("video_projects").select("answers").eq("id", id).maybeSingle();
     const line = plan?.scenes.find((scene) => scene.n === n)?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();

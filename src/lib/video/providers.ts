@@ -9,6 +9,8 @@
  *                GET  /v1/files/retrieve?file_id → file.download_url
  *                POST /v1/t2a_v2 → the voice line, as hex
  *   fal          the queue, through fal.ts's submitFal
+ *   Runware      videoInference (async + webhookURL), read back with
+ *                getResponse; MiniMax speech by audioInference — runware.ts
  *
  * Every engine calls back to /api/video/{id}/render/clip with an HMAC token
  * for this video, version and scene in the address — and the callback then
@@ -19,6 +21,7 @@
 
 import { type Aspect, type ClipEngine, durationFor } from "./clip-engines";
 import { falToken, submitFal } from "./fal";
+import { runwareConfigured, runwareSpeak, runwareVideoStatus, submitRunwareVideo } from "@/lib/runware";
 
 export const HF_BASE = "https://api.higgsfield.ai";
 export const MINIMAX_BASE = "https://api.minimax.io";
@@ -118,6 +121,11 @@ export async function submitClip(engine: ClipEngine, clip: ClipRequest, webhookU
       return { ok: false, error: MINIMAX_ERRORS[code] ? `${MINIMAX_ERRORS[code]}.` : `MiniMax refused the clip (${sent.status}).` };
     }
 
+    if (engine === "runware") {
+      const sent = await submitRunwareVideo({ prompt, seconds, aspect: clip.aspect, imageUrl: clip.imageUrl, webhookUrl });
+      return sent.ok ? { ok: true, id: sent.id, seconds } : { ok: false, error: sent.error };
+    }
+
     if (engine === "seedance-fal") {
       const sent = await submitFal(FAL_SEEDANCE, {
         prompt,
@@ -131,7 +139,7 @@ export async function submitClip(engine: ClipEngine, clip: ClipRequest, webhookU
 
     return { ok: false, error: "That engine is dispatched through n8n." };
   } catch {
-    return { ok: false, error: `Could not reach ${engine === "minimax" ? "MiniMax" : engine === "seedance-fal" ? "fal" : "Higgsfield"}.` };
+    return { ok: false, error: `Could not reach ${engine === "runware" ? "Runware" : engine === "minimax" ? "MiniMax" : engine === "seedance-fal" ? "fal" : "Higgsfield"}.` };
   }
 }
 
@@ -167,6 +175,8 @@ export async function clipStatus(engine: ClipEngine, id: string): Promise<ClipSt
       return url ? { state: "done", url } : { state: "failed", error: "MiniMax's file could not be retrieved." };
     }
 
+    if (engine === "runware") return await runwareVideoStatus(id);
+
     /* fal reports through its webhook, which is verified by fal's own
        signature as well as our token; there is nothing to poll here. */
     return { state: "running" };
@@ -179,8 +189,17 @@ export async function clipStatus(engine: ClipEngine, id: string): Promise<ClipSt
 
 export const MINIMAX_SPEECH_MODEL = "speech-2.6-hd";
 
-/** One voice line through MiniMax's own speech API. MP3 bytes, or why not. */
+/** One voice line: MiniMax speech on Runware when it is connected (its
+ *  prepaid credit), then MiniMax's own speech API. MP3 bytes, or why not. */
 export async function speak(input: { text: string; voiceId: string; language: string }): Promise<{ ok: true; audio: Buffer } | { ok: false; error: string }> {
+  if (runwareConfigured()) {
+    const spoken = await runwareSpeak({ text: input.text, voiceId: input.voiceId });
+    if (spoken.ok || !process.env.MINIMAX_API_KEY) return spoken;
+  }
+  return speakMiniMax(input);
+}
+
+async function speakMiniMax(input: { text: string; voiceId: string; language: string }): Promise<{ ok: true; audio: Buffer } | { ok: false; error: string }> {
   try {
     const response = await fetch(`${MINIMAX_BASE}/v1/t2a_v2`, {
       method: "POST",

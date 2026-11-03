@@ -7,7 +7,8 @@ export type Provider =
   | 'minimax-image'
   | 'n8n-minimax'
   | 'n8n-openai'
-  | 'fal-nano-banana';
+  | 'fal-nano-banana'
+  | 'runware-image';
 
 export type FlyerFormat = 'portrait' | 'square' | 'landscape' | 'story';
 export type Stage = 'preview' | 'final';

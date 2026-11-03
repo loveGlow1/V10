@@ -24,7 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
+import { type Aspect, type ClipEngine, canSpeak, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
 import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/frames";
@@ -178,7 +178,7 @@ export async function startRender(
         }
         const result = await toN8n(job);
         if (result.ok) sent.push(result);
-        else if (process.env.MINIMAX_API_KEY) {
+        else if (canSpeak()) {
           /* n8n could not take it: the same MiniMax voice, direct. */
           await supabase.from("video_renders").update({ provider: "minimax:speech" }).eq("video_id", id).eq("version", version).eq("scene", job.n).eq("engine", "voice");
           voices.push(job);

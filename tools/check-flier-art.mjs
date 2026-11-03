@@ -179,7 +179,7 @@ has(/data-download=/.test(wsSrc) && /navigator\.share\(\{files:\[c\.file\]/.test
 const falProv = readFileSync(join(root, "src/lib/flyers/providers/fal.ts"), "utf8");
 const routerSrc = readFileSync(join(root, "src/lib/flyers/router.ts"), "utf8");
 has(/fal-ai\/nano-banana-pro/.test(falProv) && /'fal-nano-banana': 'FAL_KEY'/.test(routerSrc), "Nano Banana Pro runs on fal with FAL_KEY");
-has(/preview: \['n8n-minimax', 'n8n-openai', 'fal-nano-banana'\]/.test(routerSrc), "after the free credit, and first with FLIER_ENGINE=nano-banana");
+has(/preview: \['n8n-minimax', 'n8n-openai', 'runware-image', 'fal-nano-banana'\]/.test(routerSrc), "after the free credit, and first with FLIER_ENGINE=nano-banana");
 has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k" }).join() === "fal-nano-banana", "with only a fal key, fliers are made by Nano Banana");
 has(Router.providerChain({ brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "x", format: "portrait" }, stage: "preview" }, { FAL_KEY: "k", FLIER_ENGINE: "nano-banana", N8N_WEBHOOK_TOKEN: "t", N8N_WEBHOOK_URL: "https://n8n.example/webhook/x" })[0] === "fal-nano-banana", "FLIER_ENGINE=nano-banana puts it first");
 /* Covers on Continue working. */

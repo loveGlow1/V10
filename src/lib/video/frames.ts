@@ -116,11 +116,19 @@ function imageMakers(prompt: string, aspect: Aspect): (() => Promise<Buffer | nu
   if (process.env.OPENAI_API_KEY) makers.push(() => openai(prompt, aspect));
   /* Nano Banana Pro on fal, on the FAL_KEY the production line already uses. */
   if (process.env.FAL_KEY) makers.push(() => falNanoBanana(prompt, aspect));
+  /* Runware, on its start-up credit (RUNWARE_IMAGE_MODEL, FLUX.1 dev by default). */
+  if (process.env.RUNWARE_API_KEY) makers.push(() => runwareStill(prompt, aspect));
   if (process.env.MINIMAX_API_KEY) makers.push(() => minimaxDirect(prompt, aspect));
   /* Last, and needing no key of our own: MiniMax image-01 on the n8n usage
      credit, through the Flier Image workflow. */
   if (n8nImagesConfigured()) makers.push(() => n8nMinimax(prompt, aspect));
   return makers;
+}
+
+async function runwareStill(prompt: string, aspect: Aspect): Promise<Buffer | null> {
+  const { runwareImages } = await import("@/lib/runware");
+  const [image] = await runwareImages({ prompt, shape: aspect, n: 1 });
+  return image ?? null;
 }
 
 async function minimaxDirect(prompt: string, aspect: Aspect): Promise<Buffer | null> {

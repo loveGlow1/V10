@@ -77,6 +77,12 @@ async function runProvider(p: Provider, req: FlyerRequest, n: number): Promise<G
     case 'fal-nano-banana':
       images = await generateFalNanoBanana({ prompt, format, n, refs });
       break;
+    case 'runware-image': {
+      const { runwareImages } = await import('@/lib/runware');
+      const shape = format === 'story' ? '9:16' : format === 'square' ? '1:1' : format === 'landscape' ? '3:2' : '2:3';
+      images = await runwareImages({ prompt, shape, n });
+      break;
+    }
     case 'minimax-image':
       images = await generateMiniMaxImage({ prompt, format, n, large: req.stage === 'final' });
       break;
