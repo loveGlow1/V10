@@ -56,7 +56,18 @@ export async function GET(
     return new Response("Temporarily unavailable, please retry.", { status: 503 });
   }
 
-  if (!data) redirect("/dashboard");
+  if (!data) {
+    /* An address from before a rename: on to the project it belongs to now. */
+    const { data: moved } = await supabase
+      .from("projects")
+      .select("id")
+      .contains("previous_slugs", [wanted])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!moved) redirect("/dashboard");
+    redirect(`/preview/${moved.id}${new URL(request.url).search}`);
+  }
 
   /* Query kept, so ?download=1 works at this address as well as the other. */
   const query = new URL(request.url).search;

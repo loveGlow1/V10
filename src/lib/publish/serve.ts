@@ -1,5 +1,7 @@
 import { withFlierFit } from "@/lib/flyers/fit";
 import { latestDeployment, existingVercelProject } from "@/lib/publish/deployment-store";
+import { publishedUrl } from "@/lib/publish/naming";
+import { withShareMeta } from "@/lib/publish/share-meta";
 import { publicAddress } from "@/lib/publish/vercel-deploy";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
@@ -123,6 +125,17 @@ export async function servePublished(asked: Asked): Promise<Response> {
       found = true;
       projectId = data.id as string;
       publicationId = data.published_version_id as string | null;
+    } else if (!data) {
+      /* An address the project used to have, before a rename moved it: sent
+         on to where it lives now, so links already shared keep working. */
+      const { data: moved } = await service
+        .from("projects")
+        .select("slug, deleted_at")
+        .contains("previous_slugs", [asked.slug])
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (moved?.slug && !moved.deleted_at) return Response.redirect(publishedUrl(moved.slug as string), 301);
     }
   } else {
     /* A custom domain is a site only while its row says live AND the project
@@ -222,7 +235,9 @@ export async function servePublished(asked: Asked): Promise<Response> {
   /* A flier keeps its designed size and is scaled as a whole — see
      lib/flyers/fit.ts. Applied when served, so fliers published before it
      are fixed too. */
-  return new Response(withFlierFit(publication.html as string), {
+  /* The share card, filled in from the page that is live — see share-meta.ts. */
+  const servedAt = "slug" in asked ? publishedUrl(asked.slug) : `https://${asked.domain}`;
+  return new Response(withShareMeta(withFlierFit(publication.html as string), { url: servedAt }), {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       /* See the note at the top of this file. Scripts and forms run because a

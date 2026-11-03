@@ -666,6 +666,12 @@ export default function PreviewPanel({
    * viewable — are about that. This is the narrower question of what address is
    * put in front of a person. */
   const publishedLive = project && isPublished(project) ? deployed : null;
+  /* What Share hands out for a published project. A published PAGE has no
+     deployment — this app serves it — so `deployed` is null for it and Share
+     fell back to the private preview link. Its address is its slug's, which
+     follows a rename. Kept apart from publishedLive, which also decides what
+     the frame shows: a page's unpublished edits belong in the preview. */
+  const publicLink = project && isPublished(project) ? deployed ?? (project.slug ? publishedUrl(project.slug) : null) : null;
 
   /* The live frame keeps allow-same-origin only for an address that is
      provably another origin — see lib/preview/safe-frame. */
@@ -900,7 +906,7 @@ export default function PreviewPanel({
      until then the preview's address — which opens only for its owner, so the
      panel says so rather than offering a link that would show a stranger a
      sign-in page. */
-  const shareLink = publishedLive ?? previewUrl ?? (project ? `${SITE_URL}/dashboard/project/${project.id}` : null);
+  const shareLink = publicLink ?? previewUrl ?? (project ? `${SITE_URL}/dashboard/project/${project.id}` : null);
 
   async function share() {
     if (!project) return;
@@ -932,7 +938,7 @@ export default function PreviewPanel({
       {isDesktop && (
         <div className="flex items-center justify-between">
           <p className="text-[15px] font-semibold tracking-tight text-ink">
-            {publishedLive ? "Share app" : "Share Preview"}
+            {publicLink ? "Share app" : "Share Preview"}
           </p>
           <button
             onClick={() => setShareOpen(false)}
@@ -972,7 +978,7 @@ export default function PreviewPanel({
           { label: "Share on Facebook", icon: FacebookLogo, href: "" },
           { label: "Share on LinkedIn", icon: LinkedInLogo, href: "" },
         ]).map(({ label, icon: Icon, href }) =>
-          publishedLive && href ? (
+          publicLink && href ? (
             <a
               key={label}
               href={href}
@@ -2087,7 +2093,7 @@ export default function PreviewPanel({
             <Popover
               open={shareOpen}
               onClose={() => setShareOpen(false)}
-              title={publishedLive ? "Share app" : "Share Preview"}
+              title={publicLink ? "Share app" : "Share Preview"}
               width="w-[340px]"
             >
               {shareBody}
@@ -2323,7 +2329,7 @@ export default function PreviewPanel({
           <Popover
             open={shareOpen}
             onClose={() => setShareOpen(false)}
-            title={publishedLive ? "Share app" : "Share Preview"}
+            title={publicLink ? "Share app" : "Share Preview"}
             width="w-[340px]"
           >
             {shareBody}
