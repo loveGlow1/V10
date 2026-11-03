@@ -9,6 +9,8 @@
  * reach a write any other way.
  */
 
+import { MAX_REPAIRS, diagnosePgError, repairPrompt, sqlFingerprint } from "./db-debugger";
+import { reviewDatabase, reviewStatements, securityLines } from "./security-review";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ArchitectureManifest } from "@/lib/builder/architecture";
@@ -140,6 +142,14 @@ export function analysisMessage(scan: Scan): string {
   } else {
     lines.push("", "Health: no security or performance problems found.");
   }
+  /* The security engineer's read of the policies themselves (security-review.ts):
+     what Supabase's advisors do not judge — whether a policy is the RIGHT one. */
+  const security = reviewDatabase(scan.map);
+  if (security.length) {
+    lines.push("", "Security review:");
+    for (const finding of security.slice(0, 8)) lines.push(`- 🛡️ ${finding.message}`);
+    if (security.length > 8) lines.push(`- …and ${security.length - 8} more.`);
+  }
   if (analysis.production.level === "HIGH") lines.push("", `This looks like a production database (${analysis.production.reasons.join(", ")}), so every change gets a backup or branch first.`);
   if (wiring) lines.push("", wiring.summary, `Recommended: **${PATH_LABEL[wiring.recommendation.path]}** — ${wiring.recommendation.reason}`);
   lines.push("", "Nothing was changed — this was read-only.");
@@ -256,25 +266,47 @@ export async function planChange(
   if (plan.level === 0) return { ok: false, reason: "That only reads — nothing to approve. Ask it as a question and I'll run it read-only." };
 
   let dry = plan.refused.length ? null : await tools.dry_run(tools.ref, statementsOf(plan));
-  if (dry && dry.ok && !dry.value.ok && written && input.request) {
-    /* One repair, from the error itself, before anybody sees a broken plan. */
-    const retry = await generateSql(
-      `${input.request}\n\nThe previous attempt failed in a dry run with this error, fix it:\n${dry.value.error}\n\nPrevious SQL:\n${sql}`,
-      asData("database map", describeMap(scan.map)),
-    );
-    if (retry.ok) {
-      const second = planSurgery({ sql: retry.sql, map: scan.map, production, request: input.request });
-      const secondDry = second.refused.length ? null : await tools.dry_run(tools.ref, statementsOf(second));
-      if (secondDry && secondDry.ok && secondDry.value.ok) {
-        sql = retry.sql;
-        plan = second;
-        dry = secondDry;
-      }
-    }
+  /* The debugger (db-debugger.ts): a failed dry run is diagnosed and repaired
+     up to MAX_REPAIRS times — each attempt told what the error means and what
+     a fix may never be, and never the same SQL twice — before anybody sees a
+     broken plan. Every attempt is a rolled-back dry run against the real
+     database, so nothing is changed while it works. */
+  const tried = new Set([sqlFingerprint(sql)]);
+  const repairs: string[] = [];
+  for (let attempt = 1; dry && dry.ok && !dry.value.ok && written && input.request && attempt <= MAX_REPAIRS; attempt += 1) {
+    const diagnosis = diagnosePgError(dry.value.error);
+    repairs.push(`${diagnosis.category}${diagnosis.object ? ` (${diagnosis.object})` : ""}`);
+    const retry = await generateSql(repairPrompt(input.request, sql, dry.value.error, attempt), asData("database map", describeMap(scan.map)));
+    if (!retry.ok || tried.has(sqlFingerprint(retry.sql))) break;
+    tried.add(sqlFingerprint(retry.sql));
+    const next = planSurgery({ sql: retry.sql, map: scan.map, production, request: input.request });
+    if (next.refused.length) break;
+    const nextDry = await tools.dry_run(tools.ref, statementsOf(next));
+    sql = retry.sql;
+    plan = next;
+    dry = nextDry;
+  }
+  if (repairs.length && dry && dry.ok && dry.value.ok) {
+    plan = { ...plan, rewrites: [...plan.rewrites, `Repaired before you saw it — ${repairs.join(", then ")} — and the corrected version passed a dry run.`] };
   }
   if (dry && !dry.ok) return { ok: false, reason: `The dry run could not reach your database: ${dry.reason}` };
   if (dry && !dry.value.ok) {
-    return { ok: false, reason: `The dry run failed, so nothing will be applied: ${dry.value.error}\n\n\`\`\`sql\n${sql}\n\`\`\`` };
+    const diagnosis = diagnosePgError(dry.value.error);
+    return {
+      ok: false,
+      reason: `The dry run failed${repairs.length ? ` after ${repairs.length} repair attempt${repairs.length === 1 ? "" : "s"}` : ""}, so nothing was applied and this needs a person. ${diagnosis.cause} ${diagnosis.fix}\n\nPostgreSQL said: ${dry.value.error}\n\n\`\`\`sql\n${sql}\n\`\`\``,
+    };
+  }
+
+  /* The security engineer reads the plan before anybody can approve it:
+     a block removes the Approve button, a warning is said on the card. */
+  const findings = reviewStatements(plan.statements.map((statement) => statement.sql), scan.map, { undo: Boolean(input.undoes) });
+  if (findings.length) {
+    plan = {
+      ...plan,
+      refused: [...plan.refused, ...findings.filter((f) => f.severity === "block").map((f) => f.message)],
+      warnings: [...plan.warnings, ...securityLines(findings.filter((f) => f.severity === "warn"))],
+    };
   }
 
   /* Row counts for anything that rewrites or removes rows. */

@@ -28,7 +28,7 @@ writeFileSync(
       typeRoots: [join(root, "node_modules", "@types")],
       baseUrl: root, paths: { "@/*": ["src/*"] },
     },
-    files: ["sql-guard.ts", "db-map.ts", "untrusted.ts", "wiring.ts", "surgery.ts", "probe.ts", "commands.ts", "approval.ts", "tools.ts", "auto-verdict.ts"].map(agent),
+    files: ["sql-guard.ts", "db-map.ts", "untrusted.ts", "wiring.ts", "surgery.ts", "probe.ts", "commands.ts", "approval.ts", "tools.ts", "auto-verdict.ts", "security-review.ts", "change-preview.ts", "db-debugger.ts"].map(agent),
   }),
 );
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
@@ -61,6 +61,9 @@ const surgery = await import(join(base, "surgery.js"));
 const auto = await import(join(base, "auto-verdict.js"));
 const probe = await import(join(base, "probe.js"));
 const commands = await import(join(base, "commands.js"));
+const security = await import(join(base, "security-review.js"));
+const preview = await import(join(base, "change-preview.js"));
+const debug = await import(join(base, "db-debugger.js"));
 
 process.env.SUPABASE_OAUTH_CLIENT_ID = "test-client";
 process.env.SUPABASE_OAUTH_CLIENT_SECRET = "test-secret-for-sealing-and-approvals";
@@ -440,6 +443,73 @@ for (const [m, kind] of [
   ["make the hero darker", null],
 ]) has((commands.agentCommand(m)?.kind ?? null) === kind, `${kind ?? "not a command"}: ${m}`);
 has(commands.agentCommand("Why can't users see their bookings?")?.subject === "bookings", "the subject is read from the question");
+
+
+/* ── The security engineer ─────────────────────────────────────────────── */
+{
+  const block = (sql, opts) => security.reviewStatements(sql, map, opts).filter((f) => f.severity === "block").map((f) => f.rule);
+  const warn = (sql) => security.reviewStatements(sql, map).filter((f) => f.severity === "warn").map((f) => f.rule);
+  has(block(["alter table customers disable row level security;"]).includes("rls-disabled"), "turning RLS off is refused — never the way to make a feature work");
+  has(block(["alter table customers disable row level security;"], { undo: true }).length === 0, "…except when undoing a change that turned it on");
+  has(block(["create policy anyone_writes on customers for update to authenticated using (true) with check (true);"]).includes("unrestricted-write"), "a policy letting anyone change rows that belong to people is refused");
+  has(block(["grant insert, update on customers to anon;"]).includes("anon-write-grant"), "visitors are never granted writes");
+  has(block(["create policy own_update on customers for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);"]).length === 0, "an owner-scoped write policy passes");
+  has(warn(["create table favorites (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id), property_id uuid);"]).includes("owned-without-rls"), "a new table of people's rows without RLS is flagged");
+  has(!warn(["create table favorites (id uuid primary key, user_id uuid references auth.users(id));", "alter table favorites enable row level security;"]).includes("owned-without-rls"), "…and not when the same change turns RLS on");
+  has(warn(["create policy notes_any on notes for update to authenticated using (status = 'open');"]).includes("no-identity"), "an owner-table policy that never checks who is asking is flagged");
+  const profiles = { ...map, tables: [...map.tables, { ...map.tables[0], name: "profiles", columns: [...map.tables[0].columns, { name: "role", type: "text", nullable: true, default: null, identity: false, enumName: null, comment: null }] }] };
+  has(security.reviewStatements(["create policy own_profile on profiles for update to authenticated using (auth.uid() = id) with check (auth.uid() = id);"], profiles).some((f) => f.rule === "role-self-escalation"), "people updating their own profile row that holds a role are flagged — they could promote themselves");
+  const existing = security.reviewDatabase(map).map((f) => `${f.rule}:${f.table}`);
+  has(existing.includes("read-everything:customers") && existing.includes("read-everything:notes"), "the database review finds private tables every signed-in user can read");
+  has(security.parsePolicy('create policy "x" on public.t as permissive for insert to authenticated with check ((auth.uid() = owner_id));')?.command === "insert", "policies are read into their parts");
+  const verdict = auto.autoVerdict({ statements: [], refused: [], confirmation: null, backups: [], previews: [], warnings: ["Security: something about RLS"] });
+  has(!verdict.auto, "a security warning is a person's call — the autopilot never applies it");
+  const { readFileSync: readSrc } = await import("node:fs");
+  const svc = readSrc(join(process.cwd(), "src/lib/builder/backend/agent/service.ts"), "utf8");
+  has(/reviewStatements\(plan\.statements\.map/.test(svc) && /refused: \[\.\.\.plan\.refused, \.\.\.findings\.filter/.test(svc) && /reviewDatabase\(scan\.map\)/.test(svc), "every plan is reviewed before approval, and analysis reports the existing policies' problems");
+}
+
+/* ── The change preview ────────────────────────────────────────────────── */
+{
+  const kind = (sql, table, level = 1) => preview.classifyChange({ sql, table, level }, map);
+  has(kind("create table favorites (id uuid primary key)", "favorites") === "CREATE", "a new table is CREATE");
+  has(kind("alter table customers add column city text", "customers") === "CREATE", "a new column is CREATE");
+  has(kind("alter table legacy_imports enable row level security", "legacy_imports", 2) === "REPAIR", "turning RLS on for an existing table is REPAIR");
+  has(kind("create index customers_email_idx on customers (email)", "customers") === "REPAIR", "an index added to an existing table is REPAIR");
+  has(kind("alter table customers alter column phone set not null", "customers", 2) === "UPDATE", "changing an existing column is UPDATE");
+  has(kind("drop table notes", "notes", 3) === "REMOVE" && kind("alter table customers drop column phone", "customers", 3) === "REMOVE", "drops are REMOVE");
+  const p = preview.changePreview([{ sql: "create table favorites (id uuid)", table: "favorites", level: 1, what: "creates favorites" }, { sql: "create policy f on favorites for select using (auth.uid() = user_id)", table: "favorites", level: 1, what: "adds a rule" }], map);
+  has(p.create.length === 2 && p.preserve.some((x) => x.startsWith("customers")) && p.preserve.at(-1).startsWith("auth.users") && p.policies.creating === 1, "the preview lists what is created, every untouched table preserved, and the access rules");
+  const plan = surgery.planSurgery({ sql: "create table favorites (id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id));", map, production: false });
+  has(plan.preview && /\*\*DATABASE CHANGE PREVIEW\*\*/.test(surgery.surgeryCard(plan)) && /\*\*PRESERVE\*\*/.test(surgery.surgeryCard(plan)), "every plan card opens with the change preview");
+}
+
+/* ── The debugger ──────────────────────────────────────────────────────── */
+{
+  const cases = [
+    ['relation "public.properties" does not exist', "missing relation"],
+    ['column "price" of relation "properties" does not exist', "missing column"],
+    ['relation "favorites" already exists', "duplicate table"],
+    ['column "city" of relation "customers" already exists', "duplicate column"],
+    ['insert or update on table "x" violates foreign key constraint "x_user_fkey"', "foreign key violation"],
+    ['could not create unique index "favorites_user_property_idx"', "unique violation"],
+    ['permission denied for table users', "permission denied"],
+    ['new row violates row-level security policy for table "notes"', "RLS policy violation"],
+    ['function public.is_member(uuid) does not exist', "missing function"],
+    ['syntax error at or near "polcy"', "syntax error"],
+    ['type "money2" does not exist', "invalid type"],
+    ['cannot drop table a because other objects depend on it', "dependency conflict"],
+  ];
+  for (const [error, category] of cases) has(debug.diagnosePgError(error).category === category, `diagnoses: ${category}`, debug.diagnosePgError(error));
+  has(/never disable row-level security/i.test(debug.diagnosePgError('new row violates row-level security policy for table "notes"').fix), "an RLS error is never fixed by turning RLS off");
+  has(/Never drop it/.test(debug.diagnosePgError('relation "favorites" already exists').fix), "a table conflict is never fixed by dropping the table");
+  const prompt = debug.repairPrompt("add favourites", "create table favorites ();", 'relation "favorites" already exists', 2);
+  has(/REPAIR ATTEMPT 2 of 3/.test(prompt) && /never disable row-level security; never drop or truncate/.test(prompt), "each repair is told what failed, the fix, and what it may never do");
+  has(debug.sqlFingerprint("CREATE  TABLE x ();\n-- note") === debug.sqlFingerprint("create table x ();"), "the same SQL is recognised however it is spaced — so it is never run twice");
+  const { readFileSync: readSrc2 } = await import("node:fs");
+  const svc = readSrc2(join(process.cwd(), "src/lib/builder/backend/agent/service.ts"), "utf8");
+  has(/attempt <= MAX_REPAIRS/.test(svc) && /tried\.has\(sqlFingerprint\(retry\.sql\)\)/.test(svc) && /this needs a person/.test(svc), "planning repairs at most three times, never repeats SQL, then says a person is needed");
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

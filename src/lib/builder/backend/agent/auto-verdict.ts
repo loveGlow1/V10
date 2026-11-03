@@ -32,8 +32,12 @@ const head = (sql: string) => sql.replace(/^\s*(--[^\n]*\n\s*)*/, "").replace(/\
  * Whether a planned change may be applied without a person. Pure: the plan
  * alone decides it, so the planner and approveSurgery reach the same answer.
  */
-export function autoVerdict(plan: Pick<SurgeryPlan, "statements" | "refused" | "confirmation" | "backups" | "previews">): AutoVerdict {
+export function autoVerdict(plan: Pick<SurgeryPlan, "statements" | "refused" | "confirmation" | "backups" | "previews"> & { warnings?: string[] }): AutoVerdict {
   if (plan.refused.length > 0) return { auto: false, why: plan.refused[0] };
+  /* A security concern the review raised is a person's call, never the
+     autopilot's — even when the change is otherwise additive. */
+  const security = (plan.warnings ?? []).find((warning) => warning.startsWith("Security:"));
+  if (security) return { auto: false, why: security.replace(/^Security:\s*/, "") };
   if (plan.confirmation) return { auto: false, why: "it is destructive and needs a typed confirmation" };
   if (plan.backups.length > 0 || plan.previews.length > 0) return { auto: false, why: "it changes rows or tables that already hold data" };
   if (plan.statements.length === 0) return { auto: false, why: "there is nothing in it" };

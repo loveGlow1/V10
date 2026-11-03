@@ -43,6 +43,10 @@ export type Domain = {
   avoid: string;
   /** Conventions that give a generated site away when they are missing. */
   rules: string[];
+  /* The data this business usually keeps — what the database architect
+     starts from (app-schema.ts), as candidates for THIS brief, never a list
+     to create whole. */
+  data: string[];
 };
 
 export const DOMAINS: Domain[] = [
@@ -55,6 +59,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["luxury homes and modern architecture", "interiors in daylight", "property exteriors", "neighbourhood and lifestyle"],
     avoid: "never keys in a hand, miniature houses or handshake stock",
     rules: ["Prices with currency and period (per month / sale) on every card.", "Every listing card shows bedrooms, bathrooms and area the same way."],
+    data: ["properties (title, price numeric, listing type sale/rent, bedrooms, bathrooms, area, address, status)", "property_images (property, storage path, position)", "agents", "favorites (user, property — unique together)", "inquiries (property, sender, message, status)", "viewings (property, user, scheduled_at, status)", "saved_searches (user, criteria)"],
   },
   {
     id: "banking",
@@ -65,6 +70,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["product interface screenshots", "professional financial illustration", "calm abstract imagery", "real customers in everyday settings"],
     avoid: "never piles of coins, gold bars, handshakes or skyline stock",
     rules: ["Every amount uses the same currency format and tabular figures.", "A demonstration or simulated transaction is labelled as one; nothing implies money really moved."],
+    data: ["accounts (owner, type, currency, balance numeric — changed only by server-side logic)", "transactions (account, amount numeric, direction, status, reference, posted_at)", "transfers (from account, to account, amount numeric, status)", "cards (account, last4, status — never full numbers)", "statements (account, period, storage path)"],
   },
   {
     id: "logistics",
@@ -75,6 +81,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["freight transportation", "warehouses", "shipping containers", "delivery vehicles and crews"],
     avoid: "never a glowing globe, a world map made of dots or a handshake",
     rules: ["Tracking numbers in a consistent monospace format.", "Status names are a fixed set (Booked, Picked up, In transit, Out for delivery, Delivered) used everywhere."],
+    data: ["shipments (tracking_number unique, customer, origin, destination, status, eta)", "shipment_events (shipment, status, location, occurred_at)", "quotes (customer, origin, destination, weight, price numeric, status)", "addresses (owner, label, address)"],
   },
   {
     id: "healthcare",
@@ -85,6 +92,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["real rooms and equipment", "practitioners at work", "calm reception spaces"],
     avoid: "never stethoscope stock or models posing in lab coats",
     rules: ["No medical claims the brief does not supply.", "Emergency contact information is clear where relevant."],
+    data: ["patients or profiles", "practitioners", "services (name, duration, price numeric)", "appointments (patient, practitioner, starts_at, status)", "messages"],
   },
   {
     id: "booking",
@@ -95,6 +103,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["the space itself", "the service being done", "the team at work", "results where appropriate"],
     avoid: "never generic smiling stock models",
     rules: ["Every service shows duration and price.", "A slot that is taken cannot be booked twice."],
+    data: ["services (name, duration_minutes, price numeric)", "staff", "availability (staff, weekday, start, end)", "bookings (customer, service, staff, starts_at, status — no double booking)"],
   },
   {
     id: "restaurant",
@@ -105,6 +114,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["food photography", "the dining room", "the chef and kitchen", "guests enjoying the experience"],
     avoid: "never a burger in a studio void or stock cutlery",
     rules: ["Every dish has a price and a one-line description.", "Opening hours and address are visible without hunting."],
+    data: ["menu_categories", "menu_items (category, name, price numeric, dietary tags, available)", "orders (customer, status, total numeric)", "order_items (order, menu item, quantity, unit_price numeric)", "reservations (customer, party_size, reserved_at, status)"],
   },
   {
     id: "education",
@@ -115,6 +125,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["learners at work", "teachers and classrooms", "the subject being taught"],
     avoid: "never graduation-cap clip art",
     rules: ["Every course shows length, level and what you will learn."],
+    data: ["courses (title, level, price numeric, published)", "lessons (course, position, content)", "enrollments (user, course — unique together)", "lesson_progress (enrollment, lesson, completed_at)", "certificates"],
   },
   {
     id: "crm",
@@ -125,6 +136,7 @@ export const DOMAINS: Domain[] = [
     imagery: [],
     avoid: "no photography inside the app",
     rules: ["Pipeline stages are a fixed, named set.", "Deal values use one currency format."],
+    data: ["companies (organization)", "contacts (organization, company)", "deals (organization, contact, stage, value numeric)", "activities (deal or contact, kind, note, due_at)", "tasks (organization, assignee, due_at, status)"],
   },
   {
     id: "project-management",
@@ -135,6 +147,7 @@ export const DOMAINS: Domain[] = [
     imagery: [],
     avoid: "no photography inside the app",
     rules: ["Task statuses are one fixed set used in every view."],
+    data: ["organizations and memberships (role)", "projects (organization)", "tasks (project, assignee, status, due_at, position)", "comments (task, author)"],
   },
   {
     id: "nonprofit",
@@ -145,6 +158,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["the community and its people", "programmes in action", "gatherings"],
     avoid: "never pity imagery or stock hands holding a heart",
     rules: ["Where money goes is stated plainly.", "Impact figures only as the brief supplies them."],
+    data: ["campaigns (title, goal numeric)", "donations (donor, campaign, amount numeric, recurring, status)", "events", "volunteers (user, skills, availability)"],
   },
   {
     id: "events",
@@ -155,6 +169,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["the venue", "crowds and atmosphere", "performers and speakers"],
     avoid: "never confetti stock",
     rules: ["Date, time, venue and price are visible at the top of every event."],
+    data: ["events (title, starts_at, venue, capacity)", "ticket_types (event, name, price numeric, quantity)", "orders (buyer, total numeric, status)", "tickets (order, ticket type, code unique, checked_in_at)"],
   },
   {
     id: "fashion",
@@ -165,6 +180,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["professional product photography", "editorial fashion imagery", "lifestyle photography"],
     avoid: "never mismatched stock models across products",
     rules: ["One consistent product image ratio across the catalogue.", "Sizes and colours are selectable and change the product shown."],
+    data: ["products", "product_variants (product, size, colour, sku unique, price numeric, stock)", "product_images", "carts and cart_items", "orders and order_items (unit_price numeric)", "wishlists (user, product — unique together)"],
   },
   {
     id: "saas",
@@ -175,6 +191,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["the real product interface", "diagrams drawn in code"],
     avoid: "never robots, glowing brains or circuit-board stock",
     rules: ["Pricing is clear with what each plan includes.", "The product is shown, not described."],
+    data: ["organizations (workspaces)", "memberships (organization, user, role — unique together)", "plans", "subscriptions (organization, plan, status, current_period_end)", "usage (organization, metric, quantity, period)", "projects (organization)", "activity_logs (organization, actor, action)", "notifications (user)"],
   },
   {
     id: "retail",
@@ -185,6 +202,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["product photography", "products in use", "lifestyle settings"],
     avoid: "never unrelated stock",
     rules: ["Prices and stock status on every card.", "The cart total adds up, with delivery shown before payment."],
+    data: ["categories", "products (category, price numeric, stock, active)", "product_images", "carts and cart_items", "orders (customer, status, total numeric)", "order_items (order, product, quantity, unit_price numeric)", "addresses"],
   },
   {
     id: "construction",
@@ -195,6 +213,7 @@ export const DOMAINS: Domain[] = [
     imagery: ["completed projects", "crews and sites at work", "materials and detail"],
     avoid: "never hard-hat stock portraits",
     rules: ["Areas served and how to get a quote are clear."],
+    data: ["services", "projects (title, location, before/after images)", "quotes (customer, service, details, status)", "invoices (customer, amount numeric, status)"],
   },
 ];
 
@@ -231,4 +250,12 @@ export function domainBrief(domain: Domain, kind: BuildKind, accounts: boolean):
   }
   lines.push("", "CONVENTIONS THAT MATTER HERE:", ...domain.rules.map((rule) => `  - ${rule}`));
   return lines.join("\n");
+}
+
+/**
+ * What the database architect is told about this business (app-schema.ts):
+ * the data it usually keeps, as candidates — the brief decides which apply.
+ */
+export function dataNeedsBrief(domain: Domain): string {
+  return `This is a ${domain.label.toLowerCase()} application. Such applications usually keep — model only the ones this brief needs:\n${domain.data.map((item) => `  - ${item}`).join("\n")}`;
 }

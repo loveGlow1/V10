@@ -101,7 +101,9 @@ export type Table = {
   /** What this table is, in one sentence. Emitted as a COMMENT ON TABLE. */
   what: string;
   columns: Column[];
-  indexes?: { on: string[] }[];
+  /* `unique` for a pair that may exist only once — one favourite per person
+     per property, one membership per person per organisation. */
+  indexes?: { on: string[]; unique?: boolean }[];
   policies: Policy[];
 };
 
@@ -1283,7 +1285,7 @@ export function toSql(
 
     for (const index of table.indexes ?? []) {
       const name = `${table.name}_${index.on.join("_")}_idx`;
-      out.push(`create index if not exists ${name} on ${qualified} (${index.on.join(", ")});`);
+      out.push(`create ${index.unique ? "unique " : ""}index if not exists ${name} on ${qualified} (${index.on.join(", ")});`);
     }
 
     out.push("");
