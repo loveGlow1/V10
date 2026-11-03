@@ -131,7 +131,7 @@ Shape:
           "references": { "table": "other_table|auth.users", "column": "id", "onDelete": "cascade" },
           "check": "expression without the surrounding CHECK()" }
       ],
-      "indexes": [{ "on": ["column_name"] }],
+      "indexes": [{ "on": ["column_name"] }, { "on": ["user_id", "property_id"], "unique": true }],
       "policies": [
         { "name": "table_action_scope", "for": "select|insert|update|delete|all",
           "to": ["authenticated"], "using": "row test", "check": "incoming row test",
@@ -151,9 +151,13 @@ RULES — a proposal breaking any of these is discarded whole:
 6. Names are lowercase snake_case, start with a letter, and are at most 63 characters.
 7. references.table names another table in this proposal, or exactly "auth.users".
 8. Model the application that was described and nothing else. No speculative tables, no "settings" table nobody asked for, no analytics.
-9. At most ${MAX_TABLES} tables, ${MAX_COLUMNS} columns each.`;
+9. At most ${MAX_TABLES} tables, ${MAX_COLUMNS} columns each.
+10. Money is "numeric" with a check that it is not negative where that holds — never a floating-point type. Quantities are integer.
+11. Teams, workspaces, organisations or "invite my team" mean a multi-tenant app: an "organizations" table, a "memberships" table (organization_id, user_id references auth.users, role, unique together), and every tenant-owned table carries organization_id. Their policies test membership, e.g. using "exists (select 1 from memberships m where m.organization_id = projects.organization_id and m.user_id = auth.uid())", in both using and check, so nobody reads or writes another organisation's rows or moves a row into one they do not belong to.
+12. Nobody can raise their own privileges: a role, plan or admin column is never writable by the person it describes (no own-row update policy on a table with such a column, or keep the role on memberships, changed only by an organisation admin).
+13. A pair that may only exist once — a favourite, an enrolment, a membership — gets a composite index with "unique": true; prefer foreign keys over loose ids, and jsonb only for genuinely free-form data.`;
 
-function prompt(brief: string, manifest: ArchitectureManifest): string {
+function prompt(brief: string, manifest: ArchitectureManifest, business = ""): string {
   const layers = [
     manifest.authentication ? "People sign in. A `profiles` table already exists (id references auth.users, email, full_name, avatar_url, role) — do NOT propose it, and reference auth.users for ownership." : "Nobody signs in. There are no accounts, so ownership cannot be by auth.uid() — model this as data the app reads and writes without an identity behind it, and say so in the policies.",
     manifest.storage ? "Files are uploaded. A `media` table already exists — do not propose it, but reference it where a row points at a file." : null,
@@ -164,6 +168,7 @@ function prompt(brief: string, manifest: ArchitectureManifest): string {
   return `What was asked for:
 
 ${brief.trim().slice(0, 4000)}
+${business ? `\n${business}\n` : ""}
 
 What this project has:
 ${layers.map((line) => `- ${line}`).join("\n")}
@@ -434,9 +439,10 @@ export function readProposal(parsed: unknown): AuthoredSchema {
                   .map((column) => (typeof column === "string" ? column.trim().toLowerCase() : ""))
                   .filter((column) => seen.has(column))
               : [];
-            return columnsOn.length > 0 ? { on: columnsOn } : null;
+            const unique = index && typeof index === "object" && (index as { unique?: unknown }).unique === true;
+            return columnsOn.length > 0 ? { on: columnsOn, ...(unique ? { unique: true } : {}) } : null;
           })
-          .filter((index): index is { on: string[] } => index !== null)
+          .filter((index): index is { on: string[]; unique?: boolean } => index !== null)
       : [];
 
     tables.push({
@@ -478,16 +484,20 @@ export async function authorSchema(input: {
        catalogue would make that impossible, which is exactly what
        tools/check-app-schema.mjs found when it could not load this module to
        check a refusal. */
-    const [{ default: Anthropic }, { modelById }] = await Promise.all([
+    const [{ default: Anthropic }, { modelById }, { dataNeedsBrief, detectDomain }] = await Promise.all([
       import("@anthropic-ai/sdk"),
       import("@/app/dashboard/models"),
+      import("@/lib/builder/domain"),
     ]);
+    /* The business, when the brief names one we know (domain.ts): the data
+       such an application usually keeps, as candidates for this brief. */
+    const domain = detectDomain(input.brief);
 
     const answer = await new Anthropic().messages.create({
       model: modelById(SCHEMA_MODEL).apiId ?? SCHEMA_MODEL,
       max_tokens: MAX_TOKENS,
       system: SYSTEM,
-      messages: [{ role: "user", content: prompt(input.brief, input.manifest) }],
+      messages: [{ role: "user", content: prompt(input.brief, input.manifest, domain ? dataNeedsBrief(domain) : "") }],
     });
 
     const text = answer.content

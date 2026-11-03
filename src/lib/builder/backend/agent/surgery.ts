@@ -23,6 +23,7 @@
  * Pure. Asserted by tools/check-db-agent.mjs.
  */
 
+import { type ChangePreview, changePreview, previewLines } from "./change-preview";
 import type { DatabaseMap, MapTable } from "./db-map";
 import { qualified } from "./db-map";
 import {
@@ -62,6 +63,9 @@ export type SurgeryPlan = {
   warnings: string[];
   /** What the planner rewrote, said plainly (renames, reordering). */
   rewrites: string[];
+  /* CREATE / UPDATE / REPAIR / REMOVE / PRESERVE, decided against the live
+     database (change-preview.ts). Absent on plans stored before it existed. */
+  preview?: ChangePreview;
 };
 
 const id = (s: string) => (/^[a-z_][a-z0-9_]*$/.test(s) ? s : `"${s.replace(/"/g, '""')}"`);
@@ -396,6 +400,7 @@ export function planSurgery(input: PlanInput): SurgeryPlan {
     refused: [...new Set(refused)],
     warnings,
     rewrites,
+    preview: changePreview(statements, map),
   };
 }
 
@@ -427,6 +432,7 @@ export function surgeryCard(plan: SurgeryPlan): string {
   const lines = [
     `**${plan.summary}**`,
     "",
+    ...(plan.preview ? [...previewLines(plan.preview), ""] : []),
     `Risk: **${RISK_LABEL[plan.level]}**${plan.affected.length ? ` · touches ${plan.affected.map((a) => `${a.table.split(".").pop()} (${a.rows.toLocaleString()} rows)`).join(", ")}` : ""}`,
   ];
   if (plan.backups.length) lines.push(`Backup first: ${plan.backups.join(", ")} (kept ${BACKUP_DAYS} days).`);

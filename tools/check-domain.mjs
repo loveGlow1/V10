@@ -86,5 +86,15 @@ has(/blueprint\.pages\?\.length/.test(index) && /domainBrief\(context\.domain, k
 const route = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
 has(/const domain = detectDomain\(brief\.text\);/.test(route) && /domain: domain \?\? undefined,/.test(route), "the build detects the business and hands it to the prompt");
 
+console.log("\nDatabase architect");
+has(D.DOMAINS.every((d) => d.data.length >= 3), "every business carries the data it usually keeps");
+const saas = D.DOMAINS.find((d) => d.id === "saas");
+has(saas.data.some((x) => /^organizations/.test(x)) && saas.data.some((x) => /^memberships .*unique together/.test(x)), "SaaS data starts from organisations and memberships, unique together");
+has(/model only the ones this brief needs/.test(D.dataNeedsBrief(saas)), "the data is offered as candidates, never created whole");
+const appSchema = readFileSync(join(root, "src/lib/builder/app-schema.ts"), "utf8");
+has(/const domain = detectDomain\(input\.brief\);/.test(appSchema) && /dataNeedsBrief\(domain\)/.test(appSchema), "the schema designer is told the business and its usual data");
+has(/never a floating-point type/.test(appSchema) && /multi-tenant app: an "organizations" table, a "memberships" table/.test(appSchema) && /Nobody can raise their own privileges/.test(appSchema), "money is exact, tenants are isolated by membership, and nobody can promote themselves");
+has(/unique \? \{ unique: true \}/.test(appSchema) && /create \$\{index\.unique \? "unique " : ""\}index/.test(readFileSync(join(root, "src/lib/builder/schema.ts"), "utf8")), "a pair that may exist once becomes a composite unique index");
+
 console.log(failed ? `\n${failed} failed.` : "\nAll passed.");
 process.exit(failed ? 1 : 0);
