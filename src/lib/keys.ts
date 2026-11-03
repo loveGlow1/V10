@@ -52,6 +52,7 @@ export const FEATURES: KeyFeature[] = [
   { id: "pexels", area: "Images & fliers", label: "Pexels photos", unlocks: "More free stock photos in built pages.", needs: [["PEXELS_API_KEY"]], where: "pexels.com/api" },
   { id: "ai-image", area: "Images & fliers", label: "Custom image endpoint", unlocks: "Your own image-generation service for page pictures.", needs: [["AI_IMAGE_ENDPOINT"], ["AI_IMAGE_API_KEY"]], optional: ["AI_IMAGE_ENABLED"], also: "On once both are set; AI_IMAGE_ENABLED=false turns it off." },
 
+  { id: "runware", area: "Video", label: "Runware", unlocks: "MiniMax H3 video clips (every shape, 4–15s), MiniMax voice-overs and still images on your Runware credit — spent before other paid engines.", needs: [["RUNWARE_API_KEY"]], optional: ["RUNWARE_VIDEO_MODEL", "RUNWARE_IMAGE_MODEL", "RUNWARE_SPEECH_MODEL"], where: "my.runware.ai → API Keys" },
   { id: "fal", area: "Video", label: "fal.ai", unlocks: "Lip-sync, avatars, music and Seedance clips.", needs: [["FAL_KEY"]], where: "fal.ai → Keys" },
   { id: "hf", area: "Video", label: "Hugging Face inference", unlocks: "Seedance and Kling video clips.", needs: [["HF_API_KEY_ID"], ["HF_API_KEY_SECRET"]] },
   { id: "browserless", area: "AI building", label: "Browserless", unlocks: "The agent's screenshots and page checks in a real browser.", needs: [["BROWSERLESS_TOKEN"]], optional: ["BROWSERLESS_URL"] },

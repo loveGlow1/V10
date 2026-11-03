@@ -16,6 +16,9 @@ const FALLBACK: Record<Provider, Provider[]> = {
   'n8n-openai': ['n8n-minimax', 'fal-nano-banana', 'gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
   /* Nano Banana Pro on fal: the first paid model, behind the free credit. */
   'fal-nano-banana': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
+  /* Runware (RUNWARE_IMAGE_MODEL) on its start-up credit. The lettering is
+     typeset on afterwards, so the background is what it is asked for. */
+  'runware-image': ['gpt-image-2', 'ideogram-v3', 'nano-banana-pro', 'minimax-image'],
 };
 
 export function pickPrimary(req: FlyerRequest): Provider {
@@ -39,6 +42,7 @@ const KEY: Record<Provider, string> = {
   'n8n-minimax': 'N8N_WEBHOOK_TOKEN',
   'n8n-openai': 'N8N_WEBHOOK_TOKEN',
   'fal-nano-banana': 'FAL_KEY',
+  'runware-image': 'RUNWARE_API_KEY',
 };
 const n8nUrl = (env: Record<string, string | undefined>) => Boolean(env.N8N_FLIER_WEBHOOK_URL || env.N8N_WEBHOOK_URL);
 export const providerConfigured = (p: Provider, env: Record<string, string | undefined> = process.env) =>
@@ -48,8 +52,8 @@ export const providerConfigured = (p: Provider, env: Record<string, string | und
    draft goes to MiniMax there (four in one call) and a final to OpenAI there
    (the best lettering), before any model on a key of our own. */
 const CREDIT_FIRST: Record<'preview' | 'final', Provider[]> = {
-  preview: ['n8n-minimax', 'n8n-openai', 'fal-nano-banana'],
-  final: ['n8n-openai', 'n8n-minimax', 'fal-nano-banana'],
+  preview: ['n8n-minimax', 'n8n-openai', 'runware-image', 'fal-nano-banana'],
+  final: ['n8n-openai', 'n8n-minimax', 'runware-image', 'fal-nano-banana'],
 };
 
 /* FLIER_ENGINE=nano-banana puts Nano Banana Pro on fal ahead of the free
@@ -91,7 +95,7 @@ export function isPublicHttpsUrl(value: unknown): value is string {
 export function refsFor(req: FlyerRequest, p: Provider): string[] {
   const shots = (req.brand.referenceImageUrls ?? []).filter(isPublicHttpsUrl);
   if (p === 'ideogram-v3') return shots.slice(0, 3);                 // style refs only, no logo
-  if (p === 'minimax-image' || p.startsWith('n8n-')) return [];       // no image input
+  if (p === 'minimax-image' || p === 'runware-image' || p.startsWith('n8n-')) return [];       // no image input
   /* Never the logo: a model given it redraws it, differently each time. It is
      stamped on afterwards instead (logo.ts). Style references only. */
   const all = shots;

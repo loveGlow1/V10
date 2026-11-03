@@ -304,7 +304,7 @@ has(/generate_audio: false/.test(providers), "generated clips bring no audio of 
 has(!/console\.log/.test(providers) && /process\.env\.HF_API_KEY_SECRET/.test(providers) && !/HF_API_KEY_SECRET/.test(readFileSync(join(root, "src/lib/video/clip-engines.ts"), "utf8").replace(/env\.HF_API_KEY_SECRET/g, "")), "keys are read on the server and never logged");
 
 has(/retryClip\(service, \{ videoId: id, version, n, failed: "n8n"/.test(callback), "a clip n8n could not make goes on to the next engine instead of failing");
-has(/kind === "voice" && process\.env\.MINIMAX_API_KEY/.test(callback) && /speak\(/.test(callback), "a voice line n8n could not make is voiced by MiniMax directly");
+has(/kind === "voice" && \(process\.env\.RUNWARE_API_KEY \|\| process\.env\.MINIMAX_API_KEY\)/.test(callback) && /speak\(/.test(callback), "a voice line n8n could not make is voiced by MiniMax directly (on Runware or MiniMax's own API)");
 const studio = readFileSync(join(root, "src/app/api/video/[id]/route.ts"), "utf8") + readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
 has(/row\.provider === "n8n:minimax"[\s\S]{0,200}retryClip\(/.test(studio), "an n8n clip that never came back is handed on, not failed");
 has(/for \(const engine of chain\)[\s\S]{0,120}engine === "n8n"/.test(render), "render walks each chain in order, n8n included");

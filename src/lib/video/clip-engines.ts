@@ -16,6 +16,10 @@
  *   seedance-fal   Seedance 1.5 Pro on fal.ai, text-to-video with real aspect
  *                  ratios — the fallback that runs on the key the production
  *                  line already has.
+ *   runware        MiniMax H3 on Runware (RUNWARE_API_KEY) — the Runware
+ *                  start-up credit. Every aspect ratio from text, 4–15s, and
+ *                  image-to-video from a first frame. Spent first on the
+ *                  "credit" and "economy" tiers, since it is prepaid.
  *   n8n            MiniMax-H3 through the n8n render workflow, on the account's
  *                  MiniMax usage credit (n8n's gateway). Every aspect ratio
  *                  from text, 4–6s clips.
@@ -31,7 +35,7 @@
 
 import type { PipelineId } from "./pipelines";
 
-export type ClipEngine = "seedance" | "minimax" | "kling" | "seedance-fal" | "n8n";
+export type ClipEngine = "seedance" | "minimax" | "kling" | "seedance-fal" | "runware" | "n8n";
 export type Tier = "credit" | "best" | "economy";
 export type Aspect = "9:16" | "1:1" | "16:9" | "4:5";
 
@@ -84,6 +88,14 @@ export const ENGINES: Record<ClipEngine, EngineSpec> = {
     imageToVideo: false,
     configured: (env) => Boolean(env.FAL_KEY),
   },
+  runware: {
+    label: "MiniMax H3 (Runware)",
+    cost: 5,
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    textAspects: ALL,
+    imageToVideo: true,
+    configured: (env) => Boolean(env.RUNWARE_API_KEY),
+  },
   n8n: {
     label: "MiniMax-H3 (n8n, usage credit)",
     cost: 4,
@@ -109,14 +121,16 @@ const FROM_FRAME: PipelineId[] = ["photo_to_video", "product_showcase"];
 /** The ranking before anything is filtered: best first. */
 export function ranking(pipeline: PipelineId, tier: Tier, fromFrame: boolean): ClipEngine[] {
   let order: ClipEngine[];
-  if (FROM_FRAME.includes(pipeline) || fromFrame) order = ["minimax", "seedance", "kling", "seedance-fal", "n8n"];
-  else if (FOOTAGE.includes(pipeline)) order = ["seedance", "seedance-fal", "kling", "minimax", "n8n"];
-  else order = ["seedance", "minimax", "kling", "seedance-fal", "n8n"];
-  /* Credit: the MiniMax usage credit on n8n before anything that is paid for. */
-  /* …and straight after it the main API: MiniMax's own, on its key. */
-  if (tier === "credit") order = ["n8n", "minimax", ...order.filter((engine) => engine !== "n8n" && engine !== "minimax")];
-  /* Economy: direct MiniMax first, wherever it can make the scene. */
-  if (tier === "economy") order = ["minimax", ...order.filter((engine) => engine !== "minimax")];
+  if (FROM_FRAME.includes(pipeline) || fromFrame) order = ["minimax", "runware", "seedance", "kling", "seedance-fal", "n8n"];
+  else if (FOOTAGE.includes(pipeline)) order = ["seedance", "seedance-fal", "runware", "kling", "minimax", "n8n"];
+  else order = ["seedance", "runware", "minimax", "kling", "seedance-fal", "n8n"];
+  /* Credit: prepaid credit before anything paid per use — the Runware
+     start-up credit, then the MiniMax usage credit on n8n, then MiniMax's own
+     API on its key. */
+  const prepaid: ClipEngine[] = ["runware", "n8n", "minimax"];
+  if (tier === "credit") order = [...prepaid, ...order.filter((engine) => !prepaid.includes(engine))];
+  /* Economy: Runware's credit and direct MiniMax first, wherever they can make the scene. */
+  if (tier === "economy") order = ["runware", "minimax", ...order.filter((engine) => engine !== "minimax" && engine !== "runware")];
   return order;
 }
 
@@ -170,18 +184,25 @@ export function anyClipEngine(env: Env = process.env): boolean {
   return CLIP_ENGINES.some((engine) => ENGINES[engine].configured(env));
 }
 
-/* Voice lines: on the "credit" tier the n8n route (MiniMax speech on the
-   usage credit) whenever it is connected; otherwise MiniMax's own speech API
-   with MINIMAX_API_KEY, or n8n when that is all there is. */
+/* Whether a voice line can be spoken here without n8n: MiniMax speech on
+   Runware (RUNWARE_API_KEY) or on MiniMax's own API (MINIMAX_API_KEY). */
+export const canSpeak = (env: Env = process.env) => Boolean(env.RUNWARE_API_KEY || env.MINIMAX_API_KEY);
+
+/* Voice lines: Runware's MiniMax speech whenever it is connected (prepaid);
+   otherwise on the "credit" tier the n8n route (MiniMax speech on the usage
+   credit) whenever it is connected, then MiniMax's own speech API with
+   MINIMAX_API_KEY, or n8n when that is all there is. */
 export function voiceDirect(env: Env = process.env, tier: Tier = tierFrom(env), n8nPaused = false): boolean {
+  if (env.RUNWARE_API_KEY) return true;
   if (!env.MINIMAX_API_KEY) return false;
   return n8nPaused || !(tier === "credit" && ENGINES.n8n.configured(env));
 }
 
 /* Where a row's provider column says a clip is: "hf:seedance:<id>",
-   "minimax:<task>", "fal-clip:<id>". Not "fal:", which the production line's
+   "minimax:<task>", "fal-clip:<id>", "runware:<task uuid>". Not "fal:", which the production line's
    own lip sync, avatar, music and compose rows use. */
 export function providerOf(engine: ClipEngine, id: string): string {
+  if (engine === "runware") return `runware:${id}`;
   return engine === "minimax" ? `minimax:${id}` : engine === "seedance-fal" ? `fal-clip:${id}` : engine === "n8n" ? "n8n:minimax" : `hf:${engine}:${id}`;
 }
 
@@ -189,6 +210,7 @@ export function parseProvider(value: string | null | undefined): { engine: ClipE
   const v = value ?? "";
   if (v.startsWith("minimax:") && v !== "minimax:speech") return { engine: "minimax", id: v.slice(8) };
   if (v.startsWith("fal-clip:")) return { engine: "seedance-fal", id: v.slice(9) };
+  if (v.startsWith("runware:")) return { engine: "runware", id: v.slice(8) };
   const hf = v.match(/^hf:(seedance|kling):(.+)$/);
   if (hf) return { engine: hf[1] as ClipEngine, id: hf[2] };
   return null;

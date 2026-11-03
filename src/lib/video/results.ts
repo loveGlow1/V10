@@ -21,7 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { chargeCredits } from "@/lib/credits-server";
 
-import { type Aspect, type ClipEngine, clipCost, parseProvider, providerOf, routeClip, tierFrom } from "./clip-engines";
+import { type Aspect, type ClipEngine, canSpeak, clipCost, parseProvider, providerOf, routeClip, tierFrom } from "./clip-engines";
 import { frameFor } from "./frames";
 import type { ProductionPlan } from "./plan";
 import { advance } from "./production";
@@ -183,7 +183,7 @@ export async function failoverN8n(service: SupabaseClient, input: { videoId: str
   const moved = await Promise.all(
     waiting.map(async (row) => {
       if (row.engine === "video") return retryClip(service, { videoId: input.videoId, version: input.version, n: row.scene, failed: "n8n", origin: input.origin });
-      if (row.engine !== "voice" || !process.env.MINIMAX_API_KEY || !plan) return false;
+      if (row.engine !== "voice" || !canSpeak() || !plan) return false;
       const line = plan.scenes.find((scene) => scene.n === row.scene)?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
       if (!line) return false;
       /* Claimed first, so a late n8n reply for the same line is ignored. */
