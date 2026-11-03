@@ -11,6 +11,7 @@ import { ownedProject } from "../backend/owned";
  *   GET ?format=csv     every message, as a spreadsheet
  *   PATCH { ids?, read }   mark some (or, with no ids, all) read or unread
  *   DELETE { id }       remove one message
+ *   POST { action: "test" }  put a sample message in the inbox
  *
  * Ownership is settled under the caller's own session (ownedProject); the
  * reads and writes then go through the service key, scoped to that project. */
@@ -108,5 +109,43 @@ export async function DELETE(request: Request, ctx: { params: Promise<{ id: stri
     .eq("project_id", owned.projectId)
     .eq("id", messageId);
   if (error) return NextResponse.json({ error: "That message couldn't be deleted." }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+/* A sample message, so the owner can see where messages land before anyone
+   has written one. Saved like a real one (and deletable like one); a few an
+   hour at most, so the button cannot fill the inbox. Not emailed — the email
+   test lives with the address it goes to. */
+const TESTS_PER_HOUR = 5;
+
+export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const got = await context(id);
+  if ("error" in got) return got.error;
+  const { owned, service } = got;
+
+  const body = (await request.json().catch(() => ({}))) as { action?: unknown };
+  if (body.action !== "test") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+
+  const { count } = await service
+    .from("form_submissions")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", owned.projectId)
+    .eq("form", "test")
+    .gte("created_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+  if ((count ?? 0) >= TESTS_PER_HOUR) {
+    return NextResponse.json({ error: "That's enough test messages for this hour." }, { status: 429 });
+  }
+
+  const { error } = await service.from("form_submissions").insert({
+    project_id: owned.projectId,
+    user_id: owned.userId,
+    form: "test",
+    name: "Test message",
+    email: null,
+    message: "This is what a message from your site looks like. When a visitor fills in a form, it lands here. You can delete this one.",
+    data: {},
+  });
+  if (error) return NextResponse.json({ error: "The test message couldn't be saved." }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

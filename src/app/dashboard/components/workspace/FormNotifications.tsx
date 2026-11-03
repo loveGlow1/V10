@@ -22,7 +22,9 @@ type State = {
   lastSentAt: string | null;
 };
 
-export default function FormNotifications({ projectId }: { projectId: string }) {
+/* `compact`: just where the emails go, for under the inbox's own "Email me
+   each one" checkbox — no switch of its own, no card around it. */
+export default function FormNotifications({ projectId, compact = false }: { projectId: string; compact?: boolean }) {
   const [state, setState] = useState<State | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -102,8 +104,12 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
   const to = state.email ?? state.accountEmail ?? "your account email";
   const usingAccount = !state.email;
 
+  /* Compact sits under a checkbox that is already on. */
+  const on = compact || state.enabled;
+
   return (
-    <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
+    <div className={compact ? "mt-2" : "mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl"}>
+      {!compact && (
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
           <Mail className="h-4 w-4" />
@@ -126,13 +132,50 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
           />
         </button>
       </div>
+      )}
+      {!compact && (
       <p className="mt-1 text-[12px] leading-relaxed text-muted">
         {state.enabled
           ? `Reply to an email to answer the person who sent it. Every message is also saved in ${state.inbox ? "your inbox below" : "your Supabase"}.`
           : `Messages are saved in ${state.inbox ? "your inbox below" : "your Supabase"}. Turn this on to also get an email for each one — nothing to connect.`}
       </p>
+      )}
 
-      {state.enabled && !editing && (
+      {compact && !editing && (
+        <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-muted">
+          <span>
+            Emails go to <span className="text-soft">{to}</span>
+          </span>
+          <span aria-hidden>·</span>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(true);
+              setNotice(null);
+              setProblem(null);
+              setDraft(state.email ?? "");
+            }}
+            className="text-soft underline-offset-2 hover:text-ink hover:underline"
+          >
+            Change
+          </button>
+          {state.configured && (
+            <>
+              <span aria-hidden>·</span>
+              <button
+                type="button"
+                onClick={() => void sendTest()}
+                disabled={testing}
+                className="text-soft underline-offset-2 hover:text-ink hover:underline disabled:opacity-50"
+              >
+                {testing ? "Sending…" : "Send test email"}
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
+      {!compact && on && !editing && (
         <div className="mt-3 overflow-hidden rounded-xl border border-line/[0.07] bg-layer/[0.03]">
           <div className="flex items-center gap-3 px-3.5 py-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-accent">
@@ -179,7 +222,7 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
         </div>
       )}
 
-      {state.enabled && editing && (
+      {on && editing && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -233,7 +276,7 @@ export default function FormNotifications({ projectId }: { projectId: string }) 
         </p>
       )}
 
-      {state.enabled && !state.configured && (
+      {on && !state.configured && (
         <p className="mt-2.5 flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-400">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>Email sending isn&apos;t set up yet. Messages are still saved{state.inbox ? " in your inbox" : ""}.</span>

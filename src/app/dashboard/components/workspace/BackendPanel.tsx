@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, Copy, Database, Download, Loader2, ShieldCheck, Unlink } from "lucide-react";
+import { AppWindow, Check, Copy, Database, Download, Loader2, ShieldCheck, Sparkles, Unlink } from "lucide-react";
 
 import { AUTH_REDIRECT_GLOB } from "@/lib/publish/naming";
 
@@ -10,7 +10,6 @@ import ConnectSupabase from "./ConnectSupabase";
 import FormInbox from "./FormInbox";
 import DatabaseAgent from "./DatabaseAgent";
 import { CONNECT_EVENT, announceConnected, takeConnectIntent } from "./database-connect";
-import FormNotifications from "./FormNotifications";
 
 /* Where this app's data lives, and how to move it.
  *
@@ -158,6 +157,155 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/* ── The choice cards ─────────────────────────────────────────────────────
+   Said in terms of what the site does, not what we run. The server's options
+   decide WHICH cards there are (managed only where it is offered); these
+   decide how each one reads. */
+const CARD: Record<Mode, { title: string; blurb: string; points: string[]; Icon: typeof Database }> = {
+  none: {
+    title: "Frontend only",
+    blurb: "Best for sites people read: brochures, landing pages, menus.",
+    points: ["Free, nothing to set up", "Forms still work (see below)"],
+    Icon: AppWindow,
+  },
+  quickstark_managed: {
+    title: "QuickStark Managed",
+    blurb: "For apps that save things, without a Supabase account of your own.",
+    points: ["Set up and looked after for you", "Nothing to sign up for"],
+    Icon: Sparkles,
+  },
+  shared: {
+    title: "Shared preview",
+    blurb: "A preview database shared with other projects. Not for real customers.",
+    points: ["Fine for trying something out"],
+    Icon: Database,
+  },
+  own: {
+    title: "Connect Supabase",
+    blurb: "For apps that save things: logins, bookings, orders, user posts.",
+    points: ["Your project, your data", "Billed by Supabase, not us"],
+    Icon: Database,
+  },
+};
+
+function actionLabel(selected: Mode, current: Mode | null): string {
+  if (selected === "own") return current === "own" ? "Change Supabase project" : "Connect Supabase";
+  const title = CARD[selected].title;
+  return selected === current || current === null ? `Keep ${title.charAt(0).toLowerCase()}${title.slice(1)}` : `Switch to ${title.toLowerCase()}`;
+}
+
+function ChoiceCard({
+  option,
+  selected,
+  recommended,
+  current,
+  busy,
+  onSelect,
+}: {
+  option: Option;
+  selected: boolean;
+  recommended: boolean;
+  current: boolean;
+  busy: boolean;
+  onSelect: () => void;
+}) {
+  const card = CARD[option.mode];
+  const disabled = !option.available;
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      className={`relative flex flex-col rounded-2xl border p-5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+        selected
+          ? "border-accent/70 bg-accent/[0.06]"
+          : disabled
+            ? "border-line/[0.06] opacity-55"
+            : "border-line/[0.09] bg-layer/[0.02] hover:border-line/[0.16]"
+      }`}
+    >
+      <span className="flex items-start justify-between">
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-xl ${
+            selected ? "bg-accent/15 text-accent" : "bg-layer/[0.06] text-soft"
+          }`}
+        >
+          <card.Icon className="h-[18px] w-[18px]" />
+        </span>
+        <span
+          aria-hidden
+          className={`flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 ${
+            selected ? "border-accent" : "border-line/30 bg-white"
+          }`}
+        >
+          {busy ? (
+            <Loader2 className="h-3 w-3 animate-spin text-accent" />
+          ) : (
+            selected && <span className="h-2 w-2 rounded-full bg-accent" />
+          )}
+        </span>
+      </span>
+      <span className="mt-4 flex flex-wrap items-center gap-2">
+        <span className="text-[15px] font-semibold text-ink">{card.title}</span>
+        {recommended && (
+          <span className="rounded-md border border-accent/25 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-accent">
+            Recommended
+          </span>
+        )}
+        {current && !recommended && (
+          <span className="rounded-md bg-layer/[0.08] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted">
+            Current
+          </span>
+        )}
+      </span>
+      <span className="mt-1.5 text-[13px] leading-relaxed text-muted">
+        {disabled ? option.unavailableBecause ?? card.blurb : card.blurb}
+      </span>
+      <span className="mt-4 flex flex-col gap-1.5">
+        {card.points.map((point) => (
+          <span key={point} className="flex items-center gap-2 text-[12.5px] text-soft">
+            {selected ? (
+              <Check className="h-3.5 w-3.5 shrink-0 text-accent" />
+            ) : (
+              <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                <span className="h-1.5 w-1.5 rounded-full border border-muted" />
+              </span>
+            )}
+            {point}
+          </span>
+        ))}
+      </span>
+    </button>
+  );
+}
+
+/* The one-glance answer, top right. "Not connected" for a site with no
+   database is the honest word for it, not a warning — the dot says amber
+   only until a database is really there and its tables exist. */
+function StatusPill({ backend }: { backend: Backend }) {
+  const live = backend.mode !== "none" && backend.mode !== null && backend.url !== null && backend.ready;
+  const pending = backend.mode !== "none" && backend.mode !== null && !live;
+  const label = live
+    ? backend.mode === "own"
+      ? "Connected"
+      : backend.mode === "shared"
+        ? "Preview"
+        : "Managed"
+    : pending
+      ? backend.url
+        ? "Setting up"
+        : "Not connected"
+      : "Not connected";
+  return (
+    <span className="mt-0.5 inline-flex shrink-0 items-center gap-2 rounded-full border border-line/[0.12] bg-layer/[0.03] px-3 py-1.5 font-mono text-[11.5px] text-ink">
+      <span className={`h-1.5 w-1.5 rounded-full ${live ? "bg-accent" : "bg-amber-400"}`} />
+      {label}
+    </span>
+  );
+}
+
 export default function BackendPanel({ projectId }: { projectId: string | null }) {
   const [backend, setBackend] = useState<Backend | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,6 +331,10 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
      slow call — a database is really being made — so the button that started it
      says so rather than appearing to have done nothing. */
   const [choosing, setChoosing] = useState<Mode | null>(null);
+  /* Which card is picked on screen — nothing is saved until the button under
+     the cards is pressed. Null means "whatever is current, or suggested". */
+  const [picked, setPicked] = useState<Mode | null>(null);
+  const [learning, setLearning] = useState(false);
 
   /* The migration, fetched only when asked for. It is a few hundred lines of
      SQL that most people never need — with a connection string stored the next
@@ -283,6 +435,28 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
     } finally {
       setChoosing(null);
     }
+  }
+
+  /* What the picked card resolves to, and what pressing the button does with
+     it: "own" opens the Supabase sign-in (or the URL-and-key form), anything
+     else is chosen here. */
+  const offered = backend?.options.map((option) => option.mode) ?? [];
+  const fallback = [backend?.chosen, backend?.mode, backend?.recommended].find(
+    (mode): mode is Mode => Boolean(mode) && offered.includes(mode as Mode),
+  );
+  const selected: Mode = picked && offered.includes(picked) ? picked : fallback ?? offered[0] ?? "none";
+
+  function confirmChoice() {
+    if (!backend || choosing) return;
+    if (selected === "own") {
+      setProblem(null);
+      setOverridable(false);
+      if (backend.oauthConfigured) setConnecting(true);
+      else setOpen(true);
+      return;
+    }
+    if (selected === backend.mode) return;
+    void choose(selected).then(() => setPicked(null));
   }
 
   async function link(skipCheck: boolean) {
@@ -408,11 +582,17 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
   }
 
   return (
-    <div className="w-full max-w-[520px] px-4 py-4 lg:pl-5">
-      <h2 className="text-[17px] font-semibold text-ink">Database</h2>
-      <p className="mt-1 text-[13px] text-muted">
-        Where this app keeps its data, and how to move it to a Supabase you own.
-      </p>
+    <div className="w-full max-w-[720px] px-4 py-6 lg:pl-5">
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">Storage</p>
+          <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">Database</h2>
+          <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+            Where this app keeps its data. You can change this any time.
+          </p>
+        </div>
+        {backend && !loading && <StatusPill backend={backend} />}
+      </header>
 
       {loading && (
         <p className="mt-4 flex items-center gap-2 text-[12px] text-muted">
@@ -429,30 +609,83 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
 
       {!loading && !unavailable && backend && (
         <>
-          <div className="mt-4 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
+          <p className="mt-7 text-[13px] leading-relaxed text-muted">
+            {backend.needsDatabase
+              ? "The last build found accounts or data to save. Pick where this app should keep them."
+              : "The last build didn't need to save anything. Pick how this app should handle data."}
+          </p>
+
+          <div role="radiogroup" aria-label="Where this app keeps its data" className="mt-3 grid gap-3 sm:grid-cols-2">
+            {backend.options.map((option) => (
+              <ChoiceCard
+                key={option.mode}
+                option={option}
+                selected={selected === option.mode}
+                recommended={option.mode === backend.recommended}
+                current={option.mode === backend.mode}
+                busy={choosing === option.mode}
+                onSelect={() => setPicked(option.mode)}
+              />
+            ))}
+          </div>
+
+          {choosing === "quickstark_managed" && (
+            <p className="mt-3 text-[12px] leading-relaxed text-muted">
+              Creating a Supabase project. This takes a moment — a real database is being made.
+            </p>
+          )}
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[12.5px] leading-relaxed text-muted">Switching later keeps everything already on your site.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setLearning((value) => !value)}
+                aria-expanded={learning}
+                className="h-11 flex-1 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05] sm:flex-none"
+              >
+                Learn more
+              </button>
+              <button
+                type="button"
+                onClick={confirmChoice}
+                disabled={choosing !== null || (selected === backend.mode && selected !== "own")}
+                className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-[13.5px] font-semibold text-[#04110b] transition-opacity hover:opacity-90 disabled:opacity-50 sm:flex-none"
+              >
+                {choosing !== null && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {actionLabel(selected, backend.mode)}
+              </button>
+            </div>
+          </div>
+
+          {learning && (
+            <div className="mt-3 space-y-2 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-4 text-[12.5px] leading-relaxed text-muted md:rounded-xl">
+              <p>
+                <span className="font-medium text-ink">Frontend only</span> — nothing is stored and nothing is charged.
+                Contact, waitlist and RSVP forms still work: messages land in the inbox below and in your email.
+              </p>
+              {backend.options.some((option) => option.mode === "quickstark_managed") && (
+                <p>
+                  <span className="font-medium text-ink">QuickStark Managed</span> — a database of its own, set up and
+                  looked after for you. Nothing to sign up for.
+                </p>
+              )}
+              <p>
+                <span className="font-medium text-ink">Connect Supabase</span> — for sign-ins, bookings, orders and
+                anything people save. It runs in your own Supabase account: your data, and Supabase bills you directly.
+              </p>
+              <p>Switching never deletes anything. Your pages stay as they are, and your Supabase keeps its data if you disconnect.</p>
+            </div>
+          )}
+
+          {backend.mode !== "none" && backend.mode !== null && (
+          <div className="mt-6 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
             <p className="flex items-center gap-2 text-[14px] font-medium text-ink">
               <Database className="h-4 w-4 text-muted" />
-              {MODE_TITLE[backend.mode ?? "unset"]}
+              {MODE_TITLE[backend.mode]}
             </p>
 
-            {/* No database, decided. Not a broken panel, and not an absence —
-                which is what this used to look like, because "no database" had
-                no way of being said. */}
-            {backend.mode === "none" && (
-              <p className="mt-2 text-[12px] leading-relaxed text-muted">
-                Nothing is provisioned for this app and nothing is charged for it. A site people
-                read — a brochure, a menu, a landing page — needs no database, and giving it one
-                anyway is the commonest way these things get expensive.
-              </p>
-            )}
-
-            {backend.mode === null && (
-              <p className="mt-2 text-[12px] leading-relaxed text-amber-400">
-                {backend.problem ?? "This project has nowhere to keep data yet."}
-              </p>
-            )}
-
-            {backend.mode !== "none" && backend.mode !== null && (
+            {(
               <div className="mt-2.5">
                 <Row label="Instance">{backend.url}</Row>
                 <Row label="Schema">
@@ -566,72 +799,7 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
               </p>
             )}
           </div>
-
-          {/* ── The three options ───────────────────────────────────────────
-              A custom domain, a Vercel deployment and a database are three
-              different layers, and this is only the third. Choosing here
-              changes where the data goes and nothing else — not the address
-              the site answers on, not where it is hosted. */}
-          <div className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 md:rounded-xl">
-            <p className="text-[13px] font-medium text-ink">Where this app keeps its data</p>
-            <p className="mt-1 text-[12px] leading-relaxed text-muted">
-              {backend.needsDatabase
-                ? "The last build decided this app has accounts or data to store."
-                : "The last build decided this app stores nothing. You can still give it a database."}
-            </p>
-
-            <div className="mt-3 flex flex-col gap-2">
-              {backend.options.map((option) => {
-                const current = option.mode === backend.mode;
-                const suggested = option.mode === backend.recommended && !current;
-                return (
-                  <button
-                    key={option.mode}
-                    onClick={() => {
-                      if (current || !option.available) return;
-                      if (option.mode === "own") {
-                        setProblem(null);
-                        setOverridable(false);
-                        if (backend.oauthConfigured) setConnecting(true);
-                        else setOpen(true);
-                        return;
-                      }
-                      void choose(option.mode);
-                    }}
-                    disabled={current || !option.available || choosing !== null}
-                    className={`rounded-xl border p-3 text-left transition-colors md:rounded-lg ${
-                      current
-                        ? "border-line/20 bg-layer/[0.06]"
-                        : option.available
-                          ? "border-line/[0.09] hover:bg-layer/[0.05]"
-                          : "border-line/[0.05] opacity-55"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2 text-[13px] font-medium text-ink">
-                      {option.label}
-                      {current && <span className="text-[11px] font-normal text-emerald-400">Current</span>}
-                      {suggested && option.available && (
-                        <span className="text-[11px] font-normal text-muted">Suggested</span>
-                      )}
-                      {choosing === option.mode && <Loader2 className="h-3 w-3 animate-spin text-muted" />}
-                    </span>
-                    <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
-                      {/* The reason it cannot be picked, where there is one.
-                          "Unavailable" on its own sends somebody to support
-                          for a missing environment variable. */}
-                      {option.available ? option.blurb : option.unavailableBecause ?? option.blurb}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {choosing === "quickstark_managed" && (
-              <p className="mt-2 text-[12px] leading-relaxed text-muted">
-                Creating a Supabase project. This takes a moment — a real database is being made.
-              </p>
-            )}
-          </div>
+          )}
 
           {/* ── Running the migration yourself ──────────────────────────
               Offered for any Supabase this project has to itself, whether we
@@ -707,23 +875,8 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
             </div>
           )}
 
-          {projectId && backend.mode === "own" && backend.url && (
-            <FormNotifications projectId={projectId} />
-          )}
-
           {backend.mode === "own" && !confirming && (
             <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => {
-                  setProblem(null);
-                  setOverridable(false);
-                  if (backend.oauthConfigured) setConnecting(true);
-                  else setOpen(true);
-                }}
-                className="h-10 rounded-xl border border-line/[0.09] px-3.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink md:h-8 md:rounded-lg"
-              >
-                {backend.oauthConfigured ? "Change project" : "Replace"}
-              </button>
               <button
                 onClick={() => setConfirming(true)}
                 className="flex h-10 items-center gap-1.5 rounded-xl border border-line/[0.09] px-3.5 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] hover:text-ink md:h-8 md:rounded-lg"
@@ -923,13 +1076,12 @@ export default function BackendPanel({ projectId }: { projectId: string | null }
       )}
 
       {/* The forms inbox — what visitors sent through forms on pages with no
-          database of their own. See src/lib/forms/inbox.ts. */}
+          database of their own, and whether each one is emailed. See
+          src/lib/forms/inbox.ts. */}
       {projectId && !unavailable && (
         <>
+          <div className="mt-8 border-t border-line/[0.07]" />
           <FormInbox projectId={projectId} />
-          {/* Email settings for the inbox. A project on its own Supabase has
-              them above, beside that connection. */}
-          {!(backend?.mode === "own" && backend.url) && <FormNotifications projectId={projectId} />}
         </>
       )}
     </div>
