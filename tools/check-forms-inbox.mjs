@@ -92,7 +92,8 @@ has(token.length === 32 && !token.includes("203") && token === F.senderToken("20
   has(/after\(/.test(submit) && at("after(") > at('from("form_submissions").insert'), "the owner's email goes after the visitor has their answer");
 
   const inbox = read("src/app/api/projects/[id]/forms/route.ts");
-  has((inbox.match(/await context\(id\)/g) ?? []).length === 3, "every inbox method checks ownership first");
+  has((inbox.match(/await context\(id\)/g) ?? []).length === 4, "every inbox method checks ownership first");
+  has(/body\.action !== "test"/.test(inbox) && /TESTS_PER_HOUR/.test(inbox) && inbox.indexOf("TESTS_PER_HOUR) {") < inbox.lastIndexOf('from("form_submissions").insert'), "a test message is capped per hour before it is saved");
   has((inbox.match(/\.eq\("project_id", owned\.projectId\)/g) ?? []).length >= 5, "and every read and write is scoped to that project");
 
   const pageData = read("src/lib/builder/backend/page-data.ts");
@@ -113,7 +114,12 @@ has(token.length === 32 && !token.includes("203") && token === F.senderToken("20
   const notify = read("src/app/dashboard/components/workspace/FormNotifications.tsx");
   has(/Update email/.test(notify) && /Send test email/.test(notify) && /Emails go to/.test(notify), "the settings say where emails go, with Update email and Send test email");
   const panel = read("src/app/dashboard/components/workspace/BackendPanel.tsx");
-  has(/<FormInbox projectId=\{projectId\} \/>\s*\{[^}]*\}\s*\{!\(backend\?\.mode === "own" && backend\.url\) && <FormNotifications/.test(panel), "the Database panel shows the inbox's email settings beside it");
+  const inboxUi = read("src/app/dashboard/components/workspace/FormInbox.tsx");
+  has(/<FormInbox projectId=\{projectId\} \/>/.test(panel) && !/FormNotifications/.test(panel), "the Database panel shows the inbox, once");
+  has(/Email me each one/.test(inboxUi) && /<FormNotifications projectId=\{projectId\} compact \/>/.test(inboxUi), "the inbox carries the email setting and where it goes");
+  has(/Send a test message/.test(inboxUi) && /action: "test"/.test(inboxUi), "an empty inbox can be sent a test message");
+  has(/role="radiogroup"/.test(panel) && /role="radio"/.test(panel) && /aria-checked=\{selected\}/.test(panel), "the database choice is an accessible radio group");
+  has(/function StatusPill/.test(panel) && /Not connected/.test(panel) && /function confirmChoice/.test(panel), "the choice is saved only by the button under the cards, and the status says connected or not");
 
   const schema = read("supabase/schema.sql");
   has(/create table if not exists public\.form_submissions/.test(schema) && /revoke all on public\.form_submissions from anon, authenticated/.test(schema), "the table exists, and no browser role can write to it");

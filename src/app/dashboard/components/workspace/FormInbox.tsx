@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Inbox, Loader2, Trash2 } from "lucide-react";
+import { Download, Inbox, Loader2, MessageSquare, Trash2 } from "lucide-react";
+
+import FormNotifications from "./FormNotifications";
 
 /* The project's forms inbox: what visitors sent through the forms on pages
    with no database of their own. See src/lib/forms/inbox.ts and
@@ -34,6 +36,12 @@ export default function FormInbox({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  /* "Email me each one" — the same setting the address row below edits. */
+  const notifyUrl = `/api/projects/${encodeURIComponent(projectId)}/backend/notifications`;
+  const [emailing, setEmailing] = useState<boolean | null>(null);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testNote, setTestNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -57,6 +65,44 @@ export default function FormInbox({ projectId }: { projectId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    fetch(notifyUrl, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { enabled?: boolean } | null) => setEmailing(body ? Boolean(body.enabled) : null))
+      .catch(() => setEmailing(null));
+  }, [notifyUrl]);
+
+  async function setEmail(enabled: boolean) {
+    setSavingEmail(true);
+    setEmailing(enabled);
+    const response = await fetch(notifyUrl, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      setEmailing(!enabled);
+      setProblem("That setting couldn't be saved. Try again.");
+    }
+    setSavingEmail(false);
+  }
+
+  /* A pretend message, saved to this inbox exactly as a real one would be —
+     so somebody can see where messages land before anyone has written. */
+  async function sendTest() {
+    setTesting(true);
+    setTestNote(null);
+    const response = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test" }),
+    }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) : {};
+    if (!response?.ok) setTestNote(body.error ?? "The test message couldn't be sent. Try again.");
+    else await load();
+    setTesting(false);
+  }
 
   async function markRead(ids: string[] | null) {
     setMessages((current) =>
@@ -93,14 +139,34 @@ export default function FormInbox({ projectId }: { projectId: string }) {
   }
 
   return (
-    <section className="mt-6">
-      <div className="flex items-center gap-2">
-        <Inbox className="h-4 w-4 text-muted" />
-        <h3 className="text-[14px] font-medium text-ink">Form messages</h3>
-        {unread > 0 && (
-          <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">{unread} new</span>
-        )}
-        <div className="ml-auto flex items-center gap-1.5">
+    <section className="mt-7">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Inbox className="h-4 w-4 text-soft" />
+            <h3 className="text-[16px] font-semibold text-ink">Form messages</h3>
+            <span className="rounded-md bg-layer/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-soft">{total}</span>
+            {unread > 0 && (
+              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent">{unread} new</span>
+            )}
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+            Contact, waitlist and RSVP submissions. Works with or without a database.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 sm:mt-1">
+          {emailing !== null && (
+            <label className="mr-1 flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={emailing}
+                disabled={savingEmail}
+                onChange={(event) => void setEmail(event.target.checked)}
+                className="h-4 w-4 cursor-pointer rounded accent-[rgb(var(--accent))]"
+              />
+              Email me each one
+            </label>
+          )}
           {unread > 0 && (
             <button
               onClick={() => void markRead(null)}
@@ -120,9 +186,8 @@ export default function FormInbox({ projectId }: { projectId: string }) {
           )}
         </div>
       </div>
-      <p className="mt-1 text-[12px] leading-relaxed text-muted">
-        What people send through your site&apos;s forms — contact, waitlist, RSVP. You also get an email for each new one.
-      </p>
+
+      {emailing && <FormNotifications projectId={projectId} compact />}
 
       {messages === null ? (
         <p className="mt-3 flex items-center gap-2 text-[12px] text-muted">
@@ -130,9 +195,27 @@ export default function FormInbox({ projectId }: { projectId: string }) {
           Reading…
         </p>
       ) : messages.length === 0 ? (
-        <p className="mt-3 rounded-[18px] border border-line/[0.07] bg-layer/[0.02] p-3.5 text-[12.5px] leading-relaxed text-muted md:rounded-xl">
-          {problem ?? "No messages yet. When someone fills in a form on your site, it shows up here."}
-        </p>
+        <div className="mt-5 flex flex-col items-center rounded-2xl border border-dashed border-line/[0.14] px-6 py-10 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400">
+            <MessageSquare className="h-[18px] w-[18px]" />
+          </span>
+          <p className="mt-4 text-[14px] font-semibold text-ink">{problem ? "The inbox couldn't be read" : "No messages yet"}</p>
+          <p className="mt-1 max-w-[340px] text-[13px] leading-relaxed text-muted">
+            {problem ?? "When someone fills in a form on your site, it lands here and in your inbox."}
+          </p>
+          {!problem && (
+            <button
+              type="button"
+              onClick={() => void sendTest()}
+              disabled={testing}
+              className="mt-5 flex h-10 items-center gap-2 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05] disabled:opacity-50"
+            >
+              {testing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Send a test message
+            </button>
+          )}
+          {testNote && <p className="mt-3 text-[12px] text-amber-400">{testNote}</p>}
+        </div>
       ) : (
         <ul className="mt-3 overflow-hidden rounded-[18px] border border-line/[0.07] bg-layer/[0.02] md:rounded-xl">
           {messages.map((message, index) => {
