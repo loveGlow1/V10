@@ -119,56 +119,71 @@ export default function ServerKeys({ projectId }: { projectId: string | null }) 
   if (!state.configured || !projectId) return null;
 
   return (
-    <div className="mt-6 rounded-[18px] border border-line/[0.08] p-3.5 md:rounded-xl">
-      <p className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-        <KeyRound className="h-3.5 w-3.5" /> Server keys
-      </p>
-      <p className="mt-1 text-[12px] leading-relaxed text-muted">
-        Keys your app uses on the server — a Stripe secret key, an API key. They go straight to your
-        hosting and are never stored here, so they can be replaced but never read back.
-      </p>
+    <section className="mt-8">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-soft" />
+            <h3 className="text-[16px] font-semibold text-ink">Server keys</h3>
+            <span className="rounded-md bg-layer/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-soft">{state.keys.length}</span>
+          </div>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+            Keys your app uses on the server — a Stripe secret key, an API key. They go straight to your hosting
+            and are never stored here, so they can be replaced but never read back.
+          </p>
+        </div>
+      </div>
 
       {loading ? (
-        <p className="mt-3 flex items-center gap-1.5 text-[12px] text-muted">
+        <p className="mt-4 flex items-center gap-1.5 text-[12.5px] text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…
         </p>
       ) : state.keys.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-line/[0.06] bg-sunken/40 px-2">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-line/[0.09] bg-layer/[0.02]">
           {state.keys.map((name) => (
-            <div
-              key={name}
-              className="flex items-center gap-2 border-b border-line/[0.06] py-1.5 last:border-b-0"
-            >
-              <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">{name}</span>
-              <span className="shrink-0 text-[11px] text-muted">set</span>
+            <div key={name} className="flex items-center gap-3 border-b border-line/[0.07] px-4 py-3 last:border-b-0">
+              <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{name}</span>
+              <span className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] text-muted">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" /> set
+              </span>
               <button
                 onClick={() => remove(name)}
                 disabled={removing === name}
                 aria-label={`Remove ${name}`}
-                className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-layer/[0.08] hover:text-rose-300 disabled:opacity-40"
+                className="shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-layer/[0.08] hover:text-rose-300 disabled:opacity-40"
               >
-                {removing === name ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
-                )}
+                {removing === name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               </button>
             </div>
           ))}
         </div>
-      ) : (
-        <p className="mt-3 text-[12px] text-muted">None yet.</p>
-      )}
+      ) : !open ? (
+        <div className="mt-4 flex flex-col items-center rounded-2xl border border-dashed border-line/[0.14] px-6 py-8 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-400/10 text-amber-400">
+            <KeyRound className="h-[18px] w-[18px]" />
+          </span>
+          <p className="mt-4 text-[14px] font-semibold text-ink">No keys yet</p>
+          <p className="mt-1 max-w-[340px] text-[13px] leading-relaxed text-muted">
+            Add one when your app needs a secret, like a Stripe or email key.
+          </p>
+          <button
+            onClick={() => setOpen(true)}
+            className="mt-5 flex h-10 items-center gap-1.5 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05]"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add a key
+          </button>
+        </div>
+      ) : null}
 
       {open ? (
-        <div className="mt-3 space-y-2">
+        <div className="mt-4 space-y-2 rounded-2xl border border-line/[0.09] bg-layer/[0.02] p-4">
           <input
             value={key}
             onChange={(event) => setKey(event.target.value)}
             placeholder="STRIPE_SECRET_KEY"
             autoCapitalize="characters"
             spellCheck={false}
-            className="h-10 w-full rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 font-mono text-[12px] text-ink outline-none focus-visible:border-line/25 md:h-9 md:rounded-lg"
+            className="h-11 w-full rounded-xl border border-line/[0.12] bg-layer/[0.03] px-3.5 font-mono text-[12.5px] text-ink outline-none transition-colors focus-visible:border-accent/60"
           />
           <input
             value={value}
@@ -176,13 +191,13 @@ export default function ServerKeys({ projectId }: { projectId: string | null }) 
             placeholder="Paste the value"
             type="password"
             spellCheck={false}
-            className="h-10 w-full rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 font-mono text-[12px] text-ink outline-none focus-visible:border-line/25 md:h-9 md:rounded-lg"
+            className="h-11 w-full rounded-xl border border-line/[0.12] bg-layer/[0.03] px-3.5 font-mono text-[12.5px] text-ink outline-none transition-colors focus-visible:border-accent/60"
           />
           <div className="flex gap-2">
             <button
               onClick={add}
               disabled={adding || !key.trim() || !value.trim()}
-              className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-solid text-[13px] font-medium text-onSolid transition-opacity hover:bg-layer/90 disabled:opacity-30 md:h-9 md:rounded-lg"
+              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-accent text-[13.5px] font-semibold text-[#04110b] transition-opacity hover:opacity-90 disabled:opacity-40"
             >
               {adding && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               {adding ? "Saving…" : "Save key"}
@@ -194,20 +209,20 @@ export default function ServerKeys({ projectId }: { projectId: string | null }) 
                 setValue("");
                 setProblem(null);
               }}
-              className="h-10 shrink-0 rounded-xl border border-line/[0.1] px-3 text-[13px] text-ink transition-colors hover:bg-layer/[0.06] md:h-9 md:rounded-lg"
+              className="h-11 shrink-0 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05]"
             >
               Cancel
             </button>
           </div>
         </div>
-      ) : (
+      ) : state.keys.length > 0 ? (
         <button
           onClick={() => setOpen(true)}
-          className="mt-3 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-line/[0.1] text-[13px] text-ink transition-colors hover:bg-layer/[0.06] md:h-9 md:rounded-lg"
+          className="mt-3 flex h-10 items-center gap-1.5 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05]"
         >
           <Plus className="h-3.5 w-3.5" /> Add a key
         </button>
-      )}
+      ) : null}
 
       {problem && (
         <p className="mt-2 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-2.5 py-2 text-[12px] leading-relaxed text-rose-300">
@@ -215,6 +230,6 @@ export default function ServerKeys({ projectId }: { projectId: string | null }) 
         </p>
       )}
       {note && !problem && <p className="mt-2 text-[12px] leading-relaxed text-muted">{note}</p>}
-    </div>
+    </section>
   );
 }

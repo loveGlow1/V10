@@ -79,6 +79,38 @@ export type ManageRequest = {
   n: number;
 };
 
+/* Settings: one fact in a small card. */
+function Tile({ label, wide = false, children }: { label: string; wide?: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`rounded-2xl border border-line/[0.09] bg-layer/[0.02] p-4 ${wide ? "col-span-2 sm:col-span-1" : ""}`}>
+      <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted">{label}</p>
+      <div className="mt-2 text-[14px] font-medium text-ink">{children}</div>
+    </div>
+  );
+}
+
+/* Settings: an address, opened in a new tab — or said plainly that there is none. */
+function LinkRow({ label, href, text, empty }: { label: string; href: string | null; text: string | null; empty: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-line/[0.07] px-4 py-3.5 last:border-b-0">
+      <span className="shrink-0 text-[13px] text-muted">{label}</span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="group flex min-w-0 items-center gap-1.5 text-[13px] text-accent"
+        >
+          <span className="truncate group-hover:underline">{text ?? href}</span>
+          <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        </a>
+      ) : (
+        <span className="min-w-0 truncate text-[13px] text-soft">{empty}</span>
+      )}
+    </div>
+  );
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-line/[0.06] py-3 last:border-b-0">
@@ -1731,130 +1763,142 @@ export default function PreviewPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(16px,env(safe-area-inset-bottom))]">
         {section === "settings" && (
-          <div className="w-full max-w-[520px] px-4 py-4 lg:pl-5">
+          <div className="w-full max-w-[720px] px-4 py-6 lg:pl-5">
+            <header className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted">Project</p>
+                <h2 className="mt-2 text-[22px] font-semibold tracking-tight text-ink">Settings</h2>
+                <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">
+                  The name, addresses and keys for this app.
+                </p>
+              </div>
+              {project && (
+                <span className="mt-0.5 inline-flex shrink-0 items-center gap-2 rounded-full border border-line/[0.12] bg-layer/[0.03] px-3 py-1.5 font-mono text-[11.5px] text-ink">
+                  <span className={`h-1.5 w-1.5 rounded-full ${isPublished(project) ? "bg-accent" : "bg-amber-400"}`} />
+                  {isPublished(project) ? "Live" : "Not published"}
+                </span>
+              )}
+            </header>
+
             <form
+              className="mt-7"
               onSubmit={async (event) => {
                 event.preventDefault();
                 if (!project || !draft.trim() || draft.trim() === project.name) return;
                 await rename(project.id, draft.trim());
               }}
             >
-              <label className="block text-[13px] text-muted" htmlFor="workspace-name">
-                Name
+              <label className="block text-[13px] font-medium text-ink" htmlFor="workspace-name">
+                App name
               </label>
-              <div className="mt-1.5 flex gap-2">
+              <div className="mt-2 flex gap-2">
                 <input
                   id="workspace-name"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  className="h-10 min-w-0 flex-1 rounded-xl border border-line/[0.1] bg-layer/[0.04] px-3 text-sm text-ink outline-none focus-visible:border-line/25 md:h-9 md:rounded-lg"
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-line/[0.12] bg-layer/[0.03] px-3.5 text-[14px] text-ink outline-none transition-colors focus-visible:border-accent/60"
                 />
                 <button
                   type="submit"
                   disabled={!draft.trim() || draft.trim() === project?.name}
-                  className="h-10 shrink-0 rounded-xl bg-solid px-3.5 text-[13px] font-medium text-onSolid transition-opacity hover:bg-layer/90 disabled:opacity-30 md:h-9 md:rounded-lg"
+                  className="h-11 shrink-0 rounded-xl bg-accent px-5 text-[13.5px] font-semibold text-[#04110b] transition-opacity hover:opacity-90 disabled:opacity-40"
                 >
                   Save
                 </button>
               </div>
             </form>
 
-            <div className="mt-5">
-              <Row label="Status">{project ? project.status : "—"}</Row>
-              <Row label="Address">
-                {/* The real one, or nothing. This used to derive an address
+            <section className="mt-8">
+              <h3 className="text-[16px] font-semibold text-ink">Overview</h3>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <Tile label="Status">
+                  <span className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 rounded-full ${project?.status === "failed" ? "bg-danger" : "bg-accent"}`} />
+                    {project ? project.status.charAt(0).toUpperCase() + project.status.slice(1) : "—"}
+                  </span>
+                </Tile>
+                <Tile label="Build type">
+                  <span className="rounded-md border border-line/[0.12] bg-layer/[0.05] px-1.5 py-0.5 font-mono text-[12px] text-soft">
+                    {project?.intent ?? "—"}
+                  </span>
+                </Tile>
+                <Tile label="Last updated" wide>
+                  {project
+                    ? new Date(project.updated_at).toLocaleString([], {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : "—"}
+                </Tile>
+              </div>
+
+              <div className="mt-3 overflow-hidden rounded-2xl border border-line/[0.09] bg-layer/[0.02]">
+                {/* The real address, or nothing. This used to derive an address
                     from the project's name and show it whether or not anything
                     was live — so a project that had never been published
                     displayed a confident URL that resolved to nothing, and
                     renaming it appeared to move a site that did not exist. */}
-                {project?.slug ? (
-                  <a
-                    href={publishedUrl(project.slug)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all text-accent hover:underline"
-                  >
-                    {publishedLabel(project.slug)}
-                  </a>
-                ) : (
-                  <span className="text-soft">Gets one when you publish</span>
-                )}
-              </Row>
-              <Row label="Published">{project && isPublished(project) ? "Yes" : "Not yet"}</Row>
-              <Row label="Build type">{project?.intent ?? "—"}</Row>
-              <Row label="Preview">
-                {previewUrl ? (
-                  <a
-                    href={previewUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all text-accent hover:underline"
-                  >
-                    {previewUrl}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </Row>
-              <Row label="Code">
-                {repoUrl ? (
-                  <a
-                    href={repoUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all text-accent hover:underline"
-                  >
-                    {repoUrl}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </Row>
-              <Row label="Last updated">
-                {project ? new Date(project.updated_at).toLocaleString() : "—"}
-              </Row>
-            </div>
+                <LinkRow
+                  label="Address"
+                  href={project?.slug ? publishedUrl(project.slug) : null}
+                  text={project?.slug ? publishedLabel(project.slug) : null}
+                  empty="Gets one when you publish"
+                />
+                <LinkRow label="Preview" href={previewUrl ?? null} text={previewUrl ? previewUrl.replace(/^https?:\/\//, "") : null} empty="Not built yet" />
+                <LinkRow label="Code" href={repoUrl ?? null} text={repoUrl ? repoUrl.replace(/^https?:\/\//, "") : null} empty="Not on GitHub yet" />
+              </div>
+            </section>
 
-            {/* Above the delete box and below the facts, which is where it
+            {/* Below the facts and above the delete box, which is where it
                 belongs: it is a thing you configure about the app, not a thing
                 you read about it. See ServerKeys — the value never comes back
                 here, because it never comes here at all. */}
             <ServerKeys projectId={project?.id ?? null} />
 
-            <div className="mt-6 rounded-[18px] border border-danger/25 p-3.5 md:rounded-xl">
-              <p className="text-[13px] font-medium text-ink">Delete this app</p>
-              <p className="mt-1 text-[12px] leading-relaxed text-muted">
-                Removes the project and everything in it. This cannot be undone.
-              </p>
-              {confirming ? (
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={async () => {
-                      if (!project) return;
-                      if (await remove(project.id)) {
-                        router.push("/dashboard");
-                      }
-                    }}
-                    className="h-10 flex-1 rounded-xl bg-danger px-3 text-[13px] font-medium text-white transition-colors hover:bg-danger md:h-8 md:rounded-lg"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => setConfirming(false)}
-                    className="h-10 flex-1 rounded-xl border border-line/[0.09] px-3 text-[13px] text-soft transition-colors hover:bg-layer/[0.05] md:h-8 md:rounded-lg"
-                  >
-                    Cancel
-                  </button>
+            <div className="mt-8 border-t border-line/[0.07]" />
+
+            <section className="mt-7">
+              <h3 className="text-[16px] font-semibold text-ink">Danger zone</h3>
+              <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-danger/25 bg-danger/[0.03] p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-semibold text-ink">Delete this app</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-muted">
+                    Removes the project and everything in it. This cannot be undone.
+                  </p>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setConfirming(true)}
-                  className="mt-3 h-10 rounded-xl border border-danger/40 px-3.5 text-[13px] text-danger transition-colors hover:bg-danger/10 md:h-8 md:rounded-lg"
-                >
-                  Delete app
-                </button>
-              )}
-            </div>
+                {confirming ? (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      onClick={() => setConfirming(false)}
+                      className="h-11 flex-1 rounded-xl border border-line/[0.12] px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-layer/[0.05] sm:flex-none"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!project) return;
+                        if (await remove(project.id)) {
+                          router.push("/dashboard");
+                        }
+                      }}
+                      className="h-11 flex-1 rounded-xl bg-danger px-4 text-[13.5px] font-semibold text-white transition-opacity hover:opacity-90 sm:flex-none"
+                    >
+                      Delete for good
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirming(true)}
+                    className="h-11 shrink-0 rounded-xl border border-danger/40 px-4 text-[13.5px] font-medium text-danger transition-colors hover:bg-danger/10"
+                  >
+                    Delete app
+                  </button>
+                )}
+              </div>
+            </section>
           </div>
         )}
 
