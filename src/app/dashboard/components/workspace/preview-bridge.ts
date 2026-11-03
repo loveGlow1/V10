@@ -81,6 +81,9 @@ type HandEdit = {
     textRuns?: { before: string; after: string }[];
     classes?: { group: ClassGroup; value: string }[];
     remove?: boolean;
+    /* An uploaded picture to become the image's src — resolved to its stored
+       address by the save route. */
+    attachmentId?: string;
   };
 };
 
@@ -439,6 +442,25 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     tellFrame({ deselect: true });
   }, [picks, picked, tellFrame, saveHandEdits]);
 
+  /* A picture uploaded in the composer or the editor, put into the image
+     that was picked: shown in place at once from its thumbnail, then saved by
+     hand — no model, no charge — as its stored address. Only pictures are
+     swapped this way; anything else picked goes to the agent, which is told
+     which element was meant. */
+  const swapImage = useCallback(
+    (image: { attachmentId: string; thumb: string | null }) => {
+      const targets = (picks.length ? picks : picked ? [picked] : []).filter((target) => target.tag === "img");
+      if (!targets.length) return false;
+      if (image.thumb) for (const target of targets) tellFrame({ preview: { src: target.src, imageSrc: image.thumb } });
+      saveHandEdits(
+        targets.map((target) => ({ src: target.src, tag: target.tag, className: target.className, text: target.text ?? "", change: { attachmentId: image.attachmentId } })),
+        targets.map(() => "Replace this picture with the image I just uploaded"),
+      );
+      return true;
+    },
+    [picks, picked, tellFrame, saveHandEdits],
+  );
+
   /* Type into the selected element in place. */
   const editText = useCallback(() => tellFrame({ editText: true }), [tellFrame]);
   const stopTyping = useCallback(() => tellFrame({ stopTyping: true }), [tellFrame]);
@@ -465,7 +487,7 @@ export function usePreviewBridge(frameRef: RefObject<HTMLIFrameElement | null>, 
     lastCover.current = -1;
   }, [picked?.pickId, editMode]);
 
-  return { editMode, setEditMode, picked, setPicked, picks, tokens, readyCount, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping };
+  return { editMode, setEditMode, picked, setPicked, picks, tokens, readyCount, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, swapImage, coverBelow, typingText, typeLive, cancelTyping };
 }
 
 /* The page held still while somebody is typing into it. A build landing

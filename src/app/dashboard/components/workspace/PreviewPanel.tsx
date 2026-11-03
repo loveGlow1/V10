@@ -46,7 +46,10 @@ import { SITE_URL } from "@/lib/site";
 import { publishedLabel, publishedUrl, previewUrl as projectPreviewUrl } from "@/lib/publish/naming";
 import type { Diagnosis } from "@/lib/publish/diagnosis";
 import PublishPanel, { type PublishRun } from "./PublishPanel";
-import { askChat } from "./visual-ask";
+import { askChat, composerImageUsed, thumbnailOf } from "./visual-ask";
+import { useComposerImages } from "./useComposerImages";
+import { uploadAttachment } from "@/lib/project-attachments";
+import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
 import { SOUND_COMMANDS, isSound } from "@/lib/video/sound";
 import ServerKeys from "./ServerKeys";
 import { safeHttpUrl } from "@/lib/safe-url";
@@ -478,7 +481,37 @@ export default function PreviewPanel({
    * Edit mode is the preview's: the frame outlines and selects what is
    * clicked (see preview/runtime.ts) and reports it here; a prompt opens
    * beside it and sends the request to the chat. See VisualEditOverlay. */
-  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  const { editMode, setEditMode, picked, setPicked, picks, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, swapImage, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(frameRef, project?.id, !isDesktop);
+  /* "Use this picture here": the pictures attached in the composer, offered
+     on any image picked in the preview, and a new one uploaded from the
+     editor itself. Either way it is swapped in by hand — no AI, no credits. */
+  const composerImages = useComposerImages(project?.id);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const putPicture = useCallback(
+    (image: { attachmentId: string; thumb: string | null }, fromComposer: boolean) => {
+      if (!project?.id || !swapImage(image)) return;
+      if (fromComposer) composerImageUsed(project.id, image.attachmentId);
+      setPicked(null);
+      deselect();
+    },
+    [project?.id, swapImage, setPicked, deselect],
+  );
+  const uploadPicture = useCallback(
+    async (file: File) => {
+      if (!project?.id || !isSupabaseConfigured) return;
+      setUploadingImage(true);
+      try {
+        const { data } = await createSupabaseBrowserClient().auth.getUser();
+        if (!data.user) return;
+        const [result, thumb] = await Promise.all([uploadAttachment(file, project.id, data.user.id), thumbnailOf(file)]);
+        if (result.attachment) putPicture({ attachmentId: result.attachment.id, thumb }, false);
+        else if (result.error) window.alert(result.error);
+      } finally {
+        setUploadingImage(false);
+      }
+    },
+    [project?.id, putPicture],
+  );
   useEffect(() => {
     if (reloadAfterSave > 0) setReloads((count) => count + 1);
   }, [reloadAfterSave]);
@@ -1609,6 +1642,10 @@ export default function PreviewPanel({
                     deselect();
                   }}
                   onCancel={deselect}
+                  images={composerImages}
+                  onUseImage={(image) => putPicture({ attachmentId: image.id, thumb: image.thumb }, true)}
+                  onUploadImage={(file) => void uploadPicture(file)}
+                  uploadingImage={uploadingImage}
                 />
               ) : editMode && !typing ? (
                 <EditHint docked={!isDesktop} />

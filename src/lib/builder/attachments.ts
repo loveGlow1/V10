@@ -276,6 +276,25 @@ async function publicAddressFor(row: AttachmentRow, buffer: Buffer, mime: string
 }
 
 /**
+ * One uploaded picture's permanent address, for putting it straight into a
+ * page by hand — the visual editor's "Use this image". The same address an
+ * edit would give it (publicAddressFor), so a picture swapped in by hand and
+ * one placed by the agent are stored once and look the same. Null when the
+ * file is gone, is not a picture this app can read, or could not be stored.
+ */
+export async function publicImageAddress(row: AttachmentRow): Promise<string | null> {
+  const supabase = createSupabaseServiceClient();
+  if (!supabase || !isImage(row.mime)) return null;
+  const { data, error } = await supabase.storage.from(ATTACHMENTS_BUCKET).download(row.path);
+  if (error || !data) return null;
+  const buffer = Buffer.from(await data.arrayBuffer());
+  if (buffer.byteLength > MAX_ATTACHMENT_BYTES) return null;
+  const actual = sniffImage(buffer);
+  if (!actual || actual === "heic") return null;
+  return publicAddressFor(row, buffer, actual);
+}
+
+/**
  * The attached images as `token → data URI`, in the order the tokens are given.
  *
  * Numbered off the same list the blocks are built from, so what the model was

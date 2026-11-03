@@ -59,3 +59,56 @@ export function trackTypedSave<T>(save: Promise<T>): Promise<T> {
 export async function settleTypedEdits(): Promise<void> {
   while (pendingSaves.length) await Promise.allSettled([...pendingSaves]);
 }
+
+/* ── The composer's pictures, shared with the visual editor ─────────────
+ *
+ * A picture attached in the composer and a picture picked in the preview
+ * are the two halves of "use this image here", and they live in two panels
+ * that know nothing of each other. So the composer publishes what it is
+ * holding — each upload's id, its name, and a small thumbnail — and the
+ * visual editor offers those pictures on any image that is picked: one tap
+ * and the upload replaces it, by hand (preview-bridge swapImage), no AI.
+ *
+ * The thumbnail is a data URL, not a blob URL: the preview is a sandboxed
+ * frame with an origin of its own, and a blob URL from this page is not
+ * something it can load. It shows the new picture in place at once, while
+ * the real one is stored. */
+export type ComposerImage = { id: string; name: string; thumb: string | null };
+
+export const COMPOSER_IMAGES_EVENT = "quickstark:composer-images";
+const composerImages = new Map<string, ComposerImage[]>();
+
+export function shareComposerImages(projectId: string, images: ComposerImage[]) {
+  if (typeof window === "undefined") return;
+  composerImages.set(projectId, images);
+  window.dispatchEvent(new CustomEvent(COMPOSER_IMAGES_EVENT, { detail: { projectId } }));
+}
+
+export function composerImagesFor(projectId: string | null | undefined): ComposerImage[] {
+  return projectId ? (composerImages.get(projectId) ?? []) : [];
+}
+
+/** A small JPEG of a picked file, as a data URL — null for anything this browser cannot draw. */
+export async function thumbnailOf(file: File, longest = 640): Promise<string | null> {
+  if (typeof window === "undefined" || !file.type.startsWith("image/")) return null;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, longest / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } catch {
+    return null;
+  }
+}
+
+/* A composer picture the visual editor has just put into the page: the
+   composer lets go of it, so it is not sent again with the next message. */
+export const COMPOSER_IMAGE_USED_EVENT = "quickstark:composer-image-used";
+export function composerImageUsed(projectId: string, id: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(COMPOSER_IMAGE_USED_EVENT, { detail: { projectId, id } }));
+}

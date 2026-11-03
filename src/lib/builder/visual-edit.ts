@@ -147,6 +147,10 @@ export type VisualChange = {
   remove?: boolean;
   classes?: { group: ClassGroup; value: string }[];
   imageSrc?: string;
+  /* A picture this person uploaded (project_attachments), to become the
+     image's src. Resolved to its permanent address by the save route before
+     anything is applied, so everything after it sees an ordinary imageSrc. */
+  attachmentId?: string;
 };
 
 export type TextRun = { before: string; after: string };
@@ -617,6 +621,89 @@ export function applySinglePageText(
  * is none. Found the way typed words are — at its line and column, else the
  * one element of that tag on the line (then anywhere) with the same classes
  * — and refused rather than guessed. Pure. */
+/* Where the element a single-page edit names opens: its line and column
+   first, then — when the page has moved since it was picked — the one element
+   on that line, or failing that on the page, with the same tag and classes.
+   Shared by every single-page change so they all agree on which element was
+   meant. Pure. */
+function locateSinglePage(
+  html: string,
+  edit: { src: string; tag: string; className: string },
+): { at: number; end: number; attr: ReturnType<typeof readAttribute> } | { error: string } {
+  const where = parseSrc(edit.src);
+  const tag = edit.tag.toLowerCase();
+  if (!where || !/^[a-z][a-z0-9-]*$/.test(tag)) return { error: "the element could not be placed" };
+
+  const lineStarts = [0];
+  for (let i = 0; i < html.length; i += 1) if (html.charCodeAt(i) === 10) lineStarts.push(i + 1);
+  if (where.line < 1 || where.line > lineStarts.length) return { error: "the page has changed" };
+  const lineStart = lineStarts[where.line - 1];
+  const lineEnd = where.line < lineStarts.length ? lineStarts[where.line] : html.length;
+
+  const norm = (value: string) => value.split(/\s+/).filter(Boolean).sort().join(" ");
+  const want = norm(edit.className);
+  const opensHere = (at: number) => new RegExp(`^<${tag}[\\s>/]`, "i").test(html.slice(at, at + tag.length + 2));
+  const read = (at: number) => {
+    const opening = readOpening(html, at);
+    if (!opening) return null;
+    const attr = readAttribute(html, at, opening.end, "class");
+    if (attr === "expression") return null;
+    return { at, end: opening.end, attr };
+  };
+  const fits = (one: ReturnType<typeof read>) => one !== null && norm(one.attr ? one.attr.value : "") === want;
+
+  const exact = lineStart + where.col - 1;
+  if (opensHere(exact) && fits(read(exact))) return read(exact) as NonNullable<ReturnType<typeof read>>;
+  const scan = (from: number, to: number) => {
+    const out: NonNullable<ReturnType<typeof read>>[] = [];
+    for (let at = html.indexOf("<", from); at >= 0 && at < to; at = html.indexOf("<", at + 1)) {
+      if (!opensHere(at)) continue;
+      const one = read(at);
+      if (one && fits(one)) out.push(one);
+      if (out.length > 1) break;
+    }
+    return out;
+  };
+  let candidates = scan(lineStart, lineEnd);
+  if (candidates.length === 0 && want) candidates = scan(0, html.length);
+  if (candidates.length !== 1) return { error: "the element could not be found as it was" };
+  return candidates[0];
+}
+
+/**
+ * A picture swapped on a single page: the src of the <img> that was picked
+ * set to `imageSrc`, and nothing else on the page touched. Its srcset (if
+ * any) goes, because a srcset would keep showing the old picture on most
+ * screens. Refused, for the agent to do, when the element is not a picture or
+ * the address is not one a page may load. Pure.
+ */
+export function applySinglePageImage(
+  html: string,
+  edit: { src: string; tag: string; className: string; imageSrc: string },
+): VisualResult {
+  if (edit.tag.toLowerCase() !== "img") return { ok: false, needsAi: true, reason: "only a picture has an image to swap" };
+  if (!/^(?:https:\/\/|\/)[^\s"'`<>{}]+$/.test(edit.imageSrc)) return { ok: false, needsAi: true, reason: "that is not an https address" };
+  const found = locateSinglePage(html, edit);
+  if ("error" in found) return { ok: false, needsAi: true, reason: found.error };
+  let out = html;
+  const srcset = readAttribute(out, found.at, found.end, "srcset");
+  const src = readAttribute(out, found.at, found.end, "src");
+  if (srcset === "expression" || src === "expression") return { ok: false, needsAi: true, reason: "the picture's address is computed" };
+  /* Last-first, so the earlier offsets stay true. */
+  const cuts: [number, number, string][] = [];
+  if (src) cuts.push([src.valueStart, src.valueEnd, edit.imageSrc]);
+  else cuts.push([found.at + 4, found.at + 4, ` src="${edit.imageSrc}"`]);
+  if (srcset) {
+    const named = /\ssrcset\s*=\s*/i.exec(out.slice(found.at, found.end));
+    if (!named) return { ok: false, needsAi: true, reason: "the picture's sizes could not be read" };
+    const attrStart = found.at + named.index;
+    const quote = out[srcset.valueEnd] === '"' || out[srcset.valueEnd] === "'" ? 1 : 0;
+    cuts.push([attrStart, srcset.valueEnd + quote, ""]);
+  }
+  for (const [from, to, text] of cuts.sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + text + out.slice(to);
+  return { ok: true, source: out };
+}
+
 export function applySinglePageClasses(
   html: string,
   edit: { src: string; tag: string; className: string; classes: { group: ClassGroup; value: string }[] },

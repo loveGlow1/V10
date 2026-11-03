@@ -16,13 +16,13 @@
  * frame — see preview/runtime.ts. */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, Italic, ChevronUp, GripVertical, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Sparkles, Type, X } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ArrowUp, ArrowUpLeft, Bold, ChevronDown, ImagePlus, Italic, ChevronUp, GripVertical, Loader2, Maximize2, Minimize2, Monitor, MousePointerClick, Smartphone, Sparkles, Type, Upload, X } from "lucide-react";
 
 import { FONT_OPTIONS, parseSrc, type ClassGroup } from "@/lib/builder/visual-edit";
 
 import type { Picked, SaveState } from "./preview-bridge";
 import { useMovable } from "./use-movable";
-import { askChat } from "./visual-ask";
+import { askChat, type ComposerImage } from "./visual-ask";
 
 /* Where the element was written, in words the edit path reads. */
 function where(src: string): string {
@@ -80,8 +80,72 @@ export function VisualEditPrompt(props: {
   typingText?: string | null;
   onTypeLive?: (text: string) => void;
   onCancelTyping?: () => void;
-}) {
+} & ImageSwapProps) {
   return props.docked ? <VisualEditSheet {...props} /> : <FloatingPrompt {...props} />;
+}
+
+/* ── Putting an uploaded picture into the page ───────────────────────────
+ *
+ * On any picture picked in the preview: the pictures attached in the
+ * composer, one tap each, and an Upload button for a new one. Either way the
+ * picture replaces the picked image by hand — saved straight into the source,
+ * no AI, no credits (preview-bridge swapImage, the visual-edit route). */
+type ImageSwapProps = {
+  images?: ComposerImage[];
+  onUseImage?: (image: ComposerImage) => void;
+  onUploadImage?: (file: File) => void;
+  uploadingImage?: boolean;
+};
+
+const isPicture = (picked: Picked) => picked.tag === "img";
+
+function ImageChoices({ images = [], onUseImage, onUploadImage, uploadingImage }: ImageSwapProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none]">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) onUploadImage?.(file);
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploadingImage}
+        aria-label="Upload a picture to use here"
+        className="flex h-12 shrink-0 items-center gap-1.5 rounded-xl border border-dashed border-white/25 px-3 text-[13px] text-white/90 hover:bg-white/[0.08] disabled:opacity-60"
+      >
+        {uploadingImage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        {uploadingImage ? "Uploading…" : "Upload"}
+      </button>
+      {images.map((image) => (
+        <button
+          key={image.id}
+          type="button"
+          onClick={() => onUseImage?.(image)}
+          title={`Use ${image.name} here`}
+          aria-label={`Use ${image.name} here`}
+          className="h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/20 bg-white/[0.06] hover:border-white/60"
+        >
+          {image.thumb ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image.thumb} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="block truncate px-1 text-[10px] text-white/70">{image.name}</span>
+          )}
+        </button>
+      ))}
+      {images.length === 0 && !uploadingImage ? (
+        <span className="shrink-0 text-[11.5px] text-white/45">or attach one in the chat — it appears here</span>
+      ) : null}
+    </div>
+  );
 }
 
 /* "Remove it", "delete these" — said in so many words, it is a removal the
@@ -402,7 +466,11 @@ function VisualEditSheet({
   typingText = null,
   onTypeLive,
   onCancelTyping,
-}: {
+  images,
+  onUseImage,
+  onUploadImage,
+  uploadingImage,
+}: ImageSwapProps & {
   projectId: string;
   picked: Picked;
   picks: Picked[];
@@ -864,6 +932,13 @@ function VisualEditSheet({
           <p className="mt-2.5 text-[11.5px] text-white/45">Applied instantly and saved as a new version — no credits.</p>
         </div>
       ) : (
+        <>
+        {isPicture(picked) && onUploadImage ? (
+          <div className="mt-3">
+            <p className="mb-1.5 text-[11.5px] text-white/50">Replace with — instant, no credits</p>
+            <ImageChoices images={images} onUseImage={onUseImage} onUploadImage={onUploadImage} uploadingImage={uploadingImage} />
+          </div>
+        ) : null}
         <div key="chips" data-qs-scroll className="-mx-4 mt-3 flex gap-2 overflow-x-auto overscroll-contain px-4 pb-1 [scrollbar-width:none]">
           {chips.map((chip) => (
             <button
@@ -876,6 +951,7 @@ function VisualEditSheet({
             </button>
           ))}
         </div>
+        </>
       )}
 
       {(typing || mode !== "style" || !onStyle) && (
@@ -933,7 +1009,11 @@ function FloatingPrompt({
   onStyle,
   onRemove,
   onCover,
-}: {
+  images,
+  onUseImage,
+  onUploadImage,
+  uploadingImage,
+}: ImageSwapProps & {
   projectId: string;
   /* The newest pick, which the box sits beside. */
   picked: Picked;
@@ -950,6 +1030,8 @@ function FloatingPrompt({
 }) {
   const [text, setText] = useState("");
   const [styling, setStyling] = useState(false);
+  /* The picture chooser, in the panel the quick styles use. */
+  const [choosing, setChoosing] = useState(false);
   const boxRef = useRef<HTMLFormElement | null>(null);
   /* Dragged by its grip, it stays where it was put — in the frame, across
      picks — instead of following the element. */
@@ -986,10 +1068,10 @@ function FloatingPrompt({
     const width = Math.min(PROMPT_WIDTH, bounds.width - GAP * 2);
     const right = (rect.left + rect.width) * scaleX;
     let left = right - width;
-    left = Math.max(GAP, Math.min(left, bounds.width - Math.max(width, styling ? 340 : 0) - GAP));
+    left = Math.max(GAP, Math.min(left, bounds.width - Math.max(width, styling || choosing ? 340 : 0) - GAP));
     const elementTop = rect.top * scaleY;
     const elementBottom = (rect.top + rect.height) * scaleY;
-    const block = PROMPT_HEIGHT + (styling ? STYLE_PANEL_HEIGHT + GAP : 0);
+    const block = PROMPT_HEIGHT + (styling || choosing ? STYLE_PANEL_HEIGHT + GAP : 0);
 
     if (move.pin) {
       /* Where it was put; the quick styles under it, or over it when the
@@ -1017,7 +1099,7 @@ function FloatingPrompt({
       setPlace({ top, left, width, panelTop: top + PROMPT_HEIGHT + GAP });
       onCover?.(bounds.top + top - GAP);
     }
-  }, [picked.rect, docked, styling, onCover, move.pin]);
+  }, [picked.rect, docked, styling, choosing, onCover, move.pin]);
 
   useEffect(() => () => onCover?.(null), [onCover]);
 
@@ -1041,11 +1123,22 @@ function FloatingPrompt({
       : { visibility: "hidden" };
 
   const panel: React.CSSProperties | null =
-    styling && place ? { top: place.panelTop, left: place.left, width: Math.max(place.width, 340) } : null;
+    (styling || choosing) && place ? { top: place.panelTop, left: place.left, width: Math.max(place.width, 340) } : null;
 
   return (
     <>
-    {panel && onStyle && (
+    {panel && choosing && !styling && onUploadImage && (
+      <div
+        style={panel}
+        onPointerDown={keepPageFocus}
+        onMouseDown={keepPageFocus}
+        className="pointer-events-auto absolute z-30 rounded-2xl border border-white/[0.12] bg-[#1c1c1f] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      >
+        <ImageChoices images={images} onUseImage={onUseImage} onUploadImage={onUploadImage} uploadingImage={uploadingImage} />
+        <p className="mt-2 text-[11.5px] text-white/50">Replaces this picture instantly and saves a new version — no credits.</p>
+      </div>
+    )}
+    {panel && styling && onStyle && (
       <div
         style={panel}
         onPointerDown={keepPageFocus}
@@ -1079,10 +1172,30 @@ function FloatingPrompt({
         aria-label={picks.length > 1 ? `Describe a change to these ${picks.length} elements` : `Describe a change to this ${picked.tag}`}
         className="min-w-0 flex-1 bg-transparent text-[14px] text-white placeholder:text-white/45 outline-none"
       />
+      {isPicture(picked) && onUploadImage && (
+        <button
+          type="button"
+          onClick={() => {
+            setStyling(false);
+            setChoosing((open) => !open);
+          }}
+          aria-pressed={choosing}
+          aria-label="Replace this picture with an uploaded one"
+          title="Replace with an uploaded picture — no AI, no credits"
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
+            choosing ? "bg-white text-black" : "bg-white/[0.10] text-white/85 hover:bg-white/[0.18]"
+          }`}
+        >
+          <ImagePlus className="h-4 w-4" />
+        </button>
+      )}
       {onStyle && (
         <button
           type="button"
-          onClick={() => setStyling((open) => !open)}
+          onClick={() => {
+            setChoosing(false);
+            setStyling((open) => !open);
+          }}
           aria-pressed={styling}
           aria-label="Quick styles — size, bold, colour"
           title="Quick styles — no AI, no credits"
