@@ -103,6 +103,10 @@ export type VisualDirection = {
   mood: string;
   /** Anything this project's pictures must never contain. */
   avoid: string[];
+  /** Who is in the pictures, when the brief places the business: "Nigerian", "Ghanaian", "African". */
+  people?: string;
+  /** Where they are set: "Abuja, Nigeria", "Nigeria", "West Africa". */
+  place?: string;
 };
 
 /* A request for one picture, in the shape a generation model actually answers

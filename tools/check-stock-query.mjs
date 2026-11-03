@@ -291,5 +291,18 @@ for (const kind of ["landing", "ecommerce", "blog", "news", "webapp"]) {
   has(Array.isArray(contaminationFor(kind, "")), `${kind}: has a contamination list`);
 }
 
+// ── A placed business keeps its place ──────────────────────────────────────
+/* Jimmy Bankz Logistics, Abuja, came back with three photographs of nobody in
+   particular somewhere else: the broad rungs dropped the place. */
+const naija = want({ kind: "logistics", type: "hero", subject: "dispatch riders delivering parcels", people: "Nigerian" });
+const placedLadder = searchTerms(naija);
+has(placedLadder.length >= 2 && placedLadder.every((term) => /\b(Nigerian|African)\b/.test(term)), "every rung of a Nigerian business's search keeps Nigerian (or African) people", placedLadder.join(" | "));
+has(placedLadder[0].startsWith("Nigerian dispatch"), "most specific first: the people and the subject", placedLadder[0]);
+has(!searchTerms(want({ kind: "logistics" })).some((term) => /Nigerian|African/.test(term)), "a business that names no place is searched exactly as before");
+const lagos = photo("lagos", "dispatch riders in Lagos, Nigeria");
+const nowhere = photo("nowhere", "dispatch riders on a street");
+has(scoreCandidate(lagos, naija) > scoreCandidate(nowhere, naija), "a photograph that says Nigeria outranks one that says nothing about where");
+has(pickBest([nowhere, lagos], naija, new Set())?.candidate.id === "lagos", "and is the one chosen");
+
 console.log(failed === 0 ? "\nAll passed." : `\n${failed} failed.`);
 process.exit(failed === 0 ? 0 : 1);
