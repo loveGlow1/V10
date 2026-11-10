@@ -26,6 +26,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { withPolicy } from "@/lib/safety/policy";
 
 import { DIRECTOR_MODEL } from "./director";
+import { attachmentManifest, type StudioAsset } from "./assets";
+import { sceneFromAsset } from "./timeline";
+import { VOICES, isVoiceId } from "./voices";
 import { MAX_CLIP_SECONDS, normalizeCut, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
 
 export type SceneEdit = {
@@ -39,6 +42,8 @@ export type SceneEdit = {
   onScreenText?: string;
   /** New length in seconds. */
   duration?: number;
+  /** Read the line in another voice (voices.ts). */
+  voiceId?: string;
 };
 
 export type Edit = {
@@ -49,6 +54,8 @@ export type Edit = {
   scenes: SceneEdit[];
   /** Old scene numbers in their new order. */
   order?: number[];
+  /** Uploads to put in the video: each after an old scene number, or at the end. */
+  add?: { assetId: string; after?: number }[];
 };
 
 const ACTIONS = ["keep", "refilm", "revoice", "remove"] as const;
@@ -74,6 +81,7 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes">
       edit.voiceover = line;
     }
     if (typeof e.onScreenText === "string") edit.onScreenText = text(e.onScreenText, 200);
+    if (isVoiceId(e.voiceId)) edit.voiceId = e.voiceId;
     const duration = Math.round(Number(e.duration));
     if (Number.isFinite(duration) && duration >= 2 && duration <= MAX_CLIP_SECONDS) edit.duration = duration;
     scenes.push(edit);
@@ -84,12 +92,18 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes">
     if (new Set(seen).size === seen.length && seen.length > 0) order = seen;
   }
   const cut = normalizeCut(r.cut);
+  const add = (Array.isArray(r.add) ? r.add : [])
+    .slice(0, 12)
+    .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
+    .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId))
+    .map((entry) => ({ assetId: String(entry.assetId).toLowerCase(), ...(numbers.has(Number(entry.after)) ? { after: Number(entry.after) } : {}) }));
   return {
     reply: text(r.reply, 500) || "Done.",
     replan: r.replan === true,
     ...(cut ? { cut } : {}),
     scenes,
     ...(order ? { order } : {}),
+    ...(add.length ? { add } : {}),
   };
 }
 
@@ -100,14 +114,23 @@ export type Carry = { from: number; to: number; clip: boolean; voice: boolean };
  * of the new plan, which old scene it came from and whether its clip and its
  * voice line can be reused as they are. Pure.
  */
-export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionPlan; carry: Carry[]; refilm: number[]; revoice: number[] } {
+export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<StudioAsset, "id" | "kind" | "name" | "durationS" | "status" | "mime" | "width" | "height" | "hasAudio">[] = []): { plan: ProductionPlan; carry: Carry[]; refilm: number[]; revoice: number[] } {
   const byN = new Map(edit.scenes.map((e) => [e.n, e]));
   const removed = new Set(edit.scenes.filter((e) => e.action === "remove").map((e) => e.n));
   /* The order asked for, then any scene it left out in its old place. */
   const kept = plan.scenes.filter((scene) => !removed.has(scene.n));
-  const ordered = edit.order
+  let ordered: Scene[] = edit.order
     ? [...edit.order.map((n) => kept.find((s) => s.n === n)).filter((s): s is Scene => Boolean(s)), ...kept.filter((s) => !edit.order?.includes(s.n))]
     : kept;
+  /* Uploads put in: a new scene each (numbered 0 until renumbered, so
+     nothing carries into it but the upload itself). */
+  for (const entry of edit.add ?? []) {
+    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio");
+    if (!asset) continue;
+    const scene = { ...sceneFromAsset(asset as StudioAsset, 0) };
+    const at = entry.after === undefined ? -1 : ordered.findIndex((s) => s.n === entry.after);
+    ordered = at < 0 ? [...ordered, scene] : [...ordered.slice(0, at + 1), scene, ...ordered.slice(at + 1)];
+  }
 
   const merged = { ...(plan.cut ?? {}), ...(edit.cut ?? {}) };
   const cut = normalizeCut(merged.endCard ? { ...merged, endCard: withBrand(merged.endCard) } : merged);
@@ -117,7 +140,7 @@ export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionP
   const revoice: number[] = [];
   const scenes: Scene[] = ordered.map((old, index) => {
     const n = index + 1;
-    const e = byN.get(old.n);
+    const e = old.n === 0 ? undefined : byN.get(old.n);
     const scene: Scene = { ...old, n };
     let clip = true;
     let voice = true;
@@ -131,9 +154,15 @@ export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionP
     }
     if (e?.onScreenText !== undefined) scene.onScreenText = withBrand(e.onScreenText);
     if (e?.duration) scene.duration = e.duration;
+    if (e?.voiceId && e.voiceId !== scene.voiceId) {
+      scene.voiceId = e.voiceId;
+      delete scene.voiceAsset;
+      voice = false;
+    }
     /* A scene that says nothing needs no voice line; a cut of the clips' own
        sound, or a silent one, uses none. */
     if (!scene.voiceover.trim() || noVoice) voice = true;
+    if (old.n === 0) return scene;
     carry.push({ from: old.n, to: n, clip, voice });
     if (!clip) refilm.push(n);
     if (!voice) revoice.push(n);
@@ -164,7 +193,10 @@ export function carryByContent(previous: ProductionPlan, next: ProductionPlan): 
   const noVoice = next.cut?.audio === "original" || next.cut?.audio === "none";
   for (const scene of next.scenes) {
     const line = scene.voiceover.trim();
-    const voice = line ? previous.scenes.find((old) => !usedVoice.has(old.n) && old.voiceover.trim() === line) : undefined;
+    /* A line carries when the same words are read by the same voice — or it
+       is the same recording. */
+    const voiceKey = (plan: ProductionPlan, s: Scene) => (s.voiceAsset ? `asset:${s.voiceAsset}` : `${s.voiceId ?? plan.cut?.voiceId ?? ""}|${s.voiceover.trim()}`);
+    const voice = line || scene.voiceAsset ? previous.scenes.find((old) => !usedVoice.has(old.n) && voiceKey(previous, old) === voiceKey(next, scene)) : undefined;
     /* An upload lip-synced to a line that changed is filed again as it was
        uploaded (free), so it is synced to the new line. */
     const resync = scene.source && scene.engine === "avatar" && line && !voice;
@@ -179,7 +211,7 @@ export function carryByContent(previous: ProductionPlan, next: ProductionPlan): 
       if (voice) carry.push({ from: voice.n, to: scene.n, clip: false, voice: true });
     }
     if (!picture && !scene.source) refilm.push(scene.n);
-    if (line && !voice && !noVoice) revoice.push(scene.n);
+    if (line && !voice && !noVoice && !scene.voiceAsset) revoice.push(scene.n);
   }
   return { carry, refilm, revoice };
 }
@@ -225,6 +257,8 @@ What you can do, cheapest first:
 3. revoice — a new spoken line for a scene (cheap). Give the full new line.
 4. refilm — a new clip for a scene (expensive). Give the COMPLETE new clip prompt: subject, setting, lighting, lens/shot, camera move, motion, mood, aspect ratio — keep every lock (creator, product, style) word for word so it matches the other scenes.
 5. remove — drop a scene. order — old scene numbers in a new order.
+   add — put the person's uploads (from ATTACHMENTS, by assetId) into the video: [{"assetId":"...","after":2}] (after a scene number, or at the end without "after"). Free.
+   voiceId on a scene — read its line in another voice; "cut":{"voiceId":"..."} — every line in another voice. Voices: ${VOICES.map((v) => v.id).join(", ")}.
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
 Rules:
@@ -236,7 +270,7 @@ Rules:
 - reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
-{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5}],"order":[1,2,3]}
+{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":""}],"order":[1,2,3],"add":[{"assetId":"","after":1}]}
 Omit any field you are not changing.`;
 
 /** Asks the editor model for the edits an instruction needs. Server-only. */
@@ -244,6 +278,8 @@ export async function decideEdit(input: {
   plan: ProductionPlan;
   made: { scene: number; clip: boolean; voice: boolean }[];
   instruction: string;
+  /** Everything uploaded: the ATTACHMENTS block is made from it. */
+  assets?: StudioAsset[];
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!process.env.ANTHROPIC_API_KEY) return { error: "The video editor is not configured on this server." };
   try {
@@ -251,7 +287,7 @@ export async function decideEdit(input: {
       model: DIRECTOR_MODEL,
       max_tokens: 4000,
       system: withPolicy(SYSTEM),
-      messages: [{ role: "user", content: `${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }],
+      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }],
     });
     const raw = message.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")

@@ -6,6 +6,7 @@
  * Pure. The model call is in director.ts; the engines are in engines.ts. */
 
 import { PIPELINES, type Engine, type PipelineId } from "./pipelines";
+import { isVoiceId } from "./voices";
 import { normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
 
 /* A scene made from the person's own upload instead of being generated: a
@@ -42,6 +43,10 @@ export type Scene = {
   engine: Engine;
   /** Made from an upload rather than generated. */
   source?: SceneSource;
+  /** The voice this scene's line is read in, over the video's own (voices.ts). */
+  voiceId?: string;
+  /** An audio upload (the person's recording, or a voice made in the editor) used as this scene's voice line. */
+  voiceAsset?: string;
 };
 
 /* How the final cut is put together — what a person changes by asking
@@ -81,6 +86,8 @@ export type Cut = {
   captionStyle?: CaptionStyle;
   /** How a picture moves while it is on screen. */
   stillMotion?: StillMotion;
+  /** The voice every generated line is read in (voices.ts); absent is the video's default. */
+  voiceId?: string;
 };
 
 export type ProductionPlan = {
@@ -216,7 +223,14 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
       motionPrompt: text(s.motionPrompt),
       sound: text(s.sound, 300),
     };
-    return { ...base, engine: routeScene(pipeline, s.engine, base), ...(source ? { source } : {}) };
+    const voiceAsset = typeof s.voiceAsset === "string" && /^[0-9a-f-]{36}$/i.test(s.voiceAsset) ? s.voiceAsset.toLowerCase() : undefined;
+    return {
+      ...base,
+      engine: routeScene(pipeline, s.engine, base),
+      ...(source ? { source } : {}),
+      ...(isVoiceId(s.voiceId) ? { voiceId: s.voiceId } : {}),
+      ...(voiceAsset ? { voiceAsset } : {}),
+    };
   });
   const locks: Record<string, string> = {};
   if (r.locks && typeof r.locks === "object") {
@@ -288,6 +302,7 @@ export function normalizeCut(raw: unknown): Cut | undefined {
     if (muted.length) cut.muted = [...new Set(muted)];
   }
   Object.assign(cut, normalizeSettings(r));
+  if (isVoiceId(r.voiceId)) cut.voiceId = r.voiceId;
   return Object.keys(cut).length ? cut : undefined;
 }
 

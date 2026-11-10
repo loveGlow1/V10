@@ -241,6 +241,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </p>
           <h1 className="truncate text-[20px] font-semibold text-ink">{shown?.title ?? data.video.title}</h1>
         </div>
+        <Link href={`/dashboard/video/${id}/edit`} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
+          <Scissors className="h-4 w-4" /> Open editor
+        </Link>
         {data.versions.length > 0 && (
           <span className="rounded-full border border-line/[0.08] px-3 py-1 text-[12px] text-muted">
             Version {data.latest?.version} of {data.versions.length}

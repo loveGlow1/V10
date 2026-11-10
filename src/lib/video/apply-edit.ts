@@ -28,6 +28,8 @@ import { keyframePath } from "./frames";
 import { usesVoice, type Cut, type ProductionPlan } from "./plan";
 import { advance } from "./production";
 import { startRender } from "./start-render";
+import type { StudioAsset } from "./assets";
+import { loadStudioAssets } from "./plan-video";
 
 const EDIT_COST = 1;
 
@@ -82,10 +84,11 @@ export async function editVideo(input: {
   if (!loaded) return null;
   const { plan, done } = loaded;
   const made = plan.scenes.map((scene) => ({ scene: scene.n, clip: Boolean(done(scene.n, "video") || done(scene.n, "avatar")), voice: Boolean(done(scene.n, "voice")) }));
-  const decided = await decideEdit({ plan, made, instruction: input.instruction });
+  const uploads = await loadStudioAssets(input.writer, input.videoId);
+  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (decided.edit.replan) return null;
-  return commitEdit({ ...input, ...loaded, edit: decided.edit, charge: EDIT_COST, outputTokens: decided.outputTokens });
+  return commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: EDIT_COST, outputTokens: decided.outputTokens });
 }
 
 /* An edit, made real as the next version. */
@@ -96,10 +99,11 @@ async function commitEdit(input: Loaded & {
   origin: string;
   instruction: string;
   edit: Edit;
+  uploads?: StudioAsset[];
   charge: number;
   outputTokens?: number;
 }): Promise<EditResult> {
-  const { plan: next, carry, refilm, revoice } = applyEdit(input.plan, input.edit);
+  const { plan: next, carry, refilm, revoice } = applyEdit(input.plan, input.edit, input.uploads ?? []);
   return commitNext({ ...input, next, carry, refilm, revoice, reply: input.edit.reply });
 }
 

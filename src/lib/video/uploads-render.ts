@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { ProductionPlan } from "./plan";
+import { usesVoice, type ProductionPlan } from "./plan";
 
 /** Files every upload the plan uses that the version has no row for yet. Returns how many. */
 export async function fileUploads(
@@ -15,7 +15,8 @@ export async function fileUploads(
   input: { videoId: string; userId: string; version: number; plan: ProductionPlan },
 ): Promise<number> {
   const { videoId, userId, version, plan } = input;
-  const ids = new Set(plan.scenes.flatMap((scene) => (scene.source ? [scene.source.assetId] : [])));
+  const voiced = usesVoice(plan.cut);
+  const ids = new Set(plan.scenes.flatMap((scene) => [...(scene.source ? [scene.source.assetId] : []), ...(scene.voiceAsset && voiced ? [scene.voiceAsset] : [])]));
   const musicId = plan.cut?.music?.source === "upload" ? plan.cut.music.assetId : undefined;
   if (musicId) ids.add(musicId);
   if (!ids.size) return 0;
@@ -37,6 +38,14 @@ export async function fileUploads(
       continue;
     }
     rows.push({ ...base, scene: scene.n, engine: "video", provider: `upload:${asset.id}`, status: "done", output_path: `storage:${asset.working_path ?? asset.storage_path}` });
+  }
+  /* A scene read from a recording — the person's own, or one made in the
+     editor — gets that recording as its voice line: lip sync and the cut
+     take it from there. */
+  for (const scene of plan.scenes) {
+    if (!scene.voiceAsset || !voiced || has(scene.n, "voice")) continue;
+    const asset = byId.get(scene.voiceAsset);
+    if (asset && asset.status !== "failed") rows.push({ ...base, scene: scene.n, engine: "voice", provider: `upload:${asset.id}`, status: "done", output_path: `storage:${asset.storage_path}` });
   }
   if (musicId && !has(null, "music")) {
     const asset = byId.get(musicId);

@@ -33,7 +33,7 @@ import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
 import type { ProductionPlan } from "@/lib/video/plan";
-import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob, voiceIdFor } from "@/lib/video/render";
+import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
 
 
 /** Step 5 for one video: every clip and voice line of its current version, sent. The render route and the workspace both start renders here. */
@@ -253,11 +253,10 @@ export async function startRender(
   /* Voice lines straight from MiniMax, after the answer: each takes a few
      seconds, and the studio watches the rows fill in. */
   if (voices.length && writer) {
-    const voiceId = voiceIdFor(answers);
     after(async () => {
       await Promise.all(
         voices.map(async (job) => {
-          const spoken = await speak({ text: job.text, voiceId, language: languageFor(answers) });
+          const spoken = await speak({ text: job.text, voiceId: job.voiceId, language: languageFor(answers) });
           await landResult(writer, {
             videoId: id,
             version,

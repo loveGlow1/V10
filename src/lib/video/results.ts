@@ -184,7 +184,8 @@ export async function failoverN8n(service: SupabaseClient, input: { videoId: str
     waiting.map(async (row) => {
       if (row.engine === "video") return retryClip(service, { videoId: input.videoId, version: input.version, n: row.scene, failed: "n8n", origin: input.origin });
       if (row.engine !== "voice" || !canSpeak() || !plan) return false;
-      const line = plan.scenes.find((scene) => scene.n === row.scene)?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+      const sceneOf = plan.scenes.find((scene) => scene.n === row.scene);
+      const line = sceneOf?.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
       if (!line) return false;
       /* Claimed first, so a late n8n reply for the same line is ignored. */
       await service
@@ -194,7 +195,7 @@ export async function failoverN8n(service: SupabaseClient, input: { videoId: str
         .eq("version", input.version)
         .eq("scene", row.scene)
         .eq("engine", "voice");
-      const spoken = await speak({ text: line, voiceId: voiceIdFor(answers), language: languageFor(answers) });
+      const spoken = await speak({ text: line, voiceId: sceneOf?.voiceId ?? plan.cut?.voiceId ?? voiceIdFor(answers), language: languageFor(answers) });
       await landResult(service, { videoId: input.videoId, version: input.version, kind: "voice", n: row.scene, bytes: spoken.ok ? spoken.audio : null, error: spoken.ok ? null : spoken.error, origin: input.origin });
       return true;
     }),

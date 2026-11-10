@@ -223,21 +223,44 @@ export function avatarTask(input: { taskUUID: string; imageUrl: string; audioUrl
   };
 }
 
-/** An instrumental bed. ACE-Step makes 30s at the least; the cut trims it. Pure. */
-export function musicTask(input: { taskUUID: string; prompt: string; seconds: number; webhookUrl: string }): Item {
+/**
+ * Music. Without lyrics an instrumental bed; with lyrics (10 to 3000
+ * characters) a song sung in `vocalLanguage`. ACE-Step makes 30s at the
+ * least; the cut trims it. Queued with a webhook, or answered in the same
+ * request without one. Pure.
+ */
+export function musicTask(input: { taskUUID: string; prompt: string; seconds: number; webhookUrl?: string; lyrics?: string; vocalLanguage?: string }): Item {
+  const lyrics = input.lyrics?.trim().slice(0, 3000);
+  const sung = Boolean(lyrics && lyrics.length >= 10);
   return {
     taskType: "audioInference",
     taskUUID: input.taskUUID,
     model: RUNWARE_MUSIC_MODEL,
-    positivePrompt: `${input.prompt}. Instrumental background score, no vocals, clean mix.`.slice(0, 3000),
+    positivePrompt: (sung ? input.prompt : `${input.prompt}. Instrumental background score, no vocals, clean mix.`).slice(0, 3000),
     duration: Math.min(300, Math.max(30, Math.ceil(input.seconds))),
-    settings: { vocalLanguage: "unknown" },
+    settings: sung ? { lyrics, vocalLanguage: /^[a-z]{2,3}$/.test(input.vocalLanguage ?? "") ? input.vocalLanguage : "en" } : { vocalLanguage: "unknown" },
     outputType: "URL",
     outputFormat: "MP3",
-    deliveryMethod: "async",
-    webhookURL: input.webhookUrl,
+    ...(input.webhookUrl ? { deliveryMethod: "async", webhookURL: input.webhookUrl } : {}),
     includeCost: true,
   };
+}
+
+/** Music made now, in this request (ACE-Step answers in seconds). The MP3 and what Runware charged. */
+export async function runwareMusic(input: { prompt: string; seconds: number; lyrics?: string; vocalLanguage?: string }): Promise<{ ok: true; audio: Buffer; cost: number | null } | { ok: false; error: string }> {
+  if (!runwareConfigured()) return { ok: false, error: "Music needs the Runware key (RUNWARE_API_KEY) on this deployment." };
+  try {
+    const sent = await call([musicTask({ ...input, taskUUID: randomUUID() })], 110000);
+    if (sent.errors.length || sent.status >= 400) return { ok: false, error: `${runwareError(sent.errors, sent.status)}.` };
+    const item = sent.data[0] ?? {};
+    const url = https(item.audioURL);
+    if (!url) return { ok: false, error: "Runware returned no music." };
+    const file = await fetch(url, { signal: AbortSignal.timeout(60000) });
+    if (!file.ok) return { ok: false, error: "The music could not be fetched from Runware." };
+    return { ok: true, audio: Buffer.from(await file.arrayBuffer()), cost: typeof item.cost === "number" ? item.cost : null };
+  } catch {
+    return { ok: false, error: "Could not reach Runware for the music." };
+  }
 }
 
 /** Queues one task built above. The id is its UUID — what getResponse reads back. */
