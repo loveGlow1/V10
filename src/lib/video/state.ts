@@ -10,7 +10,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { parseProvider } from "@/lib/video/clip-engines";
 import { readiness, renderCost } from "@/lib/video/engines";
 import { clipStatus } from "@/lib/video/providers";
-import { advance } from "@/lib/video/production";
+import { advance, lineTaskOf } from "@/lib/video/production";
+import { settleRunwareLineJob } from "@/lib/video/line-results";
 import { announceFinal } from "@/lib/video/announce";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
@@ -57,6 +58,28 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
         }
         if (state.state === "failed" && (await retryClip(service, { videoId: id, version, n: row.scene, failed: at.engine, origin }))) return;
         await landResult(service, { videoId: id, version, kind: "clip", n: row.scene, url: state.state === "done" ? state.url : null, error: state.state === "failed" ? state.error : null, engine: at.engine, origin });
+      }),
+    );
+    const { data: fresh } = await supabase.from("video_renders").select("id, scene, engine, provider, status, output_path, error, updated_at, created_at").eq("video_id", id).eq("version", video.current_version);
+    if (fresh) renderRows?.splice(0, renderRows.length, ...fresh);
+  }
+
+  /* The same for the production line's Runware jobs (lip sync, avatar,
+     music): a lost webhook is recovered by asking Runware. */
+  const quietLine = (renderRows ?? []).filter(
+    (row) => service && row.status === "running" && lineTaskOf(row.provider) && Date.now() - new Date(row.updated_at).getTime() > ASK_AFTER_MS,
+  );
+  if (service && quietLine.length) {
+    const version = video.current_version as number;
+    await Promise.all(
+      quietLine.slice(0, 6).map(async (row) => {
+        if (row.engine !== "avatar" && row.engine !== "music") return;
+        const result = await settleRunwareLineJob(service, { videoId: id, version, job: { engine: row.engine, scene: row.scene }, provider: row.provider, origin });
+        /* Not yet — asked again in a minute, until fal's allowance runs out
+           and the stale check below calls it. */
+        if (result === "running" && Date.now() - new Date(row.created_at).getTime() < FAL_STALE_AFTER_MS) {
+          await service.from("video_renders").update({ updated_at: new Date().toISOString() }).eq("id", row.id).eq("status", "running");
+        }
       }),
     );
     const { data: fresh } = await supabase.from("video_renders").select("id, scene, engine, provider, status, output_path, error, updated_at, created_at").eq("video_id", id).eq("version", video.current_version);
@@ -146,7 +169,7 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     assets: assets ?? [],
     readiness: latest ? readiness(latest.plan as ProductionPlan) : null,
     /* Worked out here, where FAL_KEY is visible: the button shows it. */
-    cost: latest ? renderCost(latest.plan as ProductionPlan) : 0,
+    cost: latest ? renderCost(latest.plan as ProductionPlan, process.env, ((video.answers ?? {}) as Record<string, string>).quality ?? null) : 0,
     renders,
     /* The one-file cut, when fal has composed it. */
     final: renders.find((row) => row.engine === "compose" && row.status === "done")?.url ?? null,

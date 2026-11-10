@@ -46,6 +46,22 @@ has(W.videoTask({ taskUUID: "u", prompt: "p", seconds: 30, aspect: "1:1", webhoo
 has(W.videoTask({ taskUUID: "u", prompt: "p", seconds: 6, aspect: "16:9", webhookUrl: "x", model: "minimax:4@1" }).model === "minimax:4@1", "RUNWARE_VIDEO_MODEL can swap the model");
 has(/out of credit/.test(W.runwareError([{ code: "insufficientCredits", message: "Insufficient credits" }], 402)) && /key was refused/.test(W.runwareError([], 401)), "Runware's refusals are said in plain words");
 
+has(text.includeCost === true, "every task asks Runware for its cost");
+
+/* ── The production line ────────────────────────────────────────────── */
+const lip = W.lipsyncTask({ taskUUID: "u", videoUrl: "https://v/c.mp4", audioUrl: "https://a/l.mp3", syncMode: "cut_off", webhookUrl: "https://x" });
+has(lip.model === "sync:lipsync-2-pro@1" && lip.inputs.video === "https://v/c.mp4" && lip.inputs.audio === "https://a/l.mp3" && Object.keys(lip.inputs).length === 2, "lip sync: sync:lipsync-2-pro@1 with inputs.video and inputs.audio — nothing else");
+has(lip.providerSettings.sync.syncMode === "cut_off" && lip.providerSettings.sync.activeSpeakerDetection === true && lip.providerSettings.sync.occlusionDetectionEnabled === true && lip.includeCost === true, "sync mode always set (never the default bounce), speaker and occlusion detection on");
+has(W.lipsyncTask({ taskUUID: "u", videoUrl: "v", audioUrl: "a", syncMode: "loop", tier: "draft", webhookUrl: "x" }).model === "sync:lipsync-2@1", "draft lip sync is lipsync-2");
+has(W.syncModeFor(4, 6) === "cut_off" && W.syncModeFor(8, 6) === "loop" && W.syncModeFor(null, 6) === "cut_off" && W.syncModeFor(6.1, 6) === "cut_off", "a line that fits is cut at the clip's end; a longer line loops the picture; unknown is cut_off");
+const av = W.avatarTask({ taskUUID: "u", imageUrl: "https://p/me.jpg", audioUrl: "https://a/l.mp3", webhookUrl: "https://x" });
+has(av.model === "klingai:avatar@2.0-pro" && av.inputs.image === "https://p/me.jpg" && av.inputs.audio === "https://a/l.mp3" && typeof av.positivePrompt === "string", "a talking portrait: Kling Avatar 2.0 Pro, inputs.image + inputs.audio");
+has(W.avatarTask({ taskUUID: "u", imageUrl: "i", audioUrl: "a", tier: "draft", webhookUrl: "x" }).model === "klingai:avatar@2.0-standard", "draft avatar is the standard model");
+const mu = W.musicTask({ taskUUID: "u", prompt: "lofi", seconds: 12, webhookUrl: "https://x" });
+has(mu.taskType === "audioInference" && mu.model === "runware:ace-step@v1.5-turbo" && mu.duration === 30 && mu.settings.vocalLanguage === "unknown" && mu.outputFormat === "MP3", "music: ACE-Step 1.5 turbo, instrumental, at least 30s");
+has(W.musicTask({ taskUUID: "u", prompt: "p", seconds: 900, webhookUrl: "x" }).duration === 300, "and at most 300s");
+has([lip, av, mu].every((t) => t.deliveryMethod === "async" && t.webhookURL), "each is queued async and reports to our webhook");
+
 /* ── Routing ────────────────────────────────────────────────────────── */
 const env = { RUNWARE_API_KEY: "k" };
 has(C.routeClip({ pipeline: "ugc_influencer", aspect: "9:16", fromFrame: false, tier: "credit" }, env)[0] === "runware", "with only RUNWARE_API_KEY, a vertical UGC scene is filmed on Runware");

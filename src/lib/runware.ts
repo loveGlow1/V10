@@ -4,7 +4,7 @@
  *   body: an ARRAY of tasks, each { taskType, taskUUID, model, … }
  *   answer: { data: [ … ], errors: [ { code, message, taskUUID } ] }
  *
- * Used for three things, each behind its own function here:
+ * Used for these, each behind its own function here:
  *
  *   videoInference   a scene's clip. Asynchronous: deliveryMethod "async" and a
  *                    webhookURL; the result is then read back with a
@@ -14,6 +14,12 @@
  *   imageInference   a still (scene frames, flier backgrounds). Synchronous.
  *   audioInference   a voice line: MiniMax Speech 2.8 (minimax:speech@2.8),
  *                    the same MiniMax voice library the direct API uses.
+ *   production       lip sync (sync:lipsync-2-pro@1: inputs.video +
+ *                    inputs.audio), a talking portrait (klingai:avatar@2.0)
+ *                    and the music bed (runware:ace-step@v1.5-turbo), each
+ *                    queued async and read back with getResponse.
+ *
+ * Every task is sent with includeCost, so what Runware charged comes back.
  *
  * Model ids are AIR identifiers and can be changed without a code change:
  * RUNWARE_VIDEO_MODEL, RUNWARE_IMAGE_MODEL, RUNWARE_SPEECH_MODEL. A video
@@ -109,6 +115,7 @@ export function videoTask(input: {
     outputFormat: "MP4",
     deliveryMethod: "async",
     webhookURL: input.webhookUrl,
+    includeCost: true,
   };
 }
 
@@ -133,6 +140,18 @@ export async function submitRunwareVideo(input: {
 
 /** Where a clip is, asked of Runware itself. */
 export async function runwareVideoStatus(id: string): Promise<{ state: "running" } | { state: "done"; url: string } | { state: "failed"; error: string }> {
+  const status = await runwareTaskStatus(id);
+  return status.state === "done" ? { state: "done", url: status.url } : status;
+}
+
+/**
+ * Where any queued task is — a clip, a lip sync, an avatar, a score — asked
+ * of Runware itself with getResponse. `cost` is what Runware charged in USD
+ * (every task is sent with includeCost), when it said.
+ */
+export async function runwareTaskStatus(
+  id: string,
+): Promise<{ state: "running" } | { state: "done"; url: string; cost: number | null } | { state: "failed"; error: string }> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { state: "failed", error: "Not a Runware task." };
   try {
     const read = await call([{ taskType: "getResponse", taskUUID: id }], 15000);
@@ -140,11 +159,97 @@ export async function runwareVideoStatus(id: string): Promise<{ state: "running"
     if (failed) return { state: "failed", error: `${runwareError([failed], read.status)}.` };
     const item = read.data.find((entry) => entry.taskUUID === id) ?? read.data[0];
     if (!item || item.status === "processing") return { state: "running" };
-    if (item.status === "error") return { state: "failed", error: "Runware could not make this clip." };
-    const url = https(item.videoURL);
-    return url ? { state: "done", url } : item.status === "success" ? { state: "failed", error: "Runware finished without a video." } : { state: "running" };
+    if (item.status === "error") return { state: "failed", error: `Runware could not make it${typeof item.message === "string" ? `: ${item.message.slice(0, 200)}` : ""}.` };
+    const url = https(item.videoURL) ?? https(item.audioURL);
+    const cost = typeof item.cost === "number" && Number.isFinite(item.cost) ? item.cost : null;
+    return url ? { state: "done", url, cost } : item.status === "success" ? { state: "failed", error: "Runware finished without a file." } : { state: "running" };
   } catch {
     return { state: "running" };
+  }
+}
+
+/* ── The production line: lip sync, avatars, music ───────────────────── */
+
+/* Every schema below is additionalProperties:false at Runware (checked
+   against model_schema), so these builders send nothing else. */
+export const RUNWARE_LIPSYNC_MODEL = { final: "sync:lipsync-2-pro@1", draft: "sync:lipsync-2@1" } as const;
+export const RUNWARE_AVATAR_MODEL = { final: "klingai:avatar@2.0-pro", draft: "klingai:avatar@2.0-standard" } as const;
+export const RUNWARE_MUSIC_MODEL = "runware:ace-step@v1.5-turbo";
+
+export type SyncMode = "cut_off" | "loop" | "silence";
+
+/**
+ * How sync handles a line and a clip of different lengths. Never "bounce",
+ * its default, which plays the voice backwards to fill the time. A line no
+ * longer than its clip is cut at the clip's end (nothing to cut); a line that
+ * runs longer than its clip loops the PICTURE under the whole line rather
+ * than cutting the words off. Unknown lengths: cut_off, which can never
+ * repeat or reverse the voice. Pure.
+ */
+export function syncModeFor(voiceSeconds: number | null, clipSeconds: number | null): SyncMode {
+  if (!voiceSeconds || !clipSeconds) return "cut_off";
+  return voiceSeconds > clipSeconds + 0.25 ? "loop" : "cut_off";
+}
+
+/** A clip and its own voice line → the clip, lip-synced. Pure. */
+export function lipsyncTask(input: { taskUUID: string; videoUrl: string; audioUrl: string; syncMode: SyncMode; tier?: "final" | "draft"; webhookUrl: string }): Item {
+  return {
+    taskType: "videoInference",
+    taskUUID: input.taskUUID,
+    model: RUNWARE_LIPSYNC_MODEL[input.tier ?? "final"],
+    inputs: { video: input.videoUrl, audio: input.audioUrl },
+    providerSettings: { sync: { syncMode: input.syncMode, activeSpeakerDetection: true, occlusionDetectionEnabled: true } },
+    outputType: "URL",
+    outputFormat: "MP4",
+    deliveryMethod: "async",
+    webhookURL: input.webhookUrl,
+    includeCost: true,
+  };
+}
+
+/** One portrait and a voice line → that person talking. Pure. */
+export function avatarTask(input: { taskUUID: string; imageUrl: string; audioUrl: string; tier?: "final" | "draft"; webhookUrl: string }): Item {
+  return {
+    taskType: "videoInference",
+    taskUUID: input.taskUUID,
+    model: RUNWARE_AVATAR_MODEL[input.tier ?? "final"],
+    positivePrompt: "Natural talking performance, precise lip sync, subtle head movement, steady camera.",
+    inputs: { image: input.imageUrl, audio: input.audioUrl },
+    outputType: "URL",
+    outputFormat: "MP4",
+    deliveryMethod: "async",
+    webhookURL: input.webhookUrl,
+    includeCost: true,
+  };
+}
+
+/** An instrumental bed. ACE-Step makes 30s at the least; the cut trims it. Pure. */
+export function musicTask(input: { taskUUID: string; prompt: string; seconds: number; webhookUrl: string }): Item {
+  return {
+    taskType: "audioInference",
+    taskUUID: input.taskUUID,
+    model: RUNWARE_MUSIC_MODEL,
+    positivePrompt: `${input.prompt}. Instrumental background score, no vocals, clean mix.`.slice(0, 3000),
+    duration: Math.min(300, Math.max(30, Math.ceil(input.seconds))),
+    settings: { vocalLanguage: "unknown" },
+    outputType: "URL",
+    outputFormat: "MP3",
+    deliveryMethod: "async",
+    webhookURL: input.webhookUrl,
+    includeCost: true,
+  };
+}
+
+/** Queues one task built above. The id is its UUID — what getResponse reads back. */
+export async function submitRunwareTask(task: Item): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (!runwareConfigured()) return { ok: false, error: "Runware is not connected." };
+  const id = String(task.taskUUID ?? "");
+  try {
+    const sent = await call([task], 30000);
+    if (sent.errors.length || sent.status >= 400) return { ok: false, error: `${runwareError(sent.errors, sent.status)}.` };
+    return { ok: true, id };
+  } catch {
+    return { ok: false, error: "Could not reach Runware." };
   }
 }
 
@@ -166,6 +271,7 @@ export async function runwareImages(input: { prompt: string; shape: keyof typeof
         numberResults: Math.min(Math.max(input.n ?? 1, 1), 4),
         outputType: "base64Data",
         outputFormat: "PNG",
+        includeCost: true,
       },
     ],
     180000,
@@ -193,6 +299,7 @@ export async function runwareSpeak(input: { text: string; voiceId: string }): Pr
           speech: { text: input.text.slice(0, 3000), voice: input.voiceId },
           outputType: "base64Data",
           outputFormat: "MP3",
+          includeCost: true,
         },
       ],
       110000,
