@@ -101,3 +101,33 @@ fails. The price of a credit is `topUpPricePerCredit()` in
   from one creator keyframe per version (`lib/video/frames.ts`).
 - **Lip sync, avatar and music:** `lib/video/production.ts`. See
   `docs/MEDIA-ENGINES.md`.
+
+## The visual editor
+
+`/dashboard/video/[id]/edit` (`components/video/VideoEditor.tsx`). A cut
+made by hand, the way CapCut works, and none of it needs AI:
+
+- **Preview:** plays the timeline in the browser, with each clip at its
+  in-point, speed and level, pictures moving, voice lines, the music and the
+  words on screen.
+- **Scenes list:** a thumbnail, a status (Ready / Preparing / Made on export
+  / Upload missing), move up or down, and take out. Taken-out scenes wait in
+  a tray to be put back with one tap.
+- **Timeline:** four labelled tracks (Video, Words, Voice, Music). Drag a
+  clip to reorder it, drag its edges to trim, split at the playhead (S),
+  duplicate, take out, undo and redo (⌘Z / ⇧⌘Z), and zoom.
+- **Inspector:**
+  - A clip: trim, speed, level, mute, words on screen.
+  - Its voice-over: any of 30 voices (`lib/video/voices.ts`), made now or
+    on export, or the person's own recording.
+  - The music: none, made on export, made now from a prompt (a song when
+    lyrics are given), or any audio upload; its level, start point and
+    ducking. Also one voice for every line.
+- **AI editor:** optional, one credit per answer (`POST [id]/assist`). It
+  reads the ATTACHMENTS block, the timeline on screen and the settings, and
+  its proposal lands on the timeline to keep or undo. It can reorder, trim,
+  re-voice, change settings and add uploads.
+
+The deterministic operations live in `lib/video/editor-timeline.ts` (pure,
+checked offline). Music and voice made on request go through
+`POST [id]/audio` and become audio uploads that can be reused and swapped.
