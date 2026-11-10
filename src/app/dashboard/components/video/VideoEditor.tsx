@@ -24,7 +24,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
+  RotateCcw,
   Copy,
   Download,
   Loader2,
@@ -46,7 +49,7 @@ import {
 
 import { formatSeconds } from "@/lib/video/assets";
 import { resolveCut } from "@/lib/video/cut-settings";
-import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, type Segment } from "@/lib/video/editor-timeline";
+import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset } from "@/lib/video/timeline";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
@@ -86,6 +89,8 @@ export default function VideoEditor({ id }: { id: string }) {
   const [showSettings, setShowSettings] = useState(false);
   const [chat, setChat] = useState<Chat[]>([]);
   const [ask, setAsk] = useState("");
+  /* Scenes taken out, kept here to put back with one tap. */
+  const [removed, setRemoved] = useState<{ scene: Scene; index: number }[]>([]);
 
   const load = useCallback(
     async (keepDraft = false) => {
@@ -327,6 +332,18 @@ export default function VideoEditor({ id }: { id: string }) {
 
   /* ── Keyboard: space, S, Delete, ⌘Z / ⇧⌘Z ──────────────────────────── */
   const selected = selection?.type === "scene" ? draft?.scenes.find((s) => s.n === selection.n) ?? null : null;
+  const takeOut = (n: number) => {
+    if (!draft || draft.scenes.length <= 1) return;
+    const index = draft.scenes.findIndex((s) => s.n === n);
+    if (index < 0) return;
+    setRemoved((r) => [{ scene: draft.scenes[index], index }, ...r].slice(0, 30));
+    change((p) => removeScene(p, n));
+    setSelection(null);
+  };
+  const putBack = (entry: { scene: Scene; index: number }) => {
+    change((p) => withScenes(p, [...p.scenes.slice(0, entry.index), entry.scene, ...p.scenes.slice(entry.index)]));
+    setRemoved((r) => r.filter((x) => x !== entry));
+  };
   const splitHere = () => {
     if (!draft || !current) return;
     const next = splitAt(draft, current.segment.n, current.offset, assets);
@@ -347,10 +364,7 @@ export default function VideoEditor({ id }: { id: string }) {
         if (event.shiftKey) redo();
         else undo();
       } else if (event.key.toLowerCase() === "s" && !event.metaKey && !event.ctrlKey) splitHere();
-      else if ((event.key === "Delete" || event.key === "Backspace") && selected) {
-        change((p) => removeScene(p, selected.n));
-        setSelection(null);
-      }
+      else if ((event.key === "Delete" || event.key === "Backspace") && selected) takeOut(selected.n);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -384,10 +398,11 @@ export default function VideoEditor({ id }: { id: string }) {
         <Link href={`/dashboard/video/${id}`} aria-label="Back to the studio" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] text-soft hover:text-ink">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11.5px] text-muted">Editor · {formatSeconds(total)} · {draft?.scenes.length ?? 0} scenes</p>
+        <div className="min-w-0 flex-1 basis-[60%] sm:basis-auto">
+          <p className="text-[11.5px] text-muted">Editor · {formatSeconds(total)} · {draft?.scenes.length ?? 0} scene{draft?.scenes.length === 1 ? "" : "s"}</p>
           <h1 className="truncate text-[17px] font-semibold text-ink">{draft?.title ?? data.video.title}</h1>
         </div>
+        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
         <button onClick={undo} disabled={!past.length} aria-label="Undo" title="Undo (⌘Z)" className={chip}><Undo2 className="h-3.5 w-3.5" /></button>
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
         <button onClick={() => setShowSettings((s) => !s)} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> Settings</button>
@@ -396,8 +411,9 @@ export default function VideoEditor({ id }: { id: string }) {
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? "Save & export" : `Export${data.cost ? ` · ${data.cost} credits` : ""}`}
+          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? "Save & export" : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
         </button>
+        </div>
       </header>
       {error && <p role="alert" className="mt-3 rounded-[10px] border border-danger/30 bg-danger/[0.08] px-3 py-2 text-[12.5px] text-danger">{error}</p>}
       {note && !error && <p className="mt-3 text-[12.5px] text-emerald-400">{note}</p>}
@@ -433,6 +449,22 @@ export default function VideoEditor({ id }: { id: string }) {
                 <span className="text-[12px] tabular-nums text-muted">{formatSeconds(time)} / {formatSeconds(total)}</span>
                 <span className="ml-auto hidden text-[11px] text-muted sm:inline">Preview — transitions and colour are added on export.</span>
               </div>
+              <Storyboard
+                plan={draft}
+                segments={segments}
+                assets={assets}
+                selected={selected?.n ?? null}
+                current={current?.segment.n ?? null}
+                removed={removed}
+                onSelect={(n) => {
+                  setSelection({ type: "scene", n });
+                  const seg = segments.find((s) => s.n === n);
+                  if (seg) seek(seg.start);
+                }}
+                onMove={(n, by) => change((p) => moveScene(p, n, p.scenes.findIndex((s) => s.n === n) + by))}
+                onRemove={takeOut}
+                onPutBack={putBack}
+              />
             </section>
 
             {/* Inspector */}
@@ -447,6 +479,7 @@ export default function VideoEditor({ id }: { id: string }) {
                   canSplitHere={Boolean(current && current.segment.n === selected.n && canSplit(selected))}
                   onChange={(next) => change(next)}
                   onSplit={splitHere}
+                  onRemove={takeOut}
                   onClose={() => setSelection(null)}
                   makeVoice={async (text, voiceId) => {
                     const asset = await makeAudio({ type: "voice", text, voiceId });
@@ -520,11 +553,7 @@ export default function VideoEditor({ id }: { id: string }) {
             onTrim={(n, edge, delta) => change((p) => trimEdge(p, n, edge, delta, assets))}
             onSplit={splitHere}
             onDuplicate={() => selected && change((p) => duplicateScene(p, selected.n))}
-            onDelete={() => {
-              if (!selected) return;
-              change((p) => removeScene(p, selected.n));
-              setSelection(null);
-            }}
+            onDelete={() => selected && takeOut(selected.n)}
             canEditSelected={Boolean(selected)}
           />
 
@@ -584,6 +613,85 @@ function Preview({ plan, segment, offset, videoRef }: { plan: ProductionPlan; se
   );
 }
 
+/* ── Storyboard: every scene in order, at a glance ───────────────────── */
+function Storyboard(props: {
+  plan: ProductionPlan;
+  segments: Segment[];
+  assets: PanelAsset[];
+  selected: number | null;
+  current: number | null;
+  removed: { scene: Scene; index: number }[];
+  onSelect: (n: number) => void;
+  onMove: (n: number, by: -1 | 1) => void;
+  onRemove: (n: number) => void;
+  onPutBack: (entry: { scene: Scene; index: number }) => void;
+}) {
+  const statusOf = (scene: Scene, seg: Segment | undefined): { text: string; tone: string } => {
+    const asset = scene.source ? props.assets.find((a) => a.id === scene.source?.assetId) : undefined;
+    if (scene.source && !asset) return { text: "Upload missing", tone: "text-danger bg-danger/10" };
+    if (asset?.status === "processing") return { text: "Preparing", tone: "text-amber-300 bg-amber-400/10" };
+    if (seg?.kind === "pending") return { text: "Made on export", tone: "text-sky-300 bg-sky-400/10" };
+    return { text: "Ready", tone: "text-emerald-300 bg-emerald-400/10" };
+  };
+  return (
+    <div className="mt-3 border-t border-line/[0.08] pt-3">
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted">Scenes</p>
+      <ol className="space-y-1">
+        {props.plan.scenes.map((scene, index) => {
+          const seg = props.segments.find((s) => s.n === scene.n);
+          const status = statusOf(scene, seg);
+          const thumb = seg?.posterUrl ?? (seg?.kind === "image" ? seg.mediaUrl : null);
+          const active = props.selected === scene.n;
+          return (
+            <li key={`${scene.n}-${scene.source?.assetId ?? scene.motionPrompt.slice(0, 20)}`}>
+              <div className={`group flex items-center gap-2.5 rounded-[10px] px-1.5 py-1 ${active ? "bg-layer/[0.1]" : "hover:bg-layer/[0.05]"}`}>
+                <button onClick={() => props.onSelect(scene.n)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+                  <span className={`relative h-9 w-14 shrink-0 overflow-hidden rounded-[6px] bg-layer/[0.1] ${props.current === scene.n ? "ring-2 ring-accent" : ""}`}>
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Sparkles className="absolute inset-0 m-auto h-3.5 w-3.5 text-muted" />
+                    )}
+                    <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[9.5px] font-semibold text-white">{index + 1}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] text-ink">{seg?.label ?? `Scene ${scene.n}`}</span>
+                    <span className="block truncate text-[11px] text-muted">
+                      {formatSeconds(seg?.seconds ?? scene.duration)}
+                      {scene.onScreenText ? ` · “${scene.onScreenText}”` : ""}
+                      {scene.voiceover || scene.voiceAsset ? " · voice-over" : ""}
+                    </span>
+                  </span>
+                  <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10.5px] sm:inline ${status.tone}`}>{status.text}</span>
+                </button>
+                <span className="flex shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                  <button onClick={() => props.onMove(scene.n, -1)} disabled={index === 0} aria-label="Move earlier" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:text-ink disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => props.onMove(scene.n, 1)} disabled={index === props.plan.scenes.length - 1} aria-label="Move later" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:text-ink disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => props.onRemove(scene.n)} disabled={props.plan.scenes.length <= 1} aria-label="Take this scene out" className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:text-danger disabled:opacity-30"><Trash2 className="h-3.5 w-3.5" /></button>
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {props.removed.length > 0 && (
+        <div className="mt-3 rounded-[10px] border border-dashed border-line/[0.15] p-2">
+          <p className="text-[11px] text-muted">Taken out — tap to put back</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {props.removed.map((entry, i) => (
+              <button key={i} onClick={() => props.onPutBack(entry)} className="flex h-7 max-w-[220px] items-center gap-1.5 rounded-full border border-line/[0.1] px-2.5 text-[11.5px] text-ink hover:bg-layer/[0.08]">
+                <RotateCcw className="h-3 w-3 shrink-0" />
+                <span className="truncate">{entry.scene.source ? props.assets.find((a) => a.id === entry.scene.source?.assetId)?.name ?? "Your clip" : entry.scene.shot || entry.scene.visual.slice(0, 30) || "Scene"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Timeline ────────────────────────────────────────────────────────── */
 function Timeline(props: {
   plan: ProductionPlan;
@@ -624,13 +732,21 @@ function Timeline(props: {
       <div className="mb-2 flex flex-wrap items-center gap-1.5">
         <button onClick={props.onSplit} title="Split at the playhead (S)" className={chip}><Scissors className="h-3.5 w-3.5" /> Split</button>
         <button onClick={props.onDuplicate} disabled={!props.canEditSelected} className={chip}><Copy className="h-3.5 w-3.5" /> Duplicate</button>
-        <button onClick={props.onDelete} disabled={!props.canEditSelected} className={chip}><Trash2 className="h-3.5 w-3.5" /> Delete</button>
+        <button onClick={props.onDelete} disabled={!props.canEditSelected} className={chip}><Trash2 className="h-3.5 w-3.5" /> Take out</button>
         <span className="ml-auto flex items-center gap-1">
           <button onClick={() => props.onZoom(pps / 1.5)} aria-label="Zoom out" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><ZoomOut className="h-4 w-4" /></button>
           <button onClick={() => props.onZoom(pps * 1.5)} aria-label="Zoom in" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><ZoomIn className="h-4 w-4" /></button>
         </span>
       </div>
-      <div ref={scroller} className="overflow-x-auto pb-1">
+      <div className="flex">
+      <div className="w-14 shrink-0 select-none pr-1 text-[10.5px] font-medium text-muted" aria-hidden>
+        <div className="h-5" />
+        <div className="mt-1.5 flex h-16 items-center">Video</div>
+        <div className="mt-1 flex h-6 items-center">Words</div>
+        <div className="mt-1 flex h-6 items-center">Voice</div>
+        <div className="mt-1 flex h-6 items-center">Music</div>
+      </div>
+      <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto pb-1">
         <div className="relative select-none" style={{ width }}>
           {/* Ruler */}
           <div className="relative h-5 cursor-pointer border-b border-line/[0.08]" onClick={seekFrom}>
@@ -737,6 +853,7 @@ function Timeline(props: {
           </div>
         </div>
       </div>
+      </div>
     </section>
   );
 }
@@ -763,6 +880,7 @@ function SceneInspector(props: {
   canSplitHere: boolean;
   onChange: (next: ProductionPlan) => void;
   onSplit: () => void;
+  onRemove: (n: number) => void;
   onClose: () => void;
   makeVoice: (text: string, voiceId: string) => Promise<void>;
 }) {
@@ -780,7 +898,7 @@ function SceneInspector(props: {
       <div className="flex flex-wrap gap-1.5">
         <button onClick={props.onSplit} disabled={!props.canSplitHere} className={chip}><Scissors className="h-3.5 w-3.5" /> Split here</button>
         <button onClick={() => props.onChange(duplicateScene(plan, scene.n))} className={chip}><Copy className="h-3.5 w-3.5" /> Duplicate</button>
-        <button onClick={() => props.onChange(removeScene(plan, scene.n))} disabled={plan.scenes.length <= 1} className={chip}><Trash2 className="h-3.5 w-3.5" /> Delete</button>
+        <button onClick={() => props.onRemove(scene.n)} disabled={plan.scenes.length <= 1} className={chip}><Trash2 className="h-3.5 w-3.5" /> Take out</button>
       </div>
       {scene.source ? (
         <TimelineClip
@@ -796,6 +914,7 @@ function SceneInspector(props: {
             props.onChange({ ...plan, cut: { ...(plan.cut ?? {}), muted: [...list].sort((a, b) => a - b) } });
           }}
           onDuration={(duration) => set({ duration })}
+          compact
         />
       ) : (
         <>

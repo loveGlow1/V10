@@ -22,7 +22,9 @@ export default function TimelineClip({
   onSource,
   onMute,
   onDuration,
+  compact = false,
 }: {
+  compact?: boolean;
   source: SceneSource;
   asset: PanelAsset | undefined;
   muted: boolean;
@@ -53,7 +55,7 @@ export default function TimelineClip({
   const input = "w-full rounded-lg border border-line/[0.1] bg-transparent px-2 py-1 text-[13px] text-ink outline-none focus:border-line/[0.25]";
 
   return (
-    <div className="mt-2 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+    <div className={`mt-2 grid gap-3 ${compact ? "" : "sm:grid-cols-[180px_minmax(0,1fr)]"}`}>
       <div className="overflow-hidden rounded-[10px] bg-black">
         {still ? (
           // eslint-disable-next-line @next/next/no-img-element

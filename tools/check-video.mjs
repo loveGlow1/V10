@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -546,6 +546,42 @@ has(/fileUploads\(/.test(readFileSync(join(root, "src/lib/video/start-render.ts"
 has(/saveTimeline\(/.test(readFileSync(join(root, "src/app/api/video/[id]/timeline/route.ts"), "utf8")), "the studio's timeline and settings are saved and re-cut without filming again");
 has(/attachmentManifest\(input\.assets/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")), "the Creative Director reads the ATTACHMENTS block first");
 has(/clip_edit/.test(readFileSync(join(root, "supabase/migrations/20261110120000_video_uploads.sql"), "utf8")), "the database knows the new pipeline and upload kinds");
+
+
+console.log("\nthe visual editor (no AI)");
+const ET = await import(join(dir, "editor-timeline.js"));
+const V = await import(join(dir, "voices.js"));
+const edAssets = [{ id: id1, kind: "video", durationS: 10, url: "u1" }, { id: id2, kind: "image", durationS: null, url: "u2" }];
+const edPlan = L.normalizePlan({ scenes: [
+  { duration: 10, visual: "a", onScreenText: "Hi", voiceover: "Hello", source: { assetId: id1 } },
+  { duration: 4, visual: "b", engine: "image", source: { assetId: id2 } },
+  { duration: 5, visual: "c", motionPrompt: "x" },
+], cut: { muted: [1] } }, "clip_edit", {});
+const split = ET.splitAt(edPlan, 1, 4, edAssets);
+has(split && split.scenes.length === 4 && split.scenes[0].source.trimEnd === 4 && split.scenes[1].source.trimStart === 4 && split.scenes[1].voiceover === "" && split.scenes[0].onScreenText === "Hi", "split at the playhead: two trims of the same file, the words and line stay on the first");
+has(split && split.cut.muted.join() === "1,2", "both halves keep the clip's mute");
+has(ET.splitAt(edPlan, 3, 2, edAssets) === null, "a generated scene is never split (that would film it again)");
+const moved = ET.moveScene(edPlan, 3, 0);
+has(moved.scenes.map((s) => s.visual).join("") === "cab" && moved.scenes.map((s) => s.n).join() === "1,2,3" && moved.cut.muted.join() === "2", "moving a scene renumbers the timeline; its mute moves with it");
+has(ET.duplicateScene(edPlan, 2).scenes.length === 4 && ET.removeScene(edPlan, 2).scenes.length === 2 && ET.removeScene(L.normalizePlan({ scenes: [{ duration: 3, visual: "x", motionPrompt: "y" }] }, "clip_edit", {}), 1).scenes.length === 1, "duplicate and take out; the last scene always stays");
+const trimmed = ET.trimEdge(edPlan, 1, "start", 2, edAssets);
+has(trimmed.scenes[0].source.trimStart === 2 && trimmed.scenes[0].duration === 8, "dragging a clip's start edge moves its in-point");
+has(ET.trimEdge(edPlan, 1, "end", 5, edAssets).scenes[0].source.trimEnd === undefined, "a clip can't be stretched past its own end");
+has(ET.trimEdge(edPlan, 2, "end", 2, edAssets).scenes[1].duration === 6, "a picture's end edge sets how long it holds");
+const segs = ET.segmentsFor(edPlan, edAssets, [{ scene: 3, engine: "video", status: "done", url: "c3" }]);
+has(segs.map((x) => x.start).join() === "0,10,14" && segs[2].mediaUrl === "c3" && segs[1].kind === "image" && segs[0].volume === 0 && ET.timelineLength(segs) === 19, "the preview plays each scene from its place, with what is made, muted where muted");
+has(ET.segmentAt(segs, 12).segment.n === 2 && ET.segmentAt(segs, 12).offset === 2, "the playhead finds its scene");
+has(V.VOICES.length >= 20 && V.isVoiceId("English_Graceful_Lady") && !V.isVoiceId("Nobody"), "a real voice library, checked by id");
+const voiced = L.normalizePlan({ scenes: [{ duration: 4, visual: "a", voiceover: "Hi there", motionPrompt: "x", voiceId: "French_MaleNarrator" }, { duration: 4, visual: "b", voiceover: "Mine", voiceAsset: id3, motionPrompt: "y" }], cut: { voiceId: "English_Comedian" } }, "commercial_ad", {});
+const vjobs = R.jobsFor(voiced, {});
+has(vjobs.find((j) => j.kind === "voice" && j.n === 1)?.voiceId === "French_MaleNarrator" && !vjobs.some((j) => j.kind === "voice" && j.n === 2), "a scene's own voice wins; a recorded line is used as it is, never re-made");
+const revoiced = ED.carryByContent(voiced, { ...voiced, scenes: voiced.scenes.map((x) => (x.n === 1 ? { ...x, voiceId: "Spanish_Narrator" } : x)) });
+has(revoiced.revoice.join() === "1" && revoiced.refilm.length === 0, "changing one scene's voice re-voices only that line");
+const added = ED.applyEdit(edPlan, { reply: "", replan: false, scenes: [], add: [{ assetId: id2, after: 1 }] }, [{ id: id2, kind: "image", name: "p.png", durationS: null, status: "ready", mime: "image/png", width: 1, height: 1, hasAudio: null }]);
+has(added.plan.scenes.length === 4 && added.plan.scenes[1].source.assetId === id2 && added.carry.length === 3, "the AI editor can put an upload into the video — free, nothing else changes");
+has(/settleRunwareCredits\(quote, made\.cost\)/.test(readFileSync(join(root, "src/app/api/video/[id]/audio/route.ts"), "utf8")) && /lyrics/.test(read_runware()), "music on demand is charged at what Runware billed; songs take lyrics");
+has(/decideEdit\(\{ plan, made, instruction, assets: uploads \}\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")), "the AI editor sees every upload and the timeline on screen, and saves nothing itself");
+function read_runware() { return readFileSync(join(root, "src/lib/runware.ts"), "utf8"); }
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
