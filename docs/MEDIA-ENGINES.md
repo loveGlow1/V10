@@ -10,7 +10,9 @@ through to the next one when an engine refuses or fails.
 |---|---|
 | `MINIMAX_API_KEY` | MiniMax Hailuo 2.3 clips and MiniMax speech, direct (the free MiniMax credit). With this key alone, a video renders clips and voices without n8n. |
 | `HF_API_KEY_ID` + `HF_API_KEY_SECRET` | Higgsfield: Seedance 2.0 (text- and image-to-video, up to 1080p, every aspect ratio) and Kling 2.5 Turbo Pro |
-| `FAL_KEY` | Seedance 1.5 Pro on fal (text-to-video), plus lip sync, the clone avatar, music and the final MP4, as before |
+| `RUNWARE_API_KEY` | MiniMax H3 clips and MiniMax speech, **and the production line**: lip sync (`sync:lipsync-2-pro@1`), the clone's talking portrait (`klingai:avatar@2.0-pro`) and the music bed (`runware:ace-step@v1.5-turbo`). Takes the production line over from fal when both are set. |
+| `FAL_KEY` | Seedance 1.5 Pro on fal (text-to-video); lip sync, the clone avatar, music and fal's compose when Runware is not connected |
+| `VIDEO_PRODUCTION_ENGINE` | `fal` or `runware`: pins the production line where both keys are set |
 | `N8N_WEBHOOK_URL` + `N8N_WEBHOOK_TOKEN` | MiniMax-H3 clips and MiniMax speech through the n8n render workflow, on the MiniMax usage credit. This is tried **first** by default. |
 | `IDEOGRAM_API_KEY` | Ideogram 3: graphic flier art, and the UGC creator keyframe (photoreal, exact aspect) |
 | `OPENAI_API_KEY` | gpt-image-2: photographic flier art, keyframe fallback (`OPENAI_IMAGE_MODEL` overrides the model) |
@@ -73,6 +75,35 @@ a job that has already been handed on is ignored.
   directly when the studio polls, so a lost webhook never strands a render.
 - **Billing.** Each clip is charged at the price of the engine that made it,
   once, and only when it arrives: Seedance 6 credits, Kling 5, MiniMax 4.
+
+## The production line: `lib/video/production.ts`
+
+After the clips and voice lines land, the line lays on lip sync, the clone's
+talking portrait and the music, then makes the one-file cut. It runs on
+Runware when `RUNWARE_API_KEY` is set, else on fal (`productionEngine()` in
+`lib/video/engines.ts`).
+
+- **Lip sync** is sent the scene's clip and **its own** voice line, never the
+  music. Both are measured first (`lib/video/probe.ts`): a line that fits the
+  clip is synced with `syncMode: "cut_off"`; a line that runs longer loops
+  the picture (`"loop"`). Sync's default, `"bounce"`, plays the voice
+  backwards and is never used. Speaker and occlusion detection are on.
+- **A lip sync that fails** leaves the scene as it was, the clip with the
+  voice over it, and is not charged.
+- **The clone** is made by Kling Avatar 2.0 from the uploaded photo and each
+  line. The economy answer uses the draft models (`lipsync-2`, Avatar
+  Standard).
+- **Music** is ACE-Step 1.5, instrumental, at least 30s. The cut made on
+  this server lays it under the whole video and ducks it whenever the voice
+  speaks (sidechain compression), then levels everything to -14 LUFS.
+- **Runware jobs** are queued async. They report to
+  `/api/video/[id]/render/line`, which checks our HMAC token and then asks
+  Runware for the result (`getResponse`) instead of trusting the body. A
+  lost webhook is recovered when the studio polls.
+- **Billing.** Every Runware task is sent with `includeCost`. A delivered
+  production job is quoted by the second at Runware's list price ×2.5, in
+  credits at the top-up price, and charged at what Runware actually billed,
+  never more than 10% over the quote.
 
 ## Fliers: `lib/flyers/art.ts`
 

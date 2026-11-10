@@ -12,6 +12,9 @@
  *                on top, and its on-screen words set in clean type (a title
  *                card darkened behind them, other lines as a caption band):
  *                a video model garbles lettering, the type here does not
+ *   music        the version's score, when one was made (Runware or fal),
+ *                laid under the whole cut and ducked whenever a voice speaks
+ *                (sidechain compression), then levelled to -14 LUFS
  *   then         every scene joined in order, fast-start, into video-assets
  *                as the version's "compose" row — the MP4 the workspace
  *                preview plays and offers to download
@@ -155,6 +158,34 @@ export function sceneArgs(input: { clipPath: string; voicePath: string | null; o
   return args;
 }
 
+/**
+ * The score under the joined cut: input 0 is the cut (voice and scene sound
+ * already in it), input 1 the music. The music sits low and ducks under the
+ * voice (sidechain compression) and fades in and out with the picture; with
+ * no voice in the cut it is the soundtrack and plays fuller. The picture is
+ * copied. Levelling is a second pass (the usual loudnorm): loudnorm inside
+ * this graph never finishes flushing, and neither does the graph when the
+ * music is trimmed with atrim rather than at the input — so it is cut at the
+ * input, and the output is held to the same length. Pure.
+ */
+export function musicMixArgs(input: { joined: string; music: string; out: string; seconds: number; spoken: boolean }): string[] {
+  const seconds = Math.max(1, input.seconds).toFixed(2);
+  const fade = `afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, Number(seconds) - 1.5).toFixed(2)}:d=1.5`;
+  const level = input.spoken ? 0.25 : 0.7;
+  const filter =
+    `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,asplit=2[vo1][vo2];` +
+    `[1:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${level},${fade}[m];` +
+    `[m][vo1]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[duck];` +
+    `[vo2][duck]amix=inputs=2:duration=first:normalize=0[a]`;
+  return [
+    "-nostdin", "-hide_banner", "-y", "-i", input.joined, "-t", seconds, "-i", input.music,
+    "-filter_complex", filter,
+    "-map", "0:v", "-map", "[a]",
+    "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-ar", "48000",
+    "-t", seconds, "-movflags", "+faststart", input.out,
+  ];
+}
+
 /** The ffmpeg arguments for one ready-to-post version. Pure. */
 export function exportArgs(kind: ExportKind, input: { source: string; out: string; seconds: number; width: number; height: number }): string[] {
   const common = ["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-movflags", "+faststart", input.out];
@@ -232,6 +263,8 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const segments: string[] = [];
     const cut = cutFor(plan);
     const last = plan.scenes[plan.scenes.length - 1]?.n;
+    /* Whether a voice is heard anywhere: the score ducks under it. */
+    let voiced = false;
 
     for (const scene of plan.scenes) {
       const talking = pick(scene.n, "avatar");
@@ -249,6 +282,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       const voicePath = join(dir, `voice-${scene.n}.mp3`);
       const hasVoice = Boolean(voiceUrl && (await download(voiceUrl, voicePath)));
       const voiceSeconds = hasVoice ? (await probe(voicePath)).seconds : 0;
+      if (hasVoice || talking) voiced = true;
 
       /* A clip's own sound is the video model's: room tone at best, at worst
          lines it made up or mumbled words in no language. It is heard only
@@ -308,12 +342,27 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     /* One loudness for the whole video, at the level social apps play at
        (-14 LUFS), so it is neither quieter nor louder than what is around it.
        The picture is copied, not encoded again. */
-    /* A silent cut has nothing to level; its track stays silence. */
+    /* A silent cut has nothing to level; its track stays silence. With a
+       score, it goes under the cut here, ducked under the voice. */
+    const musicRow = cut.audio === "none" ? undefined : rows.find((row) => row.engine === "music" && row.status === "done");
+    const musicUrl = musicRow ? await signedUrl(service, musicRow.output_path) : null;
+    const musicPath = join(dir, "music.mp3");
+    const withMusic = Boolean(musicUrl && (await download(musicUrl, musicPath).catch(() => false)));
+    const scored = join(dir, "scored.mp4");
+    let source = joined;
+    if (withMusic) {
+      const seconds = (await probe(joined)).seconds;
+      const mixed = await exec(ffmpegPath as string, musicMixArgs({ joined, music: musicPath, out: scored, seconds, spoken: voiced }), { maxBuffer: 1 << 24, timeout: 180_000 })
+        .then(() => true)
+        .catch(() => false);
+      /* A score that will not mix is left out; the cut is made without it. */
+      if (mixed) source = scored;
+    }
     await exec(
       ffmpegPath as string,
       cut.audio === "none"
         ? ["-hide_banner", "-y", "-i", joined, "-c", "copy", "-movflags", "+faststart", final]
-        : ["-hide_banner", "-y", "-i", joined, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
+        : ["-hide_banner", "-y", "-i", source, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
       { maxBuffer: 1 << 24, timeout: 120_000 },
     );
 

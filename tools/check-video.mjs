@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -209,6 +209,19 @@ has(E.readiness(fixed, env).notes.some((n) => /FAL_KEY/.test(n)) && !E.readiness
 const spokenAvatar = L.normalizePlan({ music: "upbeat", scenes: [{ duration: 5, visual: "creator talks to camera", voiceover: "hi", motionPrompt: "x", engine: "avatar" }, { duration: 5, visual: "b-roll", motionPrompt: "y" }] }, "ugc_influencer", {});
 has(E.renderCost(spokenAvatar, env) === E.CLIP_COST * 2 + E.VOICE_COST, "without fal: clips and voice only");
 has(E.renderCost(spokenAvatar, fal) === E.CLIP_COST * 2 + E.VOICE_COST + E.LIPSYNC_COST + E.MUSIC_COST + E.COMPOSE_COST, "with fal: + lip sync, music and the final MP4");
+
+console.log("\nproduction (Runware)");
+const rw = { ...env, RUNWARE_API_KEY: "k" };
+has(E.productionEngine(rw) === "runware" && E.productionEngine({ ...rw, FAL_KEY: "f" }) === "runware" && E.productionEngine(fal) === "fal" && E.productionEngine(env) === null, "Runware runs the production line when its key is set; fal otherwise");
+has(E.productionEngine({ ...rw, FAL_KEY: "f", VIDEO_PRODUCTION_ENGINE: "fal" }) === "fal", "VIDEO_PRODUCTION_ENGINE pins fal where both keys are set");
+has(E.engineHealth("avatar", rw) === "available" && E.engineHealth("music", rw) === "available" && E.engineHealth("compose", env) === "available", "with RUNWARE_API_KEY: lip sync, avatar and music; the cut is always made here");
+has(!E.readiness(fixed, rw).notes.some((n) => /lip sync needs/i.test(n)), "the studio stops saying lip sync is missing once Runware is connected");
+has(E.creditsForUsd(0.3) === Math.ceil((0.3 * 2.5) / E.usdPerCredit()) && E.creditsForUsd(0) === 1, "credits(usd) = ceil(usd × 2.5 ÷ the price of a credit), at least one");
+has(E.runwareJobCredits("lipsync", 6) === E.creditsForUsd(0.0733 * 6) && E.runwareJobCredits("avatar", 6, "draft") === E.creditsForUsd(0.044 * 6), "lip sync and avatars are quoted by the second at Runware's list price");
+has(E.runwareJobCredits("music", 10) === E.creditsForUsd(0.0001 * 30), "music is quoted at ACE-Step's 30-second minimum");
+has(E.settleRunwareCredits(4, null) === 4 && E.settleRunwareCredits(4, 0.01) === 1 && E.settleRunwareCredits(4, 100) === Math.ceil(4 * 1.1), "settled at Runware's actual cost, never more than 10% over the quote");
+has(E.renderCost(spokenAvatar, rw) === C.ENGINES.runware.cost * 2 + E.VOICE_COST + E.runwareJobCredits("lipsync", 5) + E.runwareJobCredits("music", 10), "with Runware: + lip sync and music by the second; the cut made here is free");
+has(E.productionTier("Economy") === "draft" && E.productionTier("Best") === "final" && E.productionTier(null) === "final", "the economy answer takes the draft lip sync and avatar models");
 const cloneSpoken = L.normalizePlan({ scenes: [{ duration: 5, visual: "presenter talks to camera", voiceover: "hello", motionPrompt: "x", engine: "avatar" }] }, "clone", {});
 const cloneJobs = R.jobsFor(cloneSpoken, {});
 has(cloneJobs.length === 1 && cloneJobs[0].kind === "voice", "a clone's presenter scene orders its voice, not a stranger's clip");
@@ -364,7 +377,7 @@ const prod = readFileSync(join(root, "src/lib/video/production.ts"), "utf8");
 const composeRoute = readFileSync(join(root, "src/app/api/video/[id]/render/compose/route.ts"), "utf8");
 const stateSrc = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
 const nextConfig = readFileSync(join(root, "next.config.mjs"), "utf8");
-has(/if \(!falConfigured\(\)\) \{\s*await advanceLocal\(/.test(prod), "with no FAL_KEY, a finished render is cut on this server");
+has(/if \(!line\) \{\s*await advanceLocal\(/.test(prod) && /if \(line !== "fal"\) \{\s*await advanceLocal\(/.test(prod), "off the fal line, a finished render is cut on this server");
 has(/provider: "local", status: "running"/.test(prod) && /render\/compose\?v=\$\{version\}&t=\$\{falToken\(videoId, version, "compose-local"\)\}/.test(prod), "the cut is claimed once and run in its own route");
 has(/verifyFalToken\(id, version, "compose-local"/.test(composeRoute) && /maxDuration = 300/.test(composeRoute), "the compose route takes only its own token, with a full time budget");
 has(/tpad=stop_mode=clone/.test(local) && /drawtext=fontfile=/.test(local) && /amix=inputs=2/.test(local) && /"concat"/.test(local), "each scene fitted, held, titled and voiced, then all joined in order");
@@ -384,7 +397,7 @@ const msgRow = readFileSync(join(root, "src/app/dashboard/components/workspace/M
 const falRoute = readFileSync(join(root, "src/app/api/video/[id]/render/fal/route.ts"), "utf8");
 const localCut = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
 has(/label: "video:1", href: finalVideoUrl\(/.test(announce) && /dedupe_key: `video-final:/.test(announce), "a finished video is posted to the chat once, with the video in it");
-has(/await announceFinal\(service, \{ videoId, version, origin/.test(localCut) && /if \(media\) await announceFinal\(/.test(falRoute), "whichever way the cut was made — here or on fal");
+has(/await announceFinal\(service, \{ videoId, version, origin/.test(localCut) && /landLineJob\(/.test(falRoute) && /if \(media\) await announceFinal\(/.test(readFileSync(join(root, "src/lib/video/line-results.ts"), "utf8")), "whichever way the cut was made — here or on fal");
 has(/<ReplyVideos videos=\{videos\} \/>/.test(msgRow) && /<video[\s\S]{0,80}controls[\s\S]{0,40}playsInline/.test(msgRow), "the chat plays it");
 has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServerClient/.test(fileRoute) && /\.eq\("engine", "compose"\)/.test(fileRoute), "Download saves the MP4 itself — the owner's, under their session");
 /* Undo, Redo and Versions on a video: a move between cuts already made —
@@ -427,6 +440,36 @@ has(/download \? \{ download: fileName\(/.test(fileRoute) && /createSupabaseServ
   has(/projectIntent !== "video" && projectIntent !== "flier"/.test(chat) && /message\.at > followedTo\.current/.test(chat), "the open chat follows a video's or flier's thread, so late messages appear without a reload");
   has(/if \(message\.links\?\.length && !next\[at\]\.links\?\.length\) next\[at\] = \{ \.\.\.next\[at\], links: message\.links \}/.test(chat), "a message already showing is not added twice — it is given its media");
   has(/was deleted\. It stays in Recently deleted/.test(row) && /couldn&apos;t be loaded just now/.test(row), "media that cannot load says why instead of vanishing");
+}
+
+/* The Runware production line, read from its source. */
+const lineSrc = readFileSync(join(root, "src/lib/video/production.ts"), "utf8");
+has(/syncModeFor\(voiceSeconds, clipSeconds\)/.test(lineSrc) && /mediaSeconds\(audioUrl\)/.test(lineSrc) && !/sync_mode: "loop"/.test(lineSrc), "lip sync is set from the measured line and clip, never a fixed loop");
+has(/lipsyncTask\(/.test(lineSrc) && /avatarTask\(/.test(lineSrc) && /musicTask\(/.test(lineSrc), "lip sync, avatar and music each have a Runware path");
+const lineRoute = readFileSync(join(root, "src/app/api/video/[id]/render/line/route.ts"), "utf8");
+has(/verifyFalToken\(id, version, `line:/.test(lineRoute) && /settleRunwareLineJob\(/.test(lineRoute) && /named !== taskUUID/.test(lineRoute), "Runware's webhook takes only its own token, and asks Runware before believing it");
+has(/settleRunwareLineJob\(/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a quiet Runware job is asked about when the studio polls");
+const mixSrc = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+has(/sidechaincompress=threshold=0\.05:ratio=8/.test(mixSrc) && /musicMixArgs\(\{ joined, music: musicPath/.test(mixSrc), "the score goes under the cut, ducked under the voice");
+
+/* Media lengths, read from the header without ffmpeg (probe.ts). */
+const Probe = await import(join(dir, "probe.js"));
+{
+  const wav = new Uint8Array(44 + 48000 * 2);
+  const v = new DataView(wav.buffer);
+  wav.set([..."RIFF"].map((c) => c.charCodeAt(0)), 0); wav.set([..."WAVE"].map((c) => c.charCodeAt(0)), 8);
+  wav.set([..."fmt "].map((c) => c.charCodeAt(0)), 12); v.setUint32(16, 16, true); v.setUint32(28, 32000, true);
+  wav.set([..."data"].map((c) => c.charCodeAt(0)), 36); v.setUint32(40, 96000, true);
+  has(Math.abs(Probe.seconds(wav) - 3) < 0.001, "a WAV's length from its data chunk and byte rate");
+  const mp4 = new Uint8Array(64);
+  const m = new DataView(mp4.buffer);
+  mp4.set([..."ftyp"].map((c) => c.charCodeAt(0)), 4); mp4.set([..."mvhd"].map((c) => c.charCodeAt(0)), 20);
+  m.setUint32(36, 1000); m.setUint32(40, 6500);
+  has(Probe.seconds(mp4) === 6.5, "an MP4's length from its mvhd box");
+  const mp3 = new Uint8Array(16000 + 4);
+  mp3.set([0xff, 0xfb, 0x90, 0x00], 0);
+  has(Math.abs(Probe.mp3Seconds(mp3) - 1) < 0.01, "a CBR MP3's length from its bitrate (128 kbps × 1s = 16000 bytes)");
+  has(Probe.seconds(new Uint8Array(10)) === null, "and null when it cannot tell — lip sync then cuts off, never repeats a line");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
