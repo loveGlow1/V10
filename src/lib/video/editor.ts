@@ -146,15 +146,53 @@ export function applyEdit(plan: ProductionPlan, edit: Edit): { plan: ProductionP
   return { plan: next, carry, refilm, revoice };
 }
 
+/**
+ * What carries over from one plan to another the studio's timeline made,
+ * matched by content rather than position (scenes may be reordered, added,
+ * removed): a scene's picture carries when an old scene had the same upload,
+ * or the same generated prompt and engine; its voice line carries when an
+ * old scene said exactly the same words. Lengths, trims, speeds, words on
+ * screen and every setting change nothing that was made. Pure.
+ */
+export function carryByContent(previous: ProductionPlan, next: ProductionPlan): { carry: Carry[]; refilm: number[]; revoice: number[] } {
+  const pictureKey = (scene: Scene) => (scene.source ? `upload:${scene.source.assetId}` : `gen:${scene.engine}:${scene.motionPrompt.trim()}`);
+  const usedPicture = new Set<number>();
+  const usedVoice = new Set<number>();
+  const carry: Carry[] = [];
+  const refilm: number[] = [];
+  const revoice: number[] = [];
+  const noVoice = next.cut?.audio === "original" || next.cut?.audio === "none";
+  for (const scene of next.scenes) {
+    const line = scene.voiceover.trim();
+    const voice = line ? previous.scenes.find((old) => !usedVoice.has(old.n) && old.voiceover.trim() === line) : undefined;
+    /* An upload lip-synced to a line that changed is filed again as it was
+       uploaded (free), so it is synced to the new line. */
+    const resync = scene.source && scene.engine === "avatar" && line && !voice;
+    const picture = resync ? undefined : previous.scenes.find((old) => !usedPicture.has(old.n) && pictureKey(old) === pictureKey(scene));
+    if (picture) usedPicture.add(picture.n);
+    if (voice) usedVoice.add(voice.n);
+    /* One old scene can lend its picture to one new scene and its voice to
+       one (possibly other) new scene: carried as two entries. */
+    if (picture && (!voice || voice.n === picture.n)) carry.push({ from: picture.n, to: scene.n, clip: true, voice: Boolean(voice) });
+    else {
+      if (picture) carry.push({ from: picture.n, to: scene.n, clip: true, voice: false });
+      if (voice) carry.push({ from: voice.n, to: scene.n, clip: false, voice: true });
+    }
+    if (!picture && !scene.source) refilm.push(scene.n);
+    if (line && !voice && !noVoice) revoice.push(scene.n);
+  }
+  return { carry, refilm, revoice };
+}
+
 /** What the editor is shown of a video: its plan, scene by scene, and what was made. Pure. */
 export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: boolean; voice: boolean }[]): string {
   const lines = plan.scenes.map((scene) => {
     const m = made.find((x) => x.scene === scene.n);
     return [
-      `SCENE ${scene.n} · ${scene.duration}s · clip ${m?.clip ? "made" : "missing"} · voice ${scene.voiceover ? (m?.voice ? "made" : "missing") : "none"}`,
+      `SCENE ${scene.n} · ${scene.duration}s · ${scene.source ? `THE PERSON'S OWN ${scene.engine === "image" ? "PICTURE" : "CLIP"} (upload ${scene.source.assetId}${scene.source.trimStart || scene.source.trimEnd ? `, trimmed ${scene.source.trimStart ?? 0}-${scene.source.trimEnd ?? "end"}s` : ""}${scene.source.speed ? `, ${scene.source.speed}x` : ""}) — never refilm it` : `clip ${m?.clip ? "made" : "missing"}`} · voice ${scene.voiceover ? (m?.voice ? "made" : "missing") : "none"}`,
       `  spoken: ${scene.voiceover || "—"}`,
       `  on screen: ${scene.onScreenText || "—"}`,
-      `  clip prompt: ${scene.motionPrompt.slice(0, 500)}`,
+      ...(scene.source ? [] : [`  clip prompt: ${scene.motionPrompt.slice(0, 500)}`]),
     ].join("\n");
   });
   return [
@@ -174,6 +212,15 @@ What you can do, cheapest first:
    - captions: true/false (captions of each spoken line).
    - endCard: words shown on the last scene (e.g. "QuickStark.ai").
    - muted: scene numbers whose own sound is silenced.
+   - transition: "cut" | "dip" | "crossfade" | "fadeblack" | "fadewhite" | "wipeleft" | "slideleft" | "slideup" | "zoomin" | "circleopen" | "dissolve"; transitionSeconds 0.1-2.
+   - fit: "fill" (crop to fill) | "fit-blur" (whole picture over a blurred copy) | "fit-black" (black bars).
+   - color: "none" | "vivid" | "warm" | "cool" | "cinematic" | "mono" | "vintage".
+   - resolution: "720p" | "1080p"; fps: 24 | 25 | 30 | 60; quality: "standard" | "high".
+   - fadeIn / fadeOut: true/false for the start and end of the whole video.
+   - originalVolume, voiceVolume, musicVolume: 0 to 2 (1 is normal); duck: music dips under the voice; loudness: one level for the whole video.
+   - music: {"source": "generate" | "none"} (an uploaded file is chosen in the studio).
+   - captionPosition "bottom"|"middle"|"top", captionSize "small"|"medium"|"large", captionStyle "box"|"outline"|"highlight".
+   - stillMotion for pictures: "zoom-in" | "zoom-out" | "pan" | "none".
 2. Per-scene words on screen (onScreenText) — costs nothing.
 3. revoice — a new spoken line for a scene (cheap). Give the full new line.
 4. refilm — a new clip for a scene (expensive). Give the COMPLETE new clip prompt: subject, setting, lighting, lens/shot, camera move, motion, mood, aspect ratio — keep every lock (creator, product, style) word for word so it matches the other scenes.

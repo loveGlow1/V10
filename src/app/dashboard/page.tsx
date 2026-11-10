@@ -51,6 +51,7 @@ import {
   type Category,
 } from "@/lib/builder/targets";
 import { ACCEPT, MAX_ATTACHMENTS } from "@/lib/project-attachments";
+import { ACCEPT_ATTRIBUTE as VIDEO_ACCEPT, MAX_UPLOADS as VIDEO_MAX_UPLOADS } from "@/lib/video/assets";
 import { PIPELINES, answersFor, type PipelineId } from "@/lib/video/pipelines";
 import VideoTypeGrid from "./components/video/VideoTypeGrid";
 import { motion, AnimatePresence } from "framer-motion";
@@ -367,6 +368,15 @@ export default function DashboardPage() {
 
   function addFiles(list: FileList) {
     const picked = Array.from(list);
+    /* Under the Video tab the paperclip also takes clips and sound: they go
+       to the video's own uploads (lib/video/upload-client.ts). */
+    if (activeCategory === "video") {
+      const media = picked.filter((file) => /^(video|audio|image)\//.test(file.type) || /\.(mov|m4a|mp3|wav)$/i.test(file.name));
+      const room = VIDEO_MAX_UPLOADS - files.length;
+      setStartError(media.length < picked.length ? "Attach videos, sound files or pictures." : media.length > room ? `Up to ${VIDEO_MAX_UPLOADS} files per video.` : null);
+      if (room > 0) setFiles((current) => [...current, ...media.slice(0, room)]);
+      return;
+    }
     const images = picked.filter((file) => file.type.startsWith("image/") || /\.(heic|heif)$/i.test(file.name));
     const room = MAX_ATTACHMENTS - files.length;
     if (images.length < picked.length) setStartError("Only images can be attached — a screenshot, a logo or a photo.");
@@ -717,8 +727,14 @@ export default function DashboardPage() {
                 <div className="relative z-10 mt-2 flex flex-wrap gap-2">
                   {files.map((file, index) => (
                     <div key={`${file.name}-${index}`} className="group/att relative h-14 w-14 overflow-hidden rounded-[10px] border border-line/[0.1] bg-layer/[0.06]">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={previews[index]} alt={file.name} className="h-full w-full object-cover" />
+                      {file.type.startsWith("video/") ? (
+                        <video src={previews[index]} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                      ) : file.type.startsWith("audio/") || /\.(m4a|mp3|wav)$/i.test(file.name) ? (
+                        <span className="flex h-full w-full items-center justify-center px-1 text-center text-[9px] leading-tight text-soft">♪ {file.name.slice(0, 18)}</span>
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={previews[index]} alt={file.name} className="h-full w-full object-cover" />
+                      )}
                       <button
                         type="button"
                         onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
@@ -744,7 +760,7 @@ export default function DashboardPage() {
                     type="file"
                     ref={fileInputRef}
                     multiple
-                    accept={ACCEPT}
+                    accept={videoMode ? VIDEO_ACCEPT : ACCEPT}
                     className="sr-only"
                     tabIndex={-1}
                     onChange={(e) => {

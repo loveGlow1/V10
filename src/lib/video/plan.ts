@@ -6,6 +6,22 @@
  * Pure. The model call is in director.ts; the engines are in engines.ts. */
 
 import { PIPELINES, type Engine, type PipelineId } from "./pipelines";
+import { normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
+
+/* A scene made from the person's own upload instead of being generated: a
+   clip (trimmed, sped up or slowed, at its own level) or a picture held on
+   screen. */
+export type SceneSource = {
+  assetId: string;
+  /** Seconds into the clip where the scene starts. */
+  trimStart?: number;
+  /** Seconds into the clip where it ends; absent is the clip's end. */
+  trimEnd?: number;
+  /** 0.25 to 4; 1 is as filmed. */
+  speed?: number;
+  /** The clip's own sound in this scene, 0 to 2; 1 is as recorded. */
+  volume?: number;
+};
 
 export type Scene = {
   n: number;
@@ -24,6 +40,8 @@ export type Scene = {
   /** Music and sound for this scene. */
   sound: string;
   engine: Engine;
+  /** Made from an upload rather than generated. */
+  source?: SceneSource;
 };
 
 /* How the final cut is put together — what a person changes by asking
@@ -38,6 +56,31 @@ export type Cut = {
   endCard?: string;
   /** Scenes whose own sound is silenced. */
   muted?: number[];
+  /* Video settings (cut-settings.ts): absent means the default. */
+  resolution?: Resolution;
+  fps?: FrameRate;
+  fit?: Fit;
+  color?: ColorGrade;
+  quality?: Quality;
+  transition?: Transition;
+  transitionSeconds?: number;
+  fadeIn?: boolean;
+  fadeOut?: boolean;
+  /** Levels, 0 to 2: the clips' own sound, the voice-over, the music. */
+  originalVolume?: number;
+  voiceVolume?: number;
+  musicVolume?: number;
+  /** The music dips whenever someone speaks. */
+  duck?: boolean;
+  /** One loudness (-14 LUFS) for the whole video. */
+  loudness?: boolean;
+  /** Where the music comes from; an upload names its asset, and may start partway in. */
+  music?: { source: MusicSource; assetId?: string; start?: number };
+  captionPosition?: CaptionPosition;
+  captionSize?: CaptionSize;
+  captionStyle?: CaptionStyle;
+  /** How a picture moves while it is on screen. */
+  stillMotion?: StillMotion;
 };
 
 export type ProductionPlan = {
@@ -161,9 +204,11 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
   const rawScenes = Array.isArray(r.scenes) ? r.scenes.slice(0, 24) : [];
   const scenes: Scene[] = rawScenes.map((entry, index) => {
     const s = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+    const source = normalizeSource(s.source);
     const base = {
       n: index + 1,
-      duration: Math.min(30, Math.max(1, Math.round(Number(s.duration) || 3))),
+      /* An upload runs as long as it runs; a generated scene is one clip. */
+      duration: Math.min(source ? MAX_SOURCE_SECONDS : 30, Math.max(1, Math.round((Number(s.duration) || 3) * (source ? 10 : 1)) / (source ? 10 : 1))),
       shot: text(s.shot, 200),
       visual: text(s.visual),
       onScreenText: text(s.onScreenText, 200),
@@ -171,7 +216,7 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
       motionPrompt: text(s.motionPrompt),
       sound: text(s.sound, 300),
     };
-    return { ...base, engine: routeScene(pipeline, s.engine, base) };
+    return { ...base, engine: routeScene(pipeline, s.engine, base), ...(source ? { source } : {}) };
   });
   const locks: Record<string, string> = {};
   if (r.locks && typeof r.locks === "object") {
@@ -197,6 +242,35 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
   };
 }
 
+/** The longest one uploaded scene may run (seconds). */
+export const MAX_SOURCE_SECONDS = 600;
+
+/** A scene's upload as written by a person or a model, or undefined. Pure. */
+export function normalizeSource(raw: unknown): SceneSource | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.assetId !== "string" || !/^[0-9a-f-]{36}$/i.test(r.assetId)) return undefined;
+  const source: SceneSource = { assetId: r.assetId.toLowerCase() };
+  const seconds = (value: unknown) => (value === undefined || value === null || value === "" ? undefined : Number(value));
+  const start = seconds(r.trimStart);
+  const end = seconds(r.trimEnd);
+  if (start !== undefined && Number.isFinite(start) && start > 0) source.trimStart = Math.round(Math.min(3600, start) * 100) / 100;
+  if (end !== undefined && Number.isFinite(end) && end > (source.trimStart ?? 0) + 0.1) source.trimEnd = Math.round(Math.min(3600, end) * 100) / 100;
+  const speed = seconds(r.speed);
+  if (speed !== undefined && Number.isFinite(speed) && speed !== 1) source.speed = Math.round(Math.min(4, Math.max(0.25, speed)) * 100) / 100;
+  const volume = seconds(r.volume);
+  if (volume !== undefined && Number.isFinite(volume) && volume !== 1) source.volume = Math.round(Math.min(2, Math.max(0, volume)) * 100) / 100;
+  return source;
+}
+
+/** How long an uploaded scene runs once trimmed and sped, from the clip's own length. Pure. */
+export function sourceSeconds(source: SceneSource, clipSeconds: number | null | undefined): number | null {
+  const end = source.trimEnd ?? (clipSeconds ?? null);
+  if (end === null) return null;
+  const span = Math.max(0, end - (source.trimStart ?? 0));
+  return span > 0 ? Math.round((span / (source.speed ?? 1)) * 100) / 100 : null;
+}
+
 /** A cut as written by a person or the editor, with anything unknown dropped. Pure. */
 /** Whether a cut uses the script's voice lines at all. Pure. */
 export const usesVoice = (cut: Cut | undefined) => cut?.audio !== "original" && cut?.audio !== "none";
@@ -213,6 +287,7 @@ export function normalizeCut(raw: unknown): Cut | undefined {
     const muted = r.muted.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 24);
     if (muted.length) cut.muted = [...new Set(muted)];
   }
+  Object.assign(cut, normalizeSettings(r));
   return Object.keys(cut).length ? cut : undefined;
 }
 
@@ -232,9 +307,11 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
   }
 
   /* Length: scale the scene durations to the target when they miss it by
-     more than 15%, keeping each at least a second. */
+     more than 15%, keeping each at least a second. Footage the person
+     uploaded decides its own length, so a plan with any is left as it is. */
   const total = totalSeconds(plan);
-  if (plan.target > 0 && Math.abs(total - plan.target) / plan.target > 0.15) {
+  const uploaded = plan.scenes.some((scene) => scene.source);
+  if (!uploaded && plan.target > 0 && Math.abs(total - plan.target) / plan.target > 0.15) {
     const factor = plan.target / total;
     for (const scene of plan.scenes) scene.duration = Math.max(1, Math.round(scene.duration * factor));
     issues.push({ scene: null, issue: `Scenes ran ${total}s against a ${plan.target}s target — durations rescaled to ${totalSeconds(plan)}s.`, repaired: true });
@@ -245,13 +322,15 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
      at any length, so it stays whole. */
   const before = plan.scenes.length;
   plan.scenes = plan.scenes
-    .flatMap((scene) => (plan.pipeline === "clone" && scene.engine === "avatar" ? [scene] : splitScene(scene)))
+    .flatMap((scene) => ((plan.pipeline === "clone" && scene.engine === "avatar") || scene.source ? [scene] : splitScene(scene)))
     .map((scene, index) => ({ ...scene, n: index + 1 }));
   if (plan.scenes.length > before) {
     issues.push({ scene: null, issue: `Scenes longer than ${MAX_CLIP_SECONDS}s split into ${plan.scenes.length - before} more clip${plan.scenes.length - before === 1 ? "" : "s"}, so none freezes on its last frame.`, repaired: true });
   }
 
   for (const scene of plan.scenes) {
+    /* An upload is filmed already: it needs no prompt. */
+    if (scene.source) continue;
     if (!scene.motionPrompt) {
       scene.motionPrompt = [scene.shot, scene.visual].filter(Boolean).join(". ");
       if (scene.motionPrompt) issues.push({ scene: scene.n, issue: "Missing generation prompt — built from the shot and visual.", repaired: true });
@@ -269,6 +348,7 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
     const anchor = lock.slice(0, 40).toLowerCase();
     let added = 0;
     for (const scene of plan.scenes) {
+      if (scene.source) continue;
       if (!scene.motionPrompt.toLowerCase().includes(anchor)) {
         scene.motionPrompt = `${scene.motionPrompt} [${name}: ${lock}]`;
         added += 1;
@@ -330,7 +410,7 @@ export function scriptText(plan: ProductionPlan): string {
     `VOICE: ${plan.voice || "—"}\nMUSIC: ${plan.music || "—"}\n`,
     ...plan.scenes.map(
       (s) =>
-        `SCENE ${s.n} · ${s.duration}s · ${s.engine.toUpperCase()}\nShot: ${s.shot}\nVisual: ${s.visual}\nOn screen: ${s.onScreenText || "—"}\nVoiceover: ${s.voiceover || "—"}\nSound: ${s.sound || "—"}\nPrompt: ${s.motionPrompt}\n`,
+        `SCENE ${s.n} · ${s.duration}s · ${s.source ? "YOUR CLIP" : s.engine.toUpperCase()}\nShot: ${s.shot}\nVisual: ${s.visual}\nOn screen: ${s.onScreenText || "—"}\nVoiceover: ${s.voiceover || "—"}\nSound: ${s.sound || "—"}\nPrompt: ${s.motionPrompt}\n`,
     ),
     plan.cta && `CTA: ${plan.cta}`,
   ];

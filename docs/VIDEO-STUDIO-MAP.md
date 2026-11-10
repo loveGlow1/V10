@@ -7,11 +7,40 @@ upgrade plan's phases refer to these pieces.
 
 - `src/app/dashboard/video/page.tsx`: the list of videos and the type picker
   (`src/app/dashboard/components/video/VideoTypeGrid.tsx`).
-- `src/app/dashboard/video/[id]/page.tsx`: the studio. Reference upload,
-  plan, scenes, render, preview and export are all on this page. The upload
-  (`upload()`) goes straight from the browser to the private `video-assets`
-  bucket and adds a `video_assets` row. The file input accepts `image/*`
-  only, at most 3 files.
+- `src/app/dashboard/video/[id]/page.tsx`: the studio. Uploads
+  (`components/video/MediaPanel.tsx`), the timeline (scenes, with
+  `TimelineClip.tsx` for uploaded clips: trim, speed, level, mute, order),
+  video settings (`VideoSettings.tsx`), render, preview and export.
+- The workspace preview board links to the studio ("Upload clips · timeline
+  · video settings").
+
+## Uploads (Phase 1)
+
+1. The browser reads a file's length and size (`lib/video/upload-client.ts`)
+   and refuses one over the limits (`lib/video/assets.ts`: clips 400 MB / 3
+   min, sound 50 MB, pictures 20 MB).
+2. `POST [id]/assets/upload-url` gives a one-time storage address; the file
+   goes straight to the private `video-assets` bucket with progress.
+3. `POST [id]/assets` registers it: the kind is re-checked from the stored
+   object's own MIME type, and `[id]/assets/prepare` (its own 300s function,
+   ffmpeg traced in) probes it, makes a working copy (upright, ≤1920, 30 fps,
+   H.264, AAC stereo, silence laid in for silent clips) and a poster
+   (`lib/video/prepare-asset.ts`).
+4. Uploaded clips and pictures become scenes with a `source`
+   (`{assetId, trimStart, trimEnd, speed, volume}`); a sound file can be the
+   music. A render files them as finished rows (`uploads-render.ts`): nothing
+   is generated or charged for them.
+5. "Edit my clips" (`clip_edit`) stitches every upload in order at once, free
+   (`lib/video/timeline.ts stitchPlan`). With a written brief, the Creative
+   Director plans around the uploads from the ATTACHMENTS block.
+
+## Video settings
+
+`lib/video/cut-settings.ts` lists every setting, its options and defaults;
+`lib/video/cut-filters.ts` turns them into ffmpeg; `compose-local.ts` runs
+it. Saving the timeline or settings (`POST [id]/timeline`) makes a new
+version that reuses every clip and line that still fits and re-cuts it,
+free.
 
 ## API routes (`src/app/api/video/`)
 
@@ -28,6 +57,10 @@ upgrade plan's phases refer to these pieces.
 | `[id]/render/compose/route.ts` | the cut made on this server (`lib/video/compose-local.ts`) |
 | `[id]/file/route.ts` | the final MP4 and its exports |
 | `[id]/board/route.ts` | the workspace preview's view |
+| `[id]/assets/upload-url/route.ts` | a one-time direct-to-storage upload address |
+| `[id]/assets/route.ts` | register an upload (`POST`), remove one (`DELETE`) |
+| `[id]/assets/prepare/route.ts` | probe, working copy and poster for an upload |
+| `[id]/timeline/route.ts` | save the timeline and settings, re-cut without re-filming |
 
 ## The Runware client
 
@@ -37,11 +70,13 @@ then read back with `getResponse`. Stills and speech are synchronous.
 
 ## Attachments and intent
 
-Uploads are `video_assets` rows (`kind`: `product`, `person`, `photo`,
-`reference`, or `render` for a finished cut) with a `storage_path` in
-`video-assets`. Which kind is asked for comes from the pipeline
-(`PIPELINES[id].needsReference` in `lib/video/pipelines.ts`), not from an
-intent classifier. The workspace's chat edits a video in words through
+Uploads are `video_assets` rows (`kind`: `video`, `audio`, `image`, or a
+picture's role `product`, `person`, `photo`, `reference`; `render` for a
+finished cut) with a `storage_path` in `video-assets`, plus their measured
+length, size, sound, working copy and poster. The Creative Director and the
+chat editor read the ATTACHMENTS block (`attachmentManifest`) before the
+person's words; `attachmentIntent` names what a message asks of what is
+attached (STITCH, LIPSYNC_VIDEO, EDIT, AVATAR, GENERATE). The workspace's chat edits a video in words through
 `lib/video/editor.ts` and `lib/video/apply-edit.ts`.
 
 ## Credits

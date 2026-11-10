@@ -19,6 +19,37 @@ import { direct } from "@/lib/video/director";
 import { readiness } from "@/lib/video/engines";
 import { isPipelineId } from "@/lib/video/pipelines";
 import { normalizePlan, qaAndRepair, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
+import type { StudioAsset } from "@/lib/video/assets";
+import { stitchPlan } from "@/lib/video/timeline";
+
+/** A video's uploads as the planner sees them. */
+export async function loadStudioAssets(supabase: SupabaseClient, videoId: string): Promise<(StudioAsset & { storage_path: string; poster_path: string | null })[]> {
+  const { data } = await supabase
+    .from("video_assets")
+    .select("id, kind, name, mime, status, duration_s, width, height, has_audio, storage_path, poster_path")
+    .eq("video_id", videoId)
+    .neq("kind", "render")
+    .order("created_at");
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    kind: row.kind as string,
+    name: (row.name as string) || "",
+    mime: (row.mime as string) || "",
+    status: ((row.status as string) || "ready") as StudioAsset["status"],
+    durationS: row.duration_s === null || row.duration_s === undefined ? null : Number(row.duration_s),
+    width: (row.width as number | null) ?? null,
+    height: (row.height as number | null) ?? null,
+    hasAudio: (row.has_audio as boolean | null) ?? null,
+    storage_path: row.storage_path as string,
+    poster_path: (row.poster_path as string | null) ?? null,
+  }));
+}
+
+/** Drops any scene source that names an upload this video does not have. Pure. */
+export function keepKnownSources(plan: ProductionPlan, assets: Pick<StudioAsset, "id" | "status">[]): ProductionPlan {
+  const known = new Set(assets.filter((asset) => asset.status !== "failed").map((asset) => asset.id));
+  return { ...plan, scenes: plan.scenes.map((scene) => (scene.source && !known.has(scene.source.assetId) ? { ...scene, source: undefined } : scene)) };
+}
 
 
 
@@ -34,7 +65,7 @@ export async function planVideo(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { note?: unknown; plan?: unknown; fill?: unknown },
+  body: { note?: unknown; plan?: unknown; fill?: unknown; stitch?: unknown },
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("*").eq("id", id).maybeSingle();
   if (!video || !isPipelineId(video.pipeline)) return NextResponse.json({ error: "No such video." }, { status: 404 });
@@ -52,9 +83,23 @@ export async function planVideo(
   let note: string;
   let outputTokens = 0;
 
+  const uploads = await loadStudioAssets(supabase, id);
+  const brief0 = String(video.brief ?? "");
+  const fill0 = typeof body.fill === "string" ? body.fill.trim() : "";
+  /* "Edit my clips", first time, with nothing asked beyond the template:
+     stitched at once from the uploads, in order — no model, no charge. */
+  const stitchNow =
+    video.pipeline === "clip_edit" && !body.plan && typeof body.note !== "string" && (!brief0.trim() || (unfilledPlaceholders(brief0).length > 0 && !fill0) || body.stitch === true);
+
   if (body.plan && typeof body.plan === "object") {
-    ({ plan, issues } = qaAndRepair(normalizePlan(body.plan, video.pipeline, answers)));
+    ({ plan, issues } = qaAndRepair(keepKnownSources(normalizePlan(body.plan, video.pipeline, answers), uploads)));
     note = "Your edits";
+  } else if (stitchNow) {
+    if (!uploads.some((asset) => asset.status !== "failed" && (asset.kind === "video" || asset.kind === "image" || asset.kind === "photo"))) {
+      return NextResponse.json({ error: "Upload your clips first — they're stitched in the order you add them." }, { status: 400 });
+    }
+    ({ plan, issues } = qaAndRepair(stitchPlan({ assets: uploads, answers, title: video.title as string })));
+    note = "Your clips, stitched";
   } else {
     /* Before any credit, on a first plan: a template's blanks planned as they
        are would be spoken as "[PRODUCT]". The person's answer is kept with the
@@ -79,10 +124,14 @@ export async function planVideo(
       }
     }
 
-    const { data: assets } = await supabase.from("video_assets").select("storage_path, kind").eq("video_id", id).neq("kind", "render").limit(3);
+    /* What the director can look at: reference pictures, and a frame from
+       each uploaded clip — never a video or a sound file. */
     const images: string[] = [];
-    for (const asset of assets ?? []) {
-      const { data } = await supabase.storage.from("video-assets").createSignedUrl(asset.storage_path, 600);
+    for (const asset of uploads) {
+      if (images.length >= 3 || asset.status === "failed") continue;
+      const path = asset.kind === "video" ? asset.poster_path : asset.kind === "audio" ? null : asset.storage_path;
+      if (!path) continue;
+      const { data } = await supabase.storage.from("video-assets").createSignedUrl(path, 600);
       if (data?.signedUrl) images.push(data.signedUrl);
     }
 
@@ -91,11 +140,13 @@ export async function planVideo(
       brief,
       answers,
       images,
+      assets: uploads,
       note: typeof body.note === "string" ? body.note : undefined,
       previous: typeof body.note === "string" && current ? (current.plan as ProductionPlan) : null,
     });
     if ("error" in directed) return NextResponse.json({ error: directed.error }, { status: 502 });
     ({ plan, issues, outputTokens } = directed);
+    plan = keepKnownSources(plan, uploads);
     note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 300) : video.current_version ? "Planned again" : "First plan";
   }
 

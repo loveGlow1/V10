@@ -22,7 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { chargeCredits } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
-import { applyEdit, decideEdit, type Edit } from "./editor";
+import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
 import { SOUND_COMMANDS } from "./sound";
 import { keyframePath } from "./frames";
 import { usesVoice, type Cut, type ProductionPlan } from "./plan";
@@ -99,8 +99,49 @@ async function commitEdit(input: Loaded & {
   charge: number;
   outputTokens?: number;
 }): Promise<EditResult> {
-  const { writer, userId, videoId, origin, video, version, plan, done, edit } = input;
-  const { plan: next, carry, refilm, revoice } = applyEdit(plan, edit);
+  const { plan: next, carry, refilm, revoice } = applyEdit(input.plan, input.edit);
+  return commitNext({ ...input, next, carry, refilm, revoice, reply: input.edit.reply });
+}
+
+/**
+ * The studio's own timeline and settings, saved as the next version: every
+ * clip and voice line that still fits carries over (carryByContent), only
+ * what changed is made, and the cut is made again — free. Null when nothing
+ * has been made yet (the caller just saves the plan).
+ */
+export async function saveTimeline(input: { writer: SupabaseClient; userId: string; videoId: string; next: ProductionPlan; origin: string }): Promise<EditResult | null> {
+  const loaded = await load(input.writer, input.videoId);
+  if (!loaded) return null;
+  const { carry, refilm, revoice } = carryByContent(loaded.plan, input.next);
+  return commitNext({
+    ...input,
+    ...loaded,
+    carry,
+    refilm,
+    revoice,
+    instruction: "Timeline and settings",
+    reply: "Saved.",
+    charge: 0,
+  });
+}
+
+/* A version made real: saved, what carries over filed, the rest made, cut. */
+async function commitNext(input: Loaded & {
+  writer: SupabaseClient;
+  userId: string;
+  videoId: string;
+  origin: string;
+  instruction: string;
+  next: ProductionPlan;
+  carry: Carry[];
+  refilm: number[];
+  revoice: number[];
+  reply: string;
+  charge: number;
+  outputTokens?: number;
+}): Promise<EditResult> {
+  const { writer, userId, videoId, origin, video, version, done, next, carry, refilm, revoice } = input;
+  const edit = { reply: input.reply };
   if (!next.scenes.length) return { ok: false, message: "That would leave the video with no scenes, so I've left it as it is." };
 
   /* 1. The new version. */

@@ -10,6 +10,7 @@ import { nameFromPrompt } from "../projectName";
 import { SendArrow } from "./marks";
 import { uploadAttachment, type Attachment } from "@/lib/project-attachments";
 import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { uploadStudioFile } from "@/lib/video/upload-client";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { cardNeeded } from "./billing/CardWelcome";
 
@@ -43,24 +44,19 @@ async function uploadForProject(projectId: string, files: File[]): Promise<strin
   return errors.length ? errors.join(" ") : null;
 }
 
-/* For a video they are its references — product shots, the photo to animate,
-   the person to present — stored where the studio reads them. */
+/* For a video they are its uploads — clips, sound, product shots, the photo
+   to animate, the person to present — sent straight to storage and prepared
+   for the timeline (lib/video/upload-client.ts). A picture stands for what
+   the pipeline asks for. */
 async function uploadVideoReferences(videoId: string, pipeline: string, files: File[]): Promise<string | null> {
-  const userId = await currentUserId();
-  if (!userId) return "Your images could not be attached — add them in the studio.";
-  const kind = isPipelineId(pipeline) ? (PIPELINES[pipeline].needsReference ?? "reference") : "reference";
-  const supabase = createSupabaseBrowserClient();
-  let failed = 0;
+  const needs = isPipelineId(pipeline) ? PIPELINES[pipeline].needsReference : undefined;
+  const role = needs === "product" || needs === "person" || needs === "photo" ? needs : undefined;
+  const errors: string[] = [];
   for (const file of files) {
-    const path = `${userId}/${videoId}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-    const { error } = await supabase.storage.from("video-assets").upload(path, file, { contentType: file.type || "image/png" });
-    if (error) {
-      failed += 1;
-      continue;
-    }
-    await supabase.from("video_assets").insert({ video_id: videoId, user_id: userId, kind, storage_path: path, mime: file.type });
+    const result = await uploadStudioFile(videoId, file, { role: file.type.startsWith("image/") ? role : undefined });
+    if (!result.ok) errors.push(result.error);
   }
-  return failed ? `${failed} image(s) could not be attached — add them in the studio.` : null;
+  return errors.length ? `${errors.join(" ")} Add ${errors.length === 1 ? "it" : "them"} again in the studio.` : null;
 }
 
 /* Home's send button.

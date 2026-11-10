@@ -9,7 +9,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Scissors, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 
 import { GRID, PIPELINES, type PipelineId } from "@/lib/video/pipelines";
 
@@ -24,6 +24,7 @@ export const PIPELINE_ICON: Record<string, LucideIcon> = {
   Lightbulb,
   Film,
   Image: ImageIcon,
+  Scissors,
 };
 
 export default function VideoTypeGrid({
@@ -190,7 +191,9 @@ export default function VideoTypeGrid({
                 {pipeline.needsReference && (
                   <p className="flex items-center gap-2 text-[12px] text-muted">
                     <ImageIcon className="h-3.5 w-3.5 shrink-0" />
-                    Add {pipeline.needsReference === "product" ? "product images" : pipeline.needsReference === "person" ? "photos or video of yourself" : "your photo"} in the studio, before the plan is made.
+                    {pipeline.needsReference === "clips"
+                    ? "Attach your clips here (the paperclip), or upload them in the studio — they're stitched in the order you add them."
+                    : `Add ${pipeline.needsReference === "product" ? "product images" : pipeline.needsReference === "person" ? "photos or video of yourself" : "your photo"} in the studio, before the plan is made.`}
                   </p>
                 )}
               </div>

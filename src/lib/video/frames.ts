@@ -33,7 +33,7 @@ export const keyframePath = (userId: string, videoId: string, version: number) =
 
 /** Whether this plan's on-camera scenes should start from one creator keyframe. */
 export function wantsKeyframe(plan: ProductionPlan, hasPhoto: boolean): boolean {
-  return !hasPhoto && KEYFRAME_PIPELINES.includes(plan.pipeline) && plan.scenes.some((scene) => scene.engine === "avatar");
+  return !hasPhoto && KEYFRAME_PIPELINES.includes(plan.pipeline) && plan.scenes.some((scene) => scene.engine === "avatar" && !scene.source);
 }
 
 /** The still the keyframe model is asked for. Pure. */

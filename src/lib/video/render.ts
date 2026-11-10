@@ -94,6 +94,13 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
       if (line) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId, language });
       continue;
     }
+    /* The person's own footage or picture is the scene: nothing is filmed,
+       but its voice line (if any) is still spoken. */
+    if (scene.source) {
+      const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+      if (line && usesVoice(plan.cut)) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId, language });
+      continue;
+    }
     /* At most 6s a clip: a 4s MiniMax-H3 clip took ~126s in testing, against
        the instance's 180s run limit. A longer scene holds its last frame
        while its line finishes (the studio's FinalCut). */

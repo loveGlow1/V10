@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -45,8 +45,8 @@ let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
 
 console.log("pipelines");
-has(P.PIPELINE_IDS.length === 10, "ten pipelines");
-has(P.GRID.length === 9 && !P.GRID.includes("photo_to_video"), "nine on the grid, Photo → Video on its own row");
+has(P.PIPELINE_IDS.length === 11, "eleven pipelines");
+has(P.GRID.length === 10 && !P.GRID.includes("photo_to_video") && P.GRID.includes("clip_edit"), "ten on the grid (Edit my clips among them), Photo → Video on its own row");
 for (const id of P.PIPELINE_IDS) {
   const p = P.PIPELINES[id];
   has(p.id === id && p.stages.length >= 4 && p.questions.length >= 2 && p.director.length >= 1 && p.engines.includes(p.defaultEngine), `${id}: stages, questions, director rules, engines`);
@@ -108,8 +108,8 @@ const clips = narratedJobs.filter((j) => j.kind === "clip");
 has(clips.every((j) => j.prompt.includes(R.NO_LETTERING)), "every clip is asked for no lettering of its own — the captions are added at the cut");
 has(clips.every((j) => j.prompt.includes(R.NO_SPEECH)), "no clip is asked to speak — every spoken word comes from the voice model");
 has(R.clipPrompt("x".repeat(3000)).length <= 2000, "the picture-only prompt still fits MiniMax's 2000 characters");
-const composeSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
-has(/audio: plan\.cut\?\.audio \?\? \(narrated \? "voiceover" : "original"\)/.test(composeSrc) && /Boolean\(talking\) \|\| cut\.audio !== "voiceover"/.test(composeSrc), "a narrated video's cut is the script's voice only by default — a lip-synced clip's sound is that voice, and stays");
+const composeSrc = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(process.cwd(), "src/lib/video", f), "utf8")).join("\n");
+has(/audio: cut\.audio \?\? \(narrated \? "voiceover" : "original"\)/.test(composeSrc) && /\(Boolean\(talking\) \|\| keepsOriginal\)/.test(composeSrc), "a narrated video's cut is the script's voice only by default — a lip-synced clip's sound is that voice, and stays");
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
 has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
 has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
@@ -132,11 +132,11 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(/\/api\/projects\/\$\{projectId\}\/secrets`, \{\s*method: "POST"/.test(integrationsSrc) && /type="password"/.test(integrationsSrc) && /setValues\(\{\}\)/.test(integrationsSrc) && !/NEXT_PUBLIC_/.test(integrationsList), "keys go to the app's server environment through the Server keys route — masked, cleared once used, never NEXT_PUBLIC_");
 }
 {
-  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  const c = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(process.cwd(), "src/lib/video", f), "utf8")).join("\n");
   has(/setpts=PTS\*\$\{input\.stretch\.toFixed\(4\)\}/.test(c) && /Math\.min\(1\.4, Math\.max\(1, seconds \/ clip\)\)/.test(c), "a clip shorter than its line is slowed to fit (up to 1.4×) before its last frame is held");
   has(/loudnorm=I=-14:TP=-1\.5:LRA=11/.test(c) && /"-c:v", "copy", "-af", "loudnorm/.test(c), "the whole cut is set to -14 LUFS, the picture copied, not encoded again");
   has(/cut\.captions && \(hasVoice \|\| cut\.audio === "none"\) \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
-  has(/talking \|\| cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick\(scene\.n, "voice"\)/.test(c) && /cut\.audio !== "voiceover"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
+  has(/talking \|\| cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick\(scene\.n, "voice"\)/.test(c) && /const keepsOriginal = cut\.audio === "original" \|\| cut\.audio === "mix"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
   const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.ai", muted: [1, "2", -3, 1], junk: 1 });
   has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
   const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
@@ -162,7 +162,7 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
 }
 {
   has(X.exportsFor("9:16").join() === "feed,whatsapp" && X.exportsFor("16:9").join() === "vertical,feed,whatsapp" && X.exportPath("u/v/v2/final.mp4", "feed") === "u/v/v2/final-feed.mp4", "every cut gets the ready-to-post shapes it is not already, stored beside it");
-  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  const c = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(process.cwd(), "src/lib/video", f), "utf8")).join("\n");
   has(/Math\.floor\(\(15 \* 8 \* 1024\) \/ Math\.max\(1, input\.seconds\)\) - 140/.test(c) && /boxblur=24:2/.test(c), "the WhatsApp file is sized under 16 MB; feed and vertical keep the whole picture over a blurred fill");
   const st = readFileSync(join(process.cwd(), "src/lib/video/state.ts"), "utf8");
   const fr = readFileSync(join(process.cwd(), "src/app/api/video/[id]/file/route.ts"), "utf8");
@@ -174,7 +174,7 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(L.normalizeCut({ audio: "none" })?.audio === "none" && L.usesVoice({ audio: "none" }) === false && L.usesVoice(undefined) === true, "a cut can be silent, and a silent cut uses no voice lines");
   const silent = L.normalizePlan({ cut: { audio: "none" }, scenes: [{ duration: 5, visual: "a", voiceover: "Hi.", motionPrompt: "x" }] }, "ugc_influencer", {});
   has(R.jobsFor(silent, {}).every((j) => j.kind === "clip") && E.renderCost(silent, {}) < E.renderCost({ ...silent, cut: undefined }, {}), "a silent video orders and charges no voice lines");
-  const c = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+  const c = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(process.cwd(), "src/lib/video", f), "utf8")).join("\n");
   has(/cut\.audio !== "none" && !cut\.muted\.has/.test(c) && /cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick/.test(c) && /hasVoice \|\| cut\.audio === "none"\) \? scene\.voiceover/.test(c), "a silent cut has no voice and no clip sound — and keeps the script as captions");
   has(Object.keys(SD.SOUND_COMMANDS).join() === "voiceover,original,mix,none" && SD.soundCommand(SD.SOUND_COMMANDS.none) === "none" && SD.soundCommand("mute it please") === null, "the Sound switch's four requests are fixed phrases, told apart from an edit");
   const ap = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
@@ -372,7 +372,7 @@ has(/STALE_AFTER_MS = 30 \* 60 \* 1000/.test(renderLib), "a queued n8n clip has 
 has(/name === "TimeoutError"\) return \{ job, ok: true \}/.test(renderLib), "a slow answer from n8n is its queue, not a refusal");
 has(/const late = row\?\.status === "failed" && url !== null;/.test(cb) && /row\.provider !== "n8n:minimax"/.test(cb), "a finished clip that arrives late is still taken — while it is still n8n's");
 /* The final cut, made here when there is no fal key. */
-const local = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+const local = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(root, "src/lib/video", f), "utf8")).join("\n");
 const prod = readFileSync(join(root, "src/lib/video/production.ts"), "utf8");
 const composeRoute = readFileSync(join(root, "src/app/api/video/[id]/render/compose/route.ts"), "utf8");
 const stateSrc = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
@@ -395,7 +395,7 @@ const announce = readFileSync(join(root, "src/lib/video/announce.ts"), "utf8");
 const fileRoute = readFileSync(join(root, "src/app/api/video/[id]/file/route.ts"), "utf8");
 const msgRow = readFileSync(join(root, "src/app/dashboard/components/workspace/MessageRow.tsx"), "utf8");
 const falRoute = readFileSync(join(root, "src/app/api/video/[id]/render/fal/route.ts"), "utf8");
-const localCut = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+const localCut = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(root, "src/lib/video", f), "utf8")).join("\n");
 has(/label: "video:1", href: finalVideoUrl\(/.test(announce) && /dedupe_key: `video-final:/.test(announce), "a finished video is posted to the chat once, with the video in it");
 has(/await announceFinal\(service, \{ videoId, version, origin/.test(localCut) && /landLineJob\(/.test(falRoute) && /if \(media\) await announceFinal\(/.test(readFileSync(join(root, "src/lib/video/line-results.ts"), "utf8")), "whichever way the cut was made — here or on fal");
 has(/<ReplyVideos videos=\{videos\} \/>/.test(msgRow) && /<video[\s\S]{0,80}controls[\s\S]{0,40}playsInline/.test(msgRow), "the chat plays it");
@@ -449,7 +449,7 @@ has(/lipsyncTask\(/.test(lineSrc) && /avatarTask\(/.test(lineSrc) && /musicTask\
 const lineRoute = readFileSync(join(root, "src/app/api/video/[id]/render/line/route.ts"), "utf8");
 has(/verifyFalToken\(id, version, `line:/.test(lineRoute) && /settleRunwareLineJob\(/.test(lineRoute) && /named !== taskUUID/.test(lineRoute), "Runware's webhook takes only its own token, and asks Runware before believing it");
 has(/settleRunwareLineJob\(/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a quiet Runware job is asked about when the studio polls");
-const mixSrc = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+const mixSrc = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(root, "src/lib/video", f), "utf8")).join("\n");
 has(/sidechaincompress=threshold=0\.05:ratio=8/.test(mixSrc) && /musicMixArgs\(\{ joined, music: musicPath/.test(mixSrc), "the score goes under the cut, ducked under the voice");
 
 /* Media lengths, read from the header without ffmpeg (probe.ts). */
@@ -471,6 +471,81 @@ const Probe = await import(join(dir, "probe.js"));
   has(Math.abs(Probe.mp3Seconds(mp3) - 1) < 0.01, "a CBR MP3's length from its bitrate (128 kbps × 1s = 16000 bytes)");
   has(Probe.seconds(new Uint8Array(10)) === null, "and null when it cannot tell — lip sync then cuts off, never repeats a line");
 }
+
+
+/* ── Uploads, stitching and video settings ───────────────────────────── */
+console.log("\nuploads and stitching");
+const A = await import(join(dir, "assets.js"));
+const CS = await import(join(dir, "cut-settings.js"));
+const CF = await import(join(dir, "cut-filters.js"));
+const T = await import(join(dir, "timeline.js"));
+const MF = await import(join(dir, "media-files.js"));
+const id1 = "11111111-1111-4111-8111-111111111111", id2 = "22222222-2222-4222-8222-222222222222", id3 = "33333333-3333-4333-8333-333333333333";
+has(A.assetKind("video/quicktime") === "video" && A.assetKind("audio/mpeg") === "audio" && A.assetKind("image/webp") === "image" && A.assetKind("application/pdf") === "file", "an upload's kind comes from its MIME type");
+has(A.uploadProblem({ mime: "video/mp4", size: 401 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 200 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 170 }) === null, "clips up to 400 MB and 3 minutes");
+has(A.uploadProblem({ mime: "audio/wav", size: 51 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "application/zip", size: 10 }) !== null, "sound up to 50 MB; other files are refused");
+const vids = [
+  { id: id1, kind: "video", name: "a.mov", mime: "video/quicktime", status: "ready", durationS: 8.4, width: 1080, height: 1920, hasAudio: true },
+  { id: id2, kind: "image", name: "b.png", mime: "image/png", status: "ready", durationS: null, width: 1200, height: 900, hasAudio: null },
+  { id: id3, kind: "audio", name: "song.mp3", mime: "audio/mpeg", status: "ready", durationS: 60, width: null, height: null, hasAudio: true },
+];
+const manifest = A.attachmentManifest(vids);
+has(manifest.startsWith("ATTACHMENTS (authoritative, do not infer from the text):") && /- video x1: \[\{assetId: "1111/.test(manifest) && /- audio x1/.test(manifest) && /- image x1/.test(manifest), "the ATTACHMENTS block lists every upload by kind", manifest);
+has(/If video x0, the user has NOT attached a video\. Never claim to see one\./.test(A.attachmentManifest([])), "with no video it says so, word for word");
+has(A.attachmentIntent("stitch these together", vids) === "STITCH" && A.attachmentIntent("lip sync it to my voice", vids) === "LIPSYNC_VIDEO" && A.attachmentIntent("trim the start", vids) === "EDIT" && A.attachmentIntent("make a video", []) === "GENERATE" && A.attachmentIntent("make her say this script", [vids[1]]) === "AVATAR", "what a message asks of its attachments is routed by kind");
+
+const stitched = T.stitchPlan({ assets: vids, answers: { aspect: "Match my clips", music: "My own audio file", transitions: "Hard cuts" } });
+has(stitched.pipeline === "clip_edit" && stitched.scenes.length === 2 && stitched.scenes[0].source.assetId === id1 && stitched.scenes[1].engine === "image", "Edit my clips: every clip and picture, in upload order, as scenes");
+has(stitched.aspect === "9:16" && stitched.cut.transition === "cut" && stitched.cut.music.source === "upload" && stitched.cut.music.assetId === id3 && stitched.cut.audio === "original", "shaped like the clips, with the answers' transitions, the person's song and the clips' own sound");
+has(T.clipsAspect([{ kind: "video", width: 1920, height: 1080 }, { kind: "video", width: 1280, height: 720 }]) === "16:9", "landscape footage cuts landscape");
+const qa = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 42, visual: "mine", source: { assetId: id1, trimStart: 2, trimEnd: 40 } }, { duration: 9, visual: "made", motionPrompt: "x" }] }, "clip_edit", {})).plan;
+has(qa.scenes[0].source?.trimStart === 2 && qa.scenes[0].duration === 42 && qa.scenes.length === 3, "an uploaded scene is never split or rescaled; a long generated one still is");
+has(L.normalizeSource({ assetId: "nope" }) === undefined && L.normalizeSource({ assetId: id1, speed: 9, volume: -1 }).speed === 4 && L.normalizeSource({ assetId: id1, speed: 9, volume: -1 }).volume === 0, "an upload reference is read strictly: a real id, speed 0.25–4, level 0–2");
+has(L.sourceSeconds({ assetId: id1, trimStart: 2, trimEnd: 8, speed: 2 }, 10) === 3 && L.sourceSeconds({ assetId: id1 }, 7.5) === 7.5, "a trimmed, sped-up clip plays for its span ÷ speed");
+const mixed = L.normalizePlan({ scenes: [{ duration: 6, visual: "mine", voiceover: "Hello there", source: { assetId: id1 } }, { duration: 5, visual: "made", motionPrompt: "x" }] }, "commercial_ad", {});
+const mjobs = R.jobsFor(mixed, {});
+has(mjobs.filter((j) => j.kind === "clip").length === 1 && mjobs.some((j) => j.kind === "voice" && j.n === 1), "an uploaded scene films nothing, but its line is still voiced");
+has(E.renderCost(mixed, env) === E.CLIP_COST + E.VOICE_COST, "and costs nothing to film");
+has(E.readiness(stitched, {}).ready === true, "a stitch of uploads needs no generation engine at all");
+const carried = ED.carryByContent(mixed, { ...mixed, scenes: [mixed.scenes[1], mixed.scenes[0]].map((s, i) => ({ ...s, n: i + 1 })) });
+has(carried.refilm.length === 0 && carried.revoice.length === 0 && carried.carry.length === 2, "a reordered timeline reuses every clip and line it already had");
+has(ED.carryByContent(mixed, { ...mixed, scenes: mixed.scenes.map((s) => (s.n === 2 ? { ...s, motionPrompt: "new" } : s)) }).refilm.join() === "2", "only a changed generated scene is filmed again");
+
+console.log("\nvideo settings");
+const strict = L.normalizeCut({ transition: "explode", fit: "fit-blur", fps: 60, resolution: "4k", musicVolume: 5, music: { source: "upload" } });
+has(strict.fit === "fit-blur" && strict.fps === 60 && strict.transition === undefined && strict.resolution === undefined && strict.musicVolume === 2 && strict.music === undefined, "settings are read strictly: unknown values dropped, levels clamped, an upload needs its file");
+const resolved = CS.resolveCut({ ...stitched, cut: undefined });
+has(resolved.transition === "crossfade" && resolved.fit === "fit-blur" && resolved.fadeOut === true && CS.resolveCut(fixed).transition === "dip", "defaults: stitched footage crossfades on a blurred fit; generated videos keep the quick dip");
+has(CS.frameSize("9:16", "1080p").join() === "1080,1920" && CS.frameSize("16:9", "720p").join() === "1280,720" && CS.frameSize("4:5", "720p").join() === "720,900", "the frame follows the shape and resolution");
+has(CS.encoderFor("standard", 300).preset === "ultrafast" && CS.encoderFor("high", 20).crf === 18, "long cuts encode faster so they finish; high quality is a lower CRF");
+has(CS.colorFilter("mono").includes("hue=s=0") && CS.colorFilter("none") === "", "colour grades are ffmpeg filters");
+has(CF.atempoChain(4) === "atempo=2,atempo=2.0000" && CF.atempoChain(0.25) === "atempo=0.5,atempo=0.5000" && CF.atempoChain(1) === "", "sound keeps pace at any speed (atempo chained)");
+has(/boxblur/.test(CF.fitFilter("fit-blur", 720, 1280)) && /pad=720:1280/.test(CF.fitFilter("fit-black", 720, 1280)) && /crop=720:1280/.test(CF.fitFilter("fill", 720, 1280)), "fill, fit on a blurred copy, fit on black");
+const joinX = CF.joinArgs({ segments: [{ path: "a", seconds: 4 }, { path: "b", seconds: 5 }, { path: "c", seconds: 3 }], transition: "crossfade", duration: 0.5, listPath: "l", out: "o", encoder: { preset: "veryfast", crf: 21 } });
+const graph = joinX.args[joinX.args.indexOf("-filter_complex") + 1];
+has(/xfade=transition=fade:duration=0\.500:offset=3\.500\[v1\]/.test(graph) && /offset=8\.000\[v\]/.test(graph) && /acrossfade=d=0\.500\[a\]/.test(graph) && joinX.seconds === 11, "transitions overlap each pair at the right moment, and the cut is that much shorter", graph);
+const joinCut = CF.joinArgs({ segments: [{ path: "a", seconds: 4 }, { path: "b", seconds: 5 }], transition: "cut", duration: 0.5, listPath: "l", out: "o", encoder: { preset: "veryfast", crf: 21 } });
+has(joinCut.list === "file 'a'\nfile 'b'" && joinCut.args.includes("copy"), "a hard cut joins without encoding again");
+has(CF.xfadeName("crossfade") === "fade" && CF.xfadeName("dip") === null && CF.xfadeName("slideleft") === "slideleft", "every transition is a real xfade");
+has(!/sidechaincompress/.test(CF.musicMixArgs({ joined: "j", music: "m", out: "o", seconds: 10, spoken: true, duck: false }).join(" ")) && CF.musicMixArgs({ joined: "j", music: "m", out: "o", seconds: 10, spoken: true, start: 12 }).includes("12.00"), "ducking can be turned off; a song can start partway in");
+has(CF.finishArgs({ source: "s", out: "o", loudness: false, silent: false }).includes("copy") && !CF.finishArgs({ source: "s", out: "o", loudness: false, silent: false }).join(" ").includes("loudnorm"), "even loudness can be turned off");
+const words = CF.wordsFilter({ fontPath: "f", dir: "d", n: 1, caption: "hi", captionPosition: "top", captionSize: "large", captionStyle: "highlight" }, 720, 1280).join(",");
+has(/fontcolor=0xFFE14D/.test(words) && /y=h\*0\.12/.test(words), "captions take the position, size and style asked for");
+has(/zoompan=z='1\+0\.12\*on\/120'/.test(CF.stillVideoFilter({ width: 720, height: 1280, seconds: 4, fps: 30, fit: "fill", motion: "zoom-in" })), "a picture moves gently while it is on screen");
+
+console.log("\npreparing uploads");
+const phone = MF.readInspection("Duration: 00:00:06.00, start\n  Stream #0:0: Video: h264, yuv420p, 1920x1080 [SAR 1:1], 30 fps\n      displaymatrix: rotation of 90.00 degrees\n  Stream #0:1: Audio: aac");
+has(phone.width === 1080 && phone.height === 1920 && phone.hasAudio && phone.seconds === 6, "a phone's rotated clip is measured upright");
+const work = MF.workingCopyArgs({ source: "s", out: "o", hasAudio: false }).join(" ");
+has(/anullsrc=r=48000/.test(work) && /fps=30/.test(work) && /-shortest/.test(work) && /\+faststart/.test(work), "a silent clip gets silence laid in, so every clip joins the same way");
+const regRoute = readFileSync(join(root, "src/app/api/video/[id]/assets/route.ts"), "utf8");
+has(/mimetype/.test(regRoute) && /startsWith\(`\$\{userId\}\/\$\{id\}\/uploads\/`\)/.test(regRoute) && /assets\/prepare\?asset=/.test(regRoute), "an upload's kind is re-checked from the stored object, its path from the owner, and it is prepared in its own route");
+has(/createSignedUploadUrl/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")), "files go straight to storage on a one-time address, never through a function body");
+has(/"\/api\/video\/\[id\]\/assets\/prepare": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(readFileSync(join(root, "next.config.mjs"), "utf8")), "the preparing route carries the ffmpeg binary");
+has(/fileUploads\(/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")), "a render files the uploads as finished scenes");
+has(/saveTimeline\(/.test(readFileSync(join(root, "src/app/api/video/[id]/timeline/route.ts"), "utf8")), "the studio's timeline and settings are saved and re-cut without filming again");
+has(/attachmentManifest\(input\.assets/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")), "the Creative Director reads the ATTACHMENTS block first");
+has(/clip_edit/.test(readFileSync(join(root, "supabase/migrations/20261110120000_video_uploads.sql"), "utf8")), "the database knows the new pipeline and upload kinds");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
