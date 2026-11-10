@@ -44,8 +44,8 @@ export type Pipeline = {
   defaultEngine: Engine;
   /** Engines this pipeline may route to at all. */
   engines: Engine[];
-  /** Asks for a reference upload (product image, photo, person). */
-  needsReference?: "product" | "photo" | "person";
+  /** Asks for an upload before the plan: a product image, a photo, the person, or the person's own clips. */
+  needsReference?: "product" | "photo" | "person" | "clips";
   /** Requires the person to confirm they have the right to the likeness and voice. */
   needsConsent?: boolean;
 };
@@ -60,6 +60,7 @@ export const PIPELINE_IDS = [
   "social_video",
   "explainer",
   "trailer",
+  "clip_edit",
   "photo_to_video",
 ] as const;
 export type PipelineId = (typeof PIPELINE_IDS)[number];
@@ -298,6 +299,30 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     engines: ["video"],
     needsReference: "photo",
   },
+  clip_edit: {
+    id: "clip_edit",
+    label: "Edit my clips",
+    blurb: "Upload your clips; get one polished video",
+    template:
+      "Stitch my clips into one [LENGTH, e.g. 30-second] video for [PLATFORM].\nOrder: [THE ORDER, or \"as uploaded\"].\nKeep [WHAT TO KEEP — e.g. my own voice, the best moments] and cut [WHAT TO CUT — e.g. pauses, shaky starts].\nAdd [OPTIONAL — music, captions, a title at the start, an end card that says ...].",
+    icon: "Scissors",
+    stages: ["Your clips", "Order and trim", "Transitions", "Sound and music", "Captions", "Final cut"],
+    questions: [
+      { id: "aspect", label: "Format", options: ["Match my clips", "Vertical 9:16", "Square 1:1", "Landscape 16:9"], initial: "Match my clips" },
+      { id: "music", label: "Music", options: ["Keep my clips' sound", "Add music under my clips", "My own audio file"], initial: "Keep my clips' sound" },
+      { id: "transitions", label: "Transitions", options: ["Smooth crossfades", "Hard cuts", "Fade through black"], initial: "Smooth crossfades" },
+    ],
+    director: [
+      "The person's uploaded clips ARE the video. Every scene that shows one sets \"source\": {\"assetId\": \"<its id from ATTACHMENTS>\"}, with \"trimStart\"/\"trimEnd\" in seconds when only part of it is wanted, and needs no motionPrompt.",
+      "Use every uploaded clip, in the order uploaded, unless the idea asks for a different order or to leave one out.",
+      "A scene's duration is its trimmed length in seconds. Durations do not have to meet the target exactly: the footage decides.",
+      "Add a generated scene (title card, intro, b-roll, end card) only when the idea asks for one; it is then an ordinary scene with a motionPrompt and no source.",
+      "Leave voiceover empty unless the idea asks for narration over the clips.",
+    ],
+    defaultEngine: "video",
+    engines: ["video", "image", "avatar"],
+    needsReference: "clips",
+  },
 };
 
 /* Asked of every video: which engines make its clips. "MiniMax credit" spends
@@ -308,7 +333,7 @@ for (const pipeline of Object.values(PIPELINES)) {
   if (!pipeline.questions.some((question) => question.id === QUALITY.id)) pipeline.questions.push(QUALITY);
 }
 
-/** The grid order on the studio's first screen: nine cards, then Photo → Video. */
+/** The grid order on the studio's first screen: ten cards, then Photo → Video. */
 export const GRID: PipelineId[] = PIPELINE_IDS.filter((id) => id !== "photo_to_video");
 
 /** Each question's answer, falling back to the question's own default. */

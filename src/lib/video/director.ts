@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { attachmentManifest, type StudioAsset } from "./assets";
 import { PIPELINES, type PipelineId } from "./pipelines";
 import { MAX_CLIP_SECONDS, normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIssue } from "./plan";
 import { withPolicy } from "@/lib/safety/policy";
@@ -39,7 +40,8 @@ ${spec.director.map((rule) => `- ${rule}`).join("\n")}
 
 RULES FOR EVERY VIDEO:
 - Target length: ${target} seconds. Scene durations must add up to it.
-- Each scene is ONE generated clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
+- ATTACHMENTS (before the idea) lists the person's own uploads and is the only truth about them. A scene may use an uploaded clip or picture instead of generating one: set "source": {"assetId": "<an assetId from ATTACHMENTS>", "trimStart": 0, "trimEnd": 8} (seconds; leave the trims out to use it whole). Such a scene runs as long as its trimmed footage, needs no motionPrompt, and its engine is "video" for a clip or "image" for a picture. Never invent an assetId; never say there is footage when ATTACHMENTS says video x0.
+- Each generated scene is ONE clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
 - ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - Anything that must look the same in more than one scene (product, creator, characters, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
@@ -50,15 +52,18 @@ RULES FOR EVERY VIDEO:
 
 Reply with ONLY raw JSON, no markdown fences:
 {"title":"","concept":"","strategy":"","aspect":"9:16|1:1|16:9|4:5","voice":"","music":"","hooks":[""],"locks":{"product":"","style":""},"cta":"",
- "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}"}]}`;
+ "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}"}]}
+A scene made from an upload adds "source":{"assetId":"","trimStart":0,"trimEnd":0}. You may also set "cut":{"transition":"crossfade|cut|fadeblack","captions":true,"audio":"voiceover|original|mix|none"} when the idea asks for it.`;
 }
 
 export type DirectorInput = {
   pipeline: PipelineId;
   brief: string;
   answers: Record<string, string>;
-  /** Signed URLs of reference images (product, person, photo), at most three. */
+  /** Signed URLs of reference images (product, person, photo) and clip posters, at most three. */
   images?: string[];
+  /** Everything the person uploaded: the ATTACHMENTS block is made from it. */
+  assets?: StudioAsset[];
   /** For a re-plan: what to change. */
   note?: string;
   previous?: ProductionPlan | null;
@@ -69,9 +74,10 @@ export async function direct(input: DirectorInput): Promise<{ plan: ProductionPl
 
   const answers = Object.entries(input.answers).map(([key, value]) => `${key}: ${value}`).join("\n");
   const text = [
+    attachmentManifest(input.assets ?? []),
     `IDEA:\n${input.brief.slice(0, 6000)}`,
     answers && `CHOICES:\n${answers}`,
-    input.images?.length ? `REFERENCE IMAGES: ${input.images.length} attached. Describe what must stay consistent from them in "locks".` : "",
+    input.images?.length ? `REFERENCE IMAGES: ${input.images.length} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
     input.previous ? `CURRENT PLAN (revise it, keep what works):\n${JSON.stringify(input.previous).slice(0, 12000)}` : "",
     input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 2000)}` : "",
   ]

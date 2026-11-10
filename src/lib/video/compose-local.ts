@@ -1,55 +1,57 @@
-/* The final cut, made here — one MP4 from every scene, with no fal key.
+/* The final cut, made here — one MP4 from every scene, generated or uploaded,
+ * by the video settings (cut-settings.ts). ffmpeg itself (ffmpeg-static,
+ * bundled with this route's function), run once nothing of the version is
+ * still being made:
  *
- * fal's ffmpeg compose is one way to join a render's clips (production.ts).
- * Without FAL_KEY there was no other, so a finished render stayed a set of
- * clips the studio played back to back. This is the other: ffmpeg itself
- * (ffmpeg-static, bundled with the function), run once the last clip of a
- * version has landed:
+ *   each scene   its picture — the person's own clip (trimmed, at its speed
+ *                and level), a picture held and moving gently, a lip-synced
+ *                clip, or a generated one — fitted to the frame the way the
+ *                settings say (fill, fit on a blurred copy, fit on black),
+ *                graded, at the frame rate asked; held on its last frame when
+ *                its line runs longer; its own sound, its voice line on top;
+ *                its words in clean type, in the caption style asked: a video
+ *                model garbles lettering, the type here does not
+ *   the join     straight, or a transition between every pair of scenes
+ *   music        made, or the person's own file, under the whole cut and
+ *                ducked whenever a voice speaks
+ *   the finish   one loudness (-14 LUFS) for everything, fast-start, into
+ *                video-assets as the version's "compose" row — the MP4 the
+ *                studio and the workspace play and offer to download — and
+ *                the ready-to-post versions beside it
  *
- *   each scene   its clip — the lip-synced one when there is one — fitted to
- *                the plan's frame, held on its last frame when the scene runs
- *                longer than the clip, its own sound kept low, its voice line
- *                on top, and its on-screen words set in clean type (a title
- *                card darkened behind them, other lines as a caption band):
- *                a video model garbles lettering, the type here does not
- *   music        the version's score, when one was made (Runware or fal),
- *                laid under the whole cut and ducked whenever a voice speaks
- *                (sidechain compression), then levelled to -14 LUFS
- *   then         every scene joined in order, fast-start, into video-assets
- *                as the version's "compose" row — the MP4 the workspace
- *                preview plays and offers to download
- *
+ * The ffmpeg itself is written in cut-filters.ts (pure, checked offline).
  * Runs in its own invocation (/api/video/[id]/render/compose) with its own
- * time budget. Never throws: a failure is written to the compose row.
+ * time budget; long cuts encode faster so they finish (encoderFor). Never
+ * throws: a failure is written to the compose row.
  *
  * Server-only. */
 
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { promisify } from "node:util";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import ffmpegPath from "ffmpeg-static";
 
-import type { Cut, ProductionPlan, Scene } from "./plan";
+import { type ProductionPlan, type Scene } from "./plan";
 import { exportPath, exportsFor, type ExportKind } from "./exports";
 import { announceFinal } from "./announce";
+import { encoderFor, frameSize, resolveCut, type ResolvedCut } from "./cut-settings";
+import { finishArgs, joinArgs, musicMixArgs, sceneAudioFilter, sceneEncodeArgs, sceneVideoFilter, stillVideoFilter, type Words } from "./cut-filters";
+import { downloadTo, inspect, runFfmpeg } from "./media-files";
 import { signedUrl } from "./production";
 
-const exec = promisify(execFile);
+export { musicMixArgs } from "./cut-filters";
 
 /* Inter ExtraBold, fetched once per instance: drawtext needs a font file, and
    fetching it is one request rather than a file to carry through tracing. */
 const FONT_URL = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-800-normal.ttf";
 const FONT_PATH = "/tmp/qs-inter-800.ttf";
 
-/** The frame each aspect ratio is cut at. */
+/** The frame each aspect ratio is cut at by default (720p). */
 export const FRAME: Record<string, [number, number]> = {
-  "16:9": [1280, 720],
-  "9:16": [720, 1280],
-  "1:1": [1080, 1080],
-  "4:5": [864, 1080],
+  "16:9": frameSize("16:9", "720p"),
+  "9:16": frameSize("9:16", "720p"),
+  "1:1": frameSize("1:1", "720p"),
+  "4:5": frameSize("4:5", "720p"),
 };
 
 /* A scene that is a title card — words on a dark screen — gets the screen
@@ -60,23 +62,14 @@ export function isTitleCard(scene: Pick<Scene, "visual" | "shot" | "motionPrompt
   );
 }
 
-/* How the cut is put together, from the plan's own settings (plan.cut) and
-   what the video is. Pure. */
-export function cutFor(plan: Pick<ProductionPlan, "scenes" | "cut">): Required<Pick<Cut, "audio" | "captions">> & Pick<Cut, "endCard"> & { muted: Set<number> } {
-  const narrated = plan.scenes.some((scene) => scene.voiceover.trim());
-  return {
-    audio: plan.cut?.audio ?? (narrated ? "voiceover" : "original"),
-    captions: plan.cut?.captions ?? true,
-    endCard: plan.cut?.endCard,
-    muted: new Set(plan.cut?.muted ?? []),
-  };
-}
+/** How the cut is put together: every setting with its value. Pure. */
+export const cutFor = (plan: Pick<ProductionPlan, "scenes" | "cut" | "aspect" | "pipeline" | "music">): ResolvedCut => resolveCut(plan);
 
-/* How long a scene runs and how its clip fills it. A scene lasts as long as
-   it must — its planned length, its voice line's when that is longer, the
-   clip's own when its own sound is what is heard — and a clip shorter than
-   that is slowed to fit (up to 1.4×, which reads as natural motion) before
-   its last frame is held. Pure. */
+/* How long a generated scene runs and how its clip fills it. A scene lasts
+   as long as it must — its planned length, its voice line's when that is
+   longer, the clip's own when its own sound is what is heard — and a clip
+   shorter than that is slowed to fit (up to 1.4×, which reads as natural
+   motion) before its last frame is held. Pure. */
 export function sceneTiming(input: { planned: number; clip: number; voice: number; ownSound: boolean }): { seconds: number; stretch: number } {
   const clip = input.clip > 0 ? input.clip : input.planned;
   let seconds = Math.max(1, input.planned || 3);
@@ -87,103 +80,15 @@ export function sceneTiming(input: { planned: number; clip: number; voice: numbe
   return { seconds, stretch };
 }
 
-/** The video filter for one scene. Pure. */
-export function sceneFilter(input: {
-  width: number;
-  height: number;
-  seconds: number;
-  stretch?: number;
-  /** A title card's words, set large on a darkened screen. */
-  title?: string | null;
-  /** Words at the top of the frame: the scene's on-screen text, or the end card. */
-  headline?: string | null;
-  /** The spoken line, as a caption band. */
-  caption?: string | null;
-  fontPath: string;
-  dir: string;
-  n: number;
-}): string {
-  const { width, height, seconds } = input;
-  const small = Math.min(width, height);
-  const parts = [
-    `scale=${width}:${height}:force_original_aspect_ratio=increase`,
-    `crop=${width}:${height}`,
-    "setsar=1",
-    ...(input.stretch && input.stretch > 1.001 ? [`setpts=PTS*${input.stretch.toFixed(4)}`] : []),
-    "fps=30",
-    `tpad=stop_mode=clone:stop_duration=${seconds}`,
-  ];
-  const file = (kind: string) => `${input.dir}/${kind}-${input.n}.txt`;
-  if (input.title) {
-    parts.push("drawbox=x=0:y=0:w=iw:h=ih:color=black@0.97:t=fill");
-    parts.push(`drawtext=fontfile=${input.fontPath}:textfile=${file("title")}:fontcolor=white:fontsize=${Math.round(small * 0.085)}:x=(w-text_w)/2:y=(h-text_h)/2:line_spacing=12`);
-  }
-  if (input.headline) {
-    parts.push(
-      `drawtext=fontfile=${input.fontPath}:textfile=${file("headline")}:fontcolor=white:fontsize=${Math.round(small * 0.055)}:x=(w-text_w)/2:y=h*0.11:box=1:boxcolor=black@0.55:boxborderw=${Math.round(small * 0.02)}:line_spacing=8`,
-    );
-  }
-  if (input.caption) {
-    parts.push(
-      `drawtext=fontfile=${input.fontPath}:textfile=${file("caption")}:fontcolor=white:fontsize=${Math.round(small * 0.058)}:x=(w-text_w)/2:y=h*0.80-text_h/2:box=1:boxcolor=black@0.72:boxborderw=${Math.round(small * 0.024)}:line_spacing=10`,
-    );
-  }
-  const fade = Math.min(0.2, seconds / 6);
-  parts.push(`fade=t=in:st=0:d=${fade}`, `fade=t=out:st=${(seconds - fade).toFixed(2)}:d=${fade}`);
-  return parts.join(",");
-}
-
-/* The ffmpeg arguments for one scene: its picture through `filter`, its
-   sound the voice line over the clip's own sound (when that is heard) or
-   over silence. Pure. */
-export function sceneArgs(input: { clipPath: string; voicePath: string | null; ownSound: boolean; seconds: number; stretch: number; filter: string; out: string }): string[] {
-  const { seconds, stretch } = input;
-  const hasVoice = Boolean(input.voicePath);
-  const args = ["-hide_banner", "-y", "-i", input.clipPath, "-f", "lavfi", "-t", String(seconds), "-i", "anullsrc=r=44100:cl=stereo"];
-  if (input.voicePath) args.push("-i", input.voicePath);
-  const tempo = stretch > 1.001 ? `,atempo=${(1 / stretch).toFixed(4)}` : "";
-  const bed = input.ownSound ? `[0:a]aformat=sample_rates=44100:channel_layouts=stereo${tempo},volume=${hasVoice ? 0.22 : 0.9},apad[bed]` : `[1:a]anull[bed]`;
-  const fadeOut = `afade=t=out:st=${Math.max(0, seconds - 0.3).toFixed(2)}:d=0.3`;
-  const audio = hasVoice
-    ? `${bed};[2:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5,adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]atrim=0:${seconds},${fadeOut}[a]`
-    : `${bed};[bed]atrim=0:${seconds},${fadeOut}[a]`;
-  args.push(
-    "-filter_complex", `[0:v]${input.filter}[v];${audio}`,
-    "-map", "[v]", "-map", "[a]",
-    "-t", String(seconds),
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
-    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
-    input.out,
-  );
-  return args;
-}
-
-/**
- * The score under the joined cut: input 0 is the cut (voice and scene sound
- * already in it), input 1 the music. The music sits low and ducks under the
- * voice (sidechain compression) and fades in and out with the picture; with
- * no voice in the cut it is the soundtrack and plays fuller. The picture is
- * copied. Levelling is a second pass (the usual loudnorm): loudnorm inside
- * this graph never finishes flushing, and neither does the graph when the
- * music is trimmed with atrim rather than at the input — so it is cut at the
- * input, and the output is held to the same length. Pure.
- */
-export function musicMixArgs(input: { joined: string; music: string; out: string; seconds: number; spoken: boolean }): string[] {
-  const seconds = Math.max(1, input.seconds).toFixed(2);
-  const fade = `afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, Number(seconds) - 1.5).toFixed(2)}:d=1.5`;
-  const level = input.spoken ? 0.25 : 0.7;
-  const filter =
-    `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,asplit=2[vo1][vo2];` +
-    `[1:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${level},${fade}[m];` +
-    `[m][vo1]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[duck];` +
-    `[vo2][duck]amix=inputs=2:duration=first:normalize=0[a]`;
-  return [
-    "-nostdin", "-hide_banner", "-y", "-i", input.joined, "-t", seconds, "-i", input.music,
-    "-filter_complex", filter,
-    "-map", "0:v", "-map", "[a]",
-    "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-ar", "48000",
-    "-t", seconds, "-movflags", "+faststart", input.out,
-  ];
+/* How long an uploaded scene runs: its trimmed footage at its speed, or its
+   voice line when that runs longer (the last frame holds). Pure. */
+export function uploadTiming(input: { clip: number; trimStart?: number; trimEnd?: number; speed?: number; voice: number }): { seconds: number; span: number; start: number } {
+  const start = Math.max(0, Math.min(input.trimStart ?? 0, Math.max(0, input.clip - 0.2)));
+  const end = Math.min(input.clip > 0 ? input.clip : Infinity, input.trimEnd ?? Infinity);
+  const span = Math.max(0.2, (Number.isFinite(end) ? end : input.clip) - start);
+  const played = span / (input.speed ?? 1);
+  const seconds = Math.round(Math.max(played, input.voice ? input.voice + 0.45 : 0) * 1000) / 1000;
+  return { seconds, span: Math.round(span * 1000) / 1000, start };
 }
 
 /** The ffmpeg arguments for one ready-to-post version. Pure. */
@@ -216,31 +121,17 @@ export function wrap(text: string, width: number, title: boolean): string {
   return lines.slice(0, 4).join("\n");
 }
 
-async function probe(path: string): Promise<{ audio: boolean; seconds: number }> {
-  const result = await exec(ffmpegPath as string, ["-hide_banner", "-i", path], { maxBuffer: 1 << 22 }).catch((error: { stderr?: string }) => ({ stderr: error.stderr ?? "" }));
-  const text = String((result as { stderr?: string }).stderr ?? "");
-  const match = text.match(/Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/);
-  const seconds = match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]) : 0;
-  return { audio: /Stream #.*Audio:/.test(text), seconds };
-}
-
-async function download(url: string, path: string): Promise<boolean> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
-  if (!response.ok) return false;
-  await writeFile(path, Buffer.from(await response.arrayBuffer()));
-  return true;
-}
-
 async function font(): Promise<string | null> {
   try {
     if ((await stat(FONT_PATH)).size > 10_000) return FONT_PATH;
   } catch {
     /* Not fetched yet on this instance. */
   }
-  return (await download(FONT_URL, FONT_PATH).catch(() => false)) ? FONT_PATH : null;
+  return (await downloadTo(FONT_URL, FONT_PATH, 20_000)) ? FONT_PATH : null;
 }
 
 type Row = { scene: number | null; engine: string; status: string; output_path: string | null };
+type Upload = { kind: string; storage_path: string; working_path: string | null; duration_s: number | null };
 
 /** Makes the version's final MP4 and lands it on the compose row. Never throws. */
 export async function composeLocally(service: SupabaseClient, videoId: string, version: number, origin: string): Promise<void> {
@@ -248,7 +139,6 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
   const finish = (update: Record<string, unknown>) =>
     service.from("video_renders").update({ ...update, updated_at: new Date().toISOString() }).eq("video_id", videoId).eq("version", version).eq("engine", "compose");
   try {
-    if (!ffmpegPath) throw new Error("ffmpeg is not available on this server.");
     const { data: video } = await service.from("video_projects").select("id, user_id, title, project_id").eq("id", videoId).maybeSingle();
     const { data: planRow } = await service.from("video_versions").select("plan").eq("video_id", videoId).eq("version", version).maybeSingle();
     if (!video || !planRow) throw new Error("The video or its plan is missing.");
@@ -256,49 +146,74 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const { data } = await service.from("video_renders").select("scene, engine, status, output_path").eq("video_id", videoId).eq("version", version);
     const rows = (data ?? []) as Row[];
     const pick = (scene: number, engine: string) => rows.find((row) => row.scene === scene && row.engine === engine && row.status === "done");
+    const { data: assetRows } = await service.from("video_assets").select("id, kind, storage_path, working_path, duration_s").eq("video_id", videoId);
+    const uploads = new Map(((assetRows ?? []) as (Upload & { id: string })[]).map((asset) => [asset.id, asset]));
 
     await mkdir(dir, { recursive: true });
     const fontPath = await font();
-    const [width, height] = FRAME[plan.aspect] ?? FRAME["16:9"];
-    const segments: string[] = [];
     const cut = cutFor(plan);
+    const [width, height] = frameSize(plan.aspect, cut.resolution);
+    const planned = plan.scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
+    const encoder = encoderFor(cut.quality, planned);
+    const segments: { path: string; seconds: number }[] = [];
     const last = plan.scenes[plan.scenes.length - 1]?.n;
+    const first = plan.scenes[0]?.n;
     /* Whether a voice is heard anywhere: the score ducks under it. */
     let voiced = false;
 
     for (const scene of plan.scenes) {
       const talking = pick(scene.n, "avatar");
-      const picture = talking ?? pick(scene.n, "video");
-      const pictureUrl = picture ? await signedUrl(service, picture.output_path) : null;
+      const upload = scene.source && !talking ? uploads.get(scene.source.assetId) : undefined;
+      const still = Boolean(upload && upload.kind !== "video" && upload.kind !== "audio");
+
+      /* The picture: the upload itself (its working copy when there is one),
+         else the lip-synced or generated clip. */
+      const picturePath = upload ? (still ? upload.storage_path : (upload.working_path ?? upload.storage_path)) : null;
+      const pictureUrl = picturePath ? await signedUrl(service, `storage:${picturePath}`) : await signedUrl(service, (talking ?? pick(scene.n, "video"))?.output_path ?? null);
       if (!pictureUrl) continue;
-      const clipPath = join(dir, `clip-${scene.n}.mp4`);
-      if (!(await download(pictureUrl, clipPath))) continue;
-      const clip = await probe(clipPath);
+      /* ffmpeg reads a picture by its extension. */
+      const ext = still ? (picturePath?.match(/\.(png|jpe?g|webp)$/i)?.[0] ?? ".jpg") : ".mp4";
+      const clipPath = join(dir, `clip-${scene.n}${ext}`);
+      if (!(await downloadTo(pictureUrl, clipPath))) continue;
+      const clip = await inspect(clipPath);
 
       /* The script's voice, unless the cut is the clips' own sound. A
          lip-synced clip already carries its line. */
       const voice = talking || cut.audio === "original" || cut.audio === "none" ? null : pick(scene.n, "voice");
       const voiceUrl = voice ? await signedUrl(service, voice.output_path) : null;
       const voicePath = join(dir, `voice-${scene.n}.mp3`);
-      const hasVoice = Boolean(voiceUrl && (await download(voiceUrl, voicePath)));
-      const voiceSeconds = hasVoice ? (await probe(voicePath)).seconds : 0;
+      const hasVoice = Boolean(voiceUrl && (await downloadTo(voiceUrl, voicePath)));
+      const voiceSeconds = hasVoice ? (await inspect(voicePath)).seconds : 0;
       if (hasVoice || talking) voiced = true;
 
-      /* A clip's own sound is the video model's: room tone at best, at worst
-         lines it made up or mumbled words in no language. It is heard only
-         when the cut asks for it (original, or mixed under the voice) and
-         the scene is not muted; a lip-synced clip's sound is the voice line
-         itself and always stays. */
-      const ownSound = clip.audio && cut.audio !== "none" && !cut.muted.has(scene.n) && (Boolean(talking) || cut.audio !== "voiceover");
-      const { seconds, stretch } = sceneTiming({ planned: Number(scene.duration) || 3, clip: clip.seconds, voice: voiceSeconds, ownSound: Boolean(ownSound) && !hasVoice });
+      /* A generated clip's own sound is the video model's: room tone at
+         best, at worst lines it made up. It is heard only when the cut asks
+         for it (original, or mixed under the voice); the person's own
+         footage is heard whenever the cut keeps original sound; a lip-synced
+         clip's sound is the voice line itself and always stays. */
+      const keepsOriginal = cut.audio === "original" || cut.audio === "mix" || (cut.audio === "voiceover" && Boolean(upload) && !hasVoice);
+      const ownSound = !still && clip.hasAudio && cut.audio !== "none" && !cut.muted.has(scene.n) && (Boolean(talking) || keepsOriginal);
 
-      /* Words on the frame, set here in clean type — a video model garbles
-         lettering. A title card is large on a dark screen; otherwise the
-         spoken line is the caption and the scene's own words, or the end
-         card, sit at the top. */
+      let seconds: number;
+      let inputOptions: string[] = [];
+      let speed: number | undefined;
+      let stretch = 1;
+      if (upload && !still) {
+        const timing = uploadTiming({ clip: clip.seconds, trimStart: scene.source?.trimStart, trimEnd: scene.source?.trimEnd, speed: scene.source?.speed, voice: voiceSeconds });
+        seconds = timing.seconds;
+        speed = scene.source?.speed;
+        inputOptions = ["-ss", timing.start.toFixed(3), "-t", timing.span.toFixed(3)];
+      } else if (still) {
+        seconds = Math.max(1, Number(scene.duration) || 4, voiceSeconds ? voiceSeconds + 0.45 : 0);
+      } else {
+        ({ seconds, stretch } = sceneTiming({ planned: Number(scene.duration) || 3, clip: clip.seconds, voice: voiceSeconds, ownSound: Boolean(ownSound) && !hasVoice }));
+      }
+
+      /* Words on the frame. A title card is large on a dark screen;
+         otherwise the spoken line is the caption and the scene's own words,
+         or the end card, sit opposite it. A silent cut keeps the script as
+         captions: muted is how most people watch. */
       const titleCard = isTitleCard(scene) && Boolean(scene.onScreenText?.trim());
-      /* A silent cut keeps the script as captions: muted is how most people
-         watch, and the words are what carries it. */
       const spoken = cut.captions && (hasVoice || cut.audio === "none") ? scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim() : "";
       const headlineText = scene.n === last && cut.endCard ? cut.endCard : !titleCard && scene.onScreenText?.trim() && scene.onScreenText.trim() !== spoken ? scene.onScreenText.trim() : "";
       const texts: Record<string, string> = {};
@@ -306,65 +221,62 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       if (headlineText) texts.headline = wrap(headlineText, width, false);
       if (spoken) texts.caption = wrap(spoken, width, false);
       for (const [kind, value] of Object.entries(texts)) await writeFile(join(dir, `${kind}-${scene.n}.txt`), value);
-      const ready = Boolean(fontPath);
+      const words: Words | null = fontPath
+        ? { fontPath, dir, n: scene.n, title: texts.title, headline: texts.headline, caption: texts.caption, captionPosition: cut.captionPosition, captionSize: cut.captionSize, captionStyle: cut.captionStyle }
+        : null;
+      const edges = { dip: cut.transition === "dip", fadeIn: cut.fadeIn && scene.n === first, fadeOut: cut.fadeOut && scene.n === last };
 
-      const out = join(dir, `scene-${scene.n}.mp4`);
-      const args = sceneArgs({
-        clipPath,
-        voicePath: hasVoice ? voicePath : null,
-        ownSound: Boolean(ownSound),
+      const videoFilter = still
+        ? stillVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, motion: cut.stillMotion, color: cut.color, words, edges })
+        : sceneVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, color: cut.color, speed, stretch, words, edges });
+      const audioFilter = sceneAudioFilter({
         seconds,
-        stretch,
-        out,
-        filter: sceneFilter({
-          width,
-          height,
-          seconds,
-          stretch,
-          title: ready ? texts.title : null,
-          headline: ready ? texts.headline : null,
-          caption: ready ? texts.caption : null,
-          fontPath: fontPath ?? "",
-          dir,
-          n: scene.n,
-        }),
+        ownSound: Boolean(ownSound),
+        hasVoice,
+        ownLevel: cut.originalVolume * (scene.source?.volume ?? 1) * (upload ? 1.11 : 1),
+        voiceLevel: cut.voiceVolume,
+        speed,
+        edges,
       });
-      await exec(ffmpegPath as string, args, { maxBuffer: 1 << 24, timeout: 120_000 });
-      segments.push(out);
+      const out = join(dir, `scene-${scene.n}.mp4`);
+      await runFfmpeg(sceneEncodeArgs({ clipPath, inputOptions, voicePath: hasVoice ? voicePath : null, seconds, videoFilter, audioFilter, encoder, out }), 240_000);
+      /* The bytes are written; the source is not needed again. */
+      await rm(clipPath, { force: true });
+      segments.push({ path: out, seconds: (await inspect(out)).seconds || seconds });
     }
 
     if (!segments.length) throw new Error("No scene had a clip to put in the cut.");
-    const list = join(dir, "list.txt");
-    await writeFile(list, segments.map((path) => `file '${path}'`).join("\n"));
     const final = join(dir, "final.mp4");
     const joined = join(dir, "joined.mp4");
-    await exec(ffmpegPath as string, ["-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", list, "-c", "copy", joined], { maxBuffer: 1 << 24, timeout: 120_000 });
-    /* One loudness for the whole video, at the level social apps play at
-       (-14 LUFS), so it is neither quieter nor louder than what is around it.
-       The picture is copied, not encoded again. */
-    /* A silent cut has nothing to level; its track stays silence. With a
-       score, it goes under the cut here, ducked under the voice. */
-    const musicRow = cut.audio === "none" ? undefined : rows.find((row) => row.engine === "music" && row.status === "done");
+    const listPath = join(dir, "list.txt");
+    const join_ = joinArgs({ segments, transition: cut.transition, duration: cut.transitionSeconds, listPath, out: joined, encoder });
+    if (join_.list !== null) await writeFile(listPath, join_.list);
+    await runFfmpeg(join_.args, 280_000);
+    for (const segment of segments) await rm(segment.path, { force: true });
+
+    /* The score under it: made, or the person's own file. */
+    const musicRow = cut.audio === "none" || cut.music.source === "none" ? undefined : rows.find((row) => row.engine === "music" && row.status === "done");
     const musicUrl = musicRow ? await signedUrl(service, musicRow.output_path) : null;
-    const musicPath = join(dir, "music.mp3");
-    const withMusic = Boolean(musicUrl && (await download(musicUrl, musicPath).catch(() => false)));
+    const musicPath = join(dir, "music.audio");
+    const withMusic = Boolean(musicUrl && (await downloadTo(musicUrl, musicPath)));
     const scored = join(dir, "scored.mp4");
     let source = joined;
     if (withMusic) {
-      const seconds = (await probe(joined)).seconds;
-      const mixed = await exec(ffmpegPath as string, musicMixArgs({ joined, music: musicPath, out: scored, seconds, spoken: voiced }), { maxBuffer: 1 << 24, timeout: 180_000 })
+      const seconds = (await inspect(joined)).seconds;
+      const mixed = await runFfmpeg(
+        musicMixArgs({ joined, music: musicPath, out: scored, seconds, spoken: voiced, level: cut.musicVolume, duck: cut.duck, start: cut.music.source === "upload" ? cut.music.start : 0 }),
+        180_000,
+      )
         .then(() => true)
         .catch(() => false);
       /* A score that will not mix is left out; the cut is made without it. */
       if (mixed) source = scored;
     }
-    await exec(
-      ffmpegPath as string,
-      cut.audio === "none"
-        ? ["-hide_banner", "-y", "-i", joined, "-c", "copy", "-movflags", "+faststart", final]
-        : ["-hide_banner", "-y", "-i", source, "-c:v", "copy", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", final],
-      { maxBuffer: 1 << 24, timeout: 120_000 },
-    );
+    /* One loudness for the whole video, at the level social apps play at
+       (-14 LUFS), so it is neither quieter nor louder than what is around it.
+       The picture is copied, not encoded again. A silent cut has nothing to
+       level. */
+    await runFfmpeg(finishArgs({ source, out: final, loudness: cut.loudness, silent: cut.audio === "none" && !withMusic }), 120_000);
 
     const path = `${video.user_id}/${videoId}/v${version}/final.mp4`;
     const { error } = await service.storage.from("video-assets").upload(path, await readFile(final), { contentType: "video/mp4", upsert: true });
@@ -372,11 +284,11 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
 
     /* The ready-to-post versions, beside the cut. One that fails is left
        out; the cut itself is already made. */
-    const total = (await probe(final)).seconds;
+    const total = (await inspect(final)).seconds;
     for (const kind of exportsFor(plan.aspect)) {
       try {
         const out = join(dir, `final-${kind}.mp4`);
-        await exec(ffmpegPath as string, exportArgs(kind, { source: final, out, seconds: total, width, height }), { maxBuffer: 1 << 24, timeout: 120_000 });
+        await runFfmpeg(exportArgs(kind, { source: final, out, seconds: total, width, height }), 120_000);
         await service.storage.from("video-assets").upload(exportPath(path, kind), await readFile(out), { contentType: "video/mp4", upsert: true });
       } catch {
         /* Left out. */

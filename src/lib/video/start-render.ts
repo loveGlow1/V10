@@ -31,8 +31,9 @@ import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/fra
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
+import { fileUploads } from "@/lib/video/uploads-render";
 import type { ProductionPlan } from "@/lib/video/plan";
-import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob, voiceIdFor } from "@/lib/video/render";
+import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
 
 
 /** Step 5 for one video: every clip and voice line of its current version, sent. The render route and the workspace both start renders here. */
@@ -106,17 +107,34 @@ export async function startRender(
     for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
+    const filed = await fileUploads(supabase, { videoId: id, userId, version, plan });
     if (jobs.length === 0) {
       const service = createSupabaseServiceClient();
-      if (service) await advance(service, id, version, origin);
+      if (service) {
+        if (!(existing ?? []).some((r) => r.engine === "music" && r.status !== "failed")) await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
+        await advance(service, id, version, origin);
+      }
       await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
-      return NextResponse.json({ queued: 0, failed: 0, cost: 0, readiness: ready });
+      return NextResponse.json({ queued: filed, failed: 0, cost: 0, readiness: ready });
     }
   } else if ((existing ?? []).some((r) => r.status === "queued" || r.status === "running")) {
     return NextResponse.json({ error: "This version is already rendering." }, { status: 409 });
   } else {
     /* A fresh render: nothing of the last one carries over. */
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version);
+  }
+
+  /* The person's own clips, pictures and music: filed as they are, free. */
+  const uploaded = body.retryFailed === true ? 0 : body.onlyMissing === true ? 0 : await fileUploads(supabase, { videoId: id, userId, version, plan });
+  if (jobs.length === 0) {
+    if (!uploaded) return NextResponse.json({ error: "There is nothing to render in this plan yet." }, { status: 400 });
+    const service = createSupabaseServiceClient();
+    if (service) {
+      await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
+      await advance(service, id, version, origin);
+    }
+    await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
+    return NextResponse.json({ queued: uploaded, failed: 0, cost: renderCost(plan, process.env, answers.quality ?? null), readiness: ready });
   }
 
   const quality = answers.quality ?? null;
@@ -235,11 +253,10 @@ export async function startRender(
   /* Voice lines straight from MiniMax, after the answer: each takes a few
      seconds, and the studio watches the rows fill in. */
   if (voices.length && writer) {
-    const voiceId = voiceIdFor(answers);
     after(async () => {
       await Promise.all(
         voices.map(async (job) => {
-          const spoken = await speak({ text: job.text, voiceId, language: languageFor(answers) });
+          const spoken = await speak({ text: job.text, voiceId: job.voiceId, language: languageFor(answers) });
           await landResult(writer, {
             videoId: id,
             version,
@@ -255,7 +272,7 @@ export async function startRender(
     for (const job of voices) sent.push({ job, ok: true });
   }
 
-  const accepted = sent.filter((entry) => entry.ok).length;
+  const accepted = sent.filter((entry) => entry.ok).length + uploaded;
   if (accepted && body.retryFailed !== true && body.onlyMissing !== true) {
     const service = createSupabaseServiceClient();
     if (service) await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);

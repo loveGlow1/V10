@@ -13,13 +13,17 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowUp, Check, Download, Loader2, Pause, Play, RotateCcw, ShieldCheck, Sparkles, Upload, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, Loader2, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
-import { createSupabaseBrowserClient } from "@/lib/supabase";
+import { formatSeconds } from "@/lib/video/assets";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
-import { scriptText, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
+import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
+import { sceneFromAsset } from "@/lib/video/timeline";
 
+import MediaPanel, { type PanelAsset } from "../../components/video/MediaPanel";
+import TimelineClip from "../../components/video/TimelineClip";
+import VideoSettings from "../../components/video/VideoSettings";
 import { PIPELINE_ICON } from "../../components/video/VideoTypeGrid";
 
 type Readiness = { ready: boolean; notes?: string[]; engines: { engine: string; label: string; health: string; required?: boolean }[] } | null;
@@ -28,7 +32,7 @@ type Loaded = {
   video: { id: string; user_id: string; pipeline: string; title: string; brief: string; answers: Record<string, string>; status: string; current_version: number };
   latest: { version: number; plan: ProductionPlan; issues: QaIssue[]; note: string } | null;
   versions: { version: number; note: string; created_at: string }[];
-  assets: { id: string; kind: string; storage_path: string }[];
+  assets: (PanelAsset & { storage_path: string })[];
   readiness: Readiness;
   renders: RenderRow[];
   cost: number;
@@ -61,7 +65,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const [data, setData] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "plan" | "save" | "render" | "upload">(null);
+  const [busy, setBusy] = useState<null | "plan" | "save" | "render">(null);
+  const [saved, setSaved] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProductionPlan | null>(null);
   const [issues, setIssues] = useState<QaIssue[]>([]);
   const [note, setNote] = useState("");
@@ -129,24 +134,59 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     return () => window.clearInterval(timer);
   }, [status, load]);
 
-  async function upload(files: FileList | null) {
-    if (!files?.length || !data || !pipeline) return;
-    setBusy("upload");
+  /* Uploads are prepared on the server (probe, working copy, poster): check
+     back until each is ready. */
+  const preparing = Boolean(data?.assets.some((asset) => asset.status === "processing"));
+  useEffect(() => {
+    if (!preparing || status === "rendering") return;
+    const timer = window.setInterval(() => void load(true), 4000);
+    return () => window.clearInterval(timer);
+  }, [preparing, status, load]);
+
+  /* The timeline and settings, saved: what was made is reused, and the cut
+     is made again — free (POST /timeline). */
+  async function saveDraft() {
+    if (!draft) return;
+    setBusy("save");
     setError(null);
-    try {
-      const supabase = createSupabaseBrowserClient();
-      for (const file of Array.from(files).slice(0, 3)) {
-        const path = `${data.video.user_id}/${id}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
-        const { error: upError } = await supabase.storage.from("video-assets").upload(path, file, { contentType: file.type });
-        if (upError) throw upError;
-        await supabase.from("video_assets").insert({ video_id: id, user_id: data.video.user_id, kind: pipeline.needsReference ?? "reference", storage_path: path, mime: file.type });
-      }
+    setSaved(null);
+    const response = await fetch(`/api/video/${id}/timeline`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan: draft }) }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { error?: string; message?: string; recut?: boolean } | null;
+    if (!response?.ok) setError(body?.error ?? "Your changes could not be saved. Try again.");
+    else {
+      setSaved(body?.recut ? `${body.message ?? "Saved."}` : "Saved as a new version.");
       await load();
-    } catch {
-      setError("That file could not be uploaded. Images up to 10 MB work best.");
     }
     setBusy(null);
   }
+
+  const assetById = (assetId: string) => data?.assets.find((asset) => asset.id === assetId);
+  const moveScene = (n: number, by: -1 | 1) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const scenes = [...current.scenes];
+      const at = scenes.findIndex((scene) => scene.n === n);
+      const to = at + by;
+      if (at < 0 || to < 0 || to >= scenes.length) return current;
+      [scenes[at], scenes[to]] = [scenes[to], scenes[at]];
+      return { ...current, scenes: scenes.map((scene, index) => ({ ...scene, n: index + 1 })), cut: renumberMuted(current, scenes) };
+    });
+  const removeScene = (n: number) =>
+    setDraft((current) => {
+      if (!current || current.scenes.length <= 1) return current;
+      const scenes = current.scenes.filter((scene) => scene.n !== n);
+      return { ...current, scenes: scenes.map((scene, index) => ({ ...scene, n: index + 1 })), cut: renumberMuted(current, scenes) };
+    });
+  const addAsset = (asset: PanelAsset) =>
+    setDraft((current) => (current ? { ...current, scenes: [...current.scenes, sceneFromAsset(asset, current.scenes.length + 1)] } : current));
+  const setMuted = (n: number, muted: boolean) =>
+    setDraft((current) => {
+      if (!current) return current;
+      const list = new Set(current.cut?.muted ?? []);
+      if (muted) list.add(n);
+      else list.delete(n);
+      return { ...current, cut: { ...(current.cut ?? {}), muted: [...list].sort((a, b) => a - b) } };
+    });
 
   async function render(retryFailed = false) {
     setBusy("render");
@@ -201,6 +241,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </p>
           <h1 className="truncate text-[20px] font-semibold text-ink">{shown?.title ?? data.video.title}</h1>
         </div>
+        <Link href={`/dashboard/video/${id}/edit`} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
+          <Scissors className="h-4 w-4" /> Open editor
+        </Link>
         {data.versions.length > 0 && (
           <span className="rounded-full border border-line/[0.08] px-3 py-1 text-[12px] text-muted">
             Version {data.latest?.version} of {data.versions.length}
@@ -223,39 +266,50 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
 
       {error && <p role="alert" className="mt-4 rounded-[10px] border border-danger/30 bg-danger/[0.08] px-3 py-2 text-[13px] text-danger">{error}</p>}
 
-      {/* References, before the first plan for pipelines that use them */}
-      {pipeline.needsReference && (
-        <section className="mt-5 rounded-[16px] border border-line/[0.08] bg-panel p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-[14px] font-medium text-ink">
-                {pipeline.needsReference === "product" ? "Product references" : pipeline.needsReference === "person" ? "Your reference photos" : "Your photo"}
-              </h2>
-              <p className="text-[12.5px] text-muted">
-                {pipeline.needsReference === "product"
-                  ? "The product is locked to these images in every scene."
-                  : pipeline.needsReference === "person"
-                    ? "Used only to set up your presenter. You confirmed you have the right to this likeness and voice."
-                    : "The source frame. Motion is added; the subject is kept."}{" "}
-                {data.assets.length > 0 && `${data.assets.length} uploaded.`}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <label className="flex h-9 cursor-pointer items-center gap-2 rounded-full border border-line/[0.1] bg-layer/[0.04] px-3.5 text-[13px] text-ink hover:bg-layer/[0.08]">
-                {busy === "upload" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                Upload
-                <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => void upload(e.target.files)} />
-              </label>
-              {!data.latest && (
-                <button onClick={() => void plan()} disabled={busy !== null} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50">
-                  {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                  Create production plan
-                </button>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* The person's own clips, sound and pictures — for every video. */}
+      <MediaPanel
+        videoId={id}
+        assets={data.assets}
+        title={
+          pipeline.needsReference === "clips"
+            ? "Your clips"
+            : pipeline.needsReference === "product"
+              ? "Product references and your media"
+              : pipeline.needsReference === "person"
+                ? "Your reference photos and media"
+                : pipeline.needsReference === "photo"
+                  ? "Your photo and media"
+                  : "Your media"
+        }
+        description={
+          pipeline.needsReference === "clips"
+            ? "Upload the pieces of your video in order — they're stitched into one, with the transitions, sound and look you choose below."
+            : pipeline.needsReference === "product"
+              ? "The product is locked to these images in every scene. Add your own clips or music too."
+              : pipeline.needsReference === "person"
+                ? "Used only to set up your presenter. You confirmed you have the right to this likeness and voice."
+                : pipeline.needsReference === "photo"
+                  ? "The source frame: motion is added, the subject is kept."
+                  : "Add your own clips, pictures or music — mix them with the generated scenes, or use your own song."
+        }
+        role={pipeline.needsReference === "product" || pipeline.needsReference === "person" || pipeline.needsReference === "photo" ? pipeline.needsReference : undefined}
+        inTimeline={new Set((shown?.scenes ?? []).flatMap((scene) => (scene.source ? [scene.source.assetId] : [])))}
+        musicAssetId={shown?.cut?.music?.source === "upload" ? shown.cut.music.assetId : null}
+        onAdd={shown ? addAsset : undefined}
+        onUseMusic={shown ? (asset) => setDraft((current) => (current ? { ...current, cut: { ...(current.cut ?? {}), music: asset ? { source: "upload", assetId: asset.id } : { source: "none" } } } : current)) : undefined}
+        onChanged={() => load(true)}
+      >
+        {!data.latest && pipeline.needsReference && (
+          <button
+            onClick={() => void plan(pipeline.needsReference === "clips" ? { stitch: true } : {})}
+            disabled={busy !== null || (pipeline.needsReference === "clips" && !data.assets.some((asset) => asset.status !== "failed" && asset.kind !== "audio" && asset.kind !== "render"))}
+            className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50"
+          >
+            {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : pipeline.needsReference === "clips" ? <Scissors className="h-4 w-4" /> : <Wand2 className="h-4 w-4" />}
+            {pipeline.needsReference === "clips" ? "Stitch my clips" : "Create production plan"}
+          </button>
+        )}
+      </MediaPanel>
 
       {!shown && busy === "plan" && (
         <div className="mt-10 flex flex-col items-center gap-3 text-center text-soft">
@@ -338,15 +392,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           />
 
           <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-2">
-            {/* Step 4: scenes */}
+            <VideoSettings plan={shown} audioAssets={data.assets} onChange={(next) => setDraft(next)} />
+            {saved && !dirty && <p className="text-[12.5px] text-emerald-400">{saved}</p>}
+            {/* Step 4: scenes — the timeline */}
             <section className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <h2 className="text-[14px] font-medium text-ink">Scenes</h2>
+                <h2 className="text-[14px] font-medium text-ink">Scenes <span className="text-[12px] font-normal text-muted">· {formatSeconds(timelineSeconds(shown, data.assets))} · {shown.scenes.length}</span></h2>
                 {dirty && (
                   <div className="flex gap-2">
                     <button onClick={() => setDraft(data.latest?.plan ?? null)} className="h-8 rounded-full px-3 text-[12.5px] text-muted hover:text-ink">Discard</button>
-                    <button onClick={() => void plan({ plan: draft }, "save")} disabled={busy !== null} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
-                      {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save as new version
+                    <button onClick={() => void saveDraft()} disabled={busy !== null || status === "rendering"} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
+                      {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} {data.renders.length ? "Save and re-cut" : "Save as new version"}
                     </button>
                   </div>
                 )}
@@ -355,6 +411,12 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 <article key={scene.n} className="rounded-[14px] border border-line/[0.08] bg-panel p-3.5">
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
                     <span className="font-semibold text-ink">Scene {scene.n}</span>
+                    <span className="ml-auto flex gap-1 sm:order-last">
+                      <button onClick={() => moveScene(scene.n, -1)} disabled={scene.n === 1} aria-label={`Move scene ${scene.n} earlier`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => moveScene(scene.n, 1)} disabled={scene.n === shown.scenes.length} aria-label={`Move scene ${scene.n} later`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
+                      <button onClick={() => removeScene(scene.n)} disabled={shown.scenes.length <= 1} aria-label={`Remove scene ${scene.n}`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-danger disabled:opacity-30"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </span>
+                    {scene.source ? null : (
                     <label className="flex items-center gap-1 text-muted">
                       <input
                         type="number"
@@ -366,10 +428,23 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                       />
                       s
                     </label>
-                    <span className="rounded-full bg-layer/[0.08] px-2 py-0.5 uppercase tracking-wide text-soft">{scene.engine}</span>
+                    )}
+                    <span className="rounded-full bg-layer/[0.08] px-2 py-0.5 uppercase tracking-wide text-soft">{scene.source ? (scene.engine === "image" ? "your picture" : scene.engine === "avatar" ? "your clip · lip sync" : "your clip") : scene.engine}</span>
                     {scene.shot && <span className="text-muted">{scene.shot}</span>}
                   </div>
-                  <p className="mt-2 text-[13px] leading-relaxed text-soft">{scene.visual}</p>
+                  {scene.source ? (
+                    <TimelineClip
+                      source={scene.source}
+                      asset={assetById(scene.source.assetId)}
+                      muted={Boolean(shown.cut?.muted?.includes(scene.n))}
+                      duration={scene.duration}
+                      onSource={(source) => editScene(scene.n, { source, duration: sourceSeconds(source, assetById(scene.source!.assetId)?.durationS) ?? scene.duration })}
+                      onMute={(muted) => setMuted(scene.n, muted)}
+                      onDuration={(duration) => editScene(scene.n, { duration })}
+                    />
+                  ) : (
+                    <p className="mt-2 text-[13px] leading-relaxed text-soft">{scene.visual}</p>
+                  )}
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <label className="text-[11.5px] text-muted">
                       On screen
@@ -380,11 +455,11 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                       <textarea rows={2} value={scene.voiceover} onChange={(e) => editScene(scene.n, { voiceover: e.target.value })} className="mt-0.5 w-full resize-y rounded-lg border border-line/[0.1] bg-transparent px-2 py-1.5 text-[13px] text-ink outline-none focus:border-line/[0.25]" />
                     </label>
                   </div>
-                  <details className="mt-2 text-[12px] text-muted">
+                  {!scene.source && <details className="mt-2 text-[12px] text-muted">
                     <summary className="cursor-pointer select-none">Generation prompt{scene.sound ? " and sound" : ""}</summary>
                     <p className="mt-1 leading-relaxed">{scene.motionPrompt}</p>
                     {scene.sound && <p className="mt-1">Sound: {scene.sound}</p>}
-                  </details>
+                  </details>}
                   <SceneAsk n={scene.n} disabled={busy !== null} onAsk={(text) => void plan({ note: `Change only scene ${scene.n}, keep every other scene exactly as it is: ${text}` })} />
                 </article>
               ))}
@@ -940,4 +1015,22 @@ function SceneAsk({ n, disabled, onAsk }: { n: number; disabled: boolean; onAsk:
       </button>
     </form>
   );
+}
+
+/* Mutes follow their scenes when the timeline is reordered or cut. */
+function renumberMuted(plan: ProductionPlan, reordered: Scene[]): ProductionPlan["cut"] {
+  if (!plan.cut?.muted?.length) return plan.cut;
+  const muted = reordered.flatMap((scene, index) => (plan.cut?.muted?.includes(scene.n) ? [index + 1] : []));
+  return { ...plan.cut, muted };
+}
+
+/* The timeline's running time: uploads by their trimmed length, the rest by plan. */
+function timelineSeconds(plan: ProductionPlan, assets: PanelAsset[]): number {
+  return plan.scenes.reduce((sum, scene) => {
+    if (scene.source && scene.engine !== "image") {
+      const asset = assets.find((a) => a.id === scene.source?.assetId);
+      return sum + (sourceSeconds(scene.source, asset?.durationS) ?? scene.duration);
+    }
+    return sum + scene.duration;
+  }, 0);
 }

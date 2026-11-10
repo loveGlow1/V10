@@ -82,7 +82,7 @@ export function clipPrompt(prompt: string): string {
 
 /** Every job a plan needs: a clip per scene, a voice line per spoken scene. */
 export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, opts: { firstFrameUrl?: string | null } = {}): RenderJob[] {
-  const voiceId = voiceIdFor(answers);
+  const videoVoice = plan.cut?.voiceId ?? voiceIdFor(answers);
   const language = languageFor(answers);
   const jobs: RenderJob[] = [];
   for (const scene of plan.scenes) {
@@ -91,7 +91,14 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
        thrown away, so none is ordered. */
     if (plan.pipeline === "clone" && scene.engine === "avatar") {
       const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-      if (line) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId, language });
+      if (line && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: scene.voiceId ?? videoVoice, language });
+      continue;
+    }
+    /* The person's own footage or picture is the scene: nothing is filmed,
+       but its voice line (if any) is still spoken. */
+    if (scene.source) {
+      const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
+      if (line && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: scene.voiceId ?? videoVoice, language });
       continue;
     }
     /* At most 6s a clip: a 4s MiniMax-H3 clip took ~126s in testing, against
@@ -109,7 +116,7 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
        A cut of the clips' own sound, or a silent one, uses no voice lines,
        so none is made. */
     const text = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-    if (text && usesVoice(plan.cut)) jobs.push({ kind: "voice", n: scene.n, text, voiceId, language });
+    if (text && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text, voiceId: scene.voiceId ?? videoVoice, language });
   }
   return jobs;
 }

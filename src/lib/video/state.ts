@@ -23,6 +23,8 @@ import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
 const ASK_AFTER_MS = 60 * 1000;
 /* Seedance and Kling at 1080p can take minutes; they get fal's allowance. */
 const DIRECT_STALE_AFTER_MS = 25 * 60 * 1000;
+/* An upload's preparation runs in one 300s function; past this it is not coming. */
+const PREPARE_STALE_MS = 8 * 60 * 1000;
 
 /** One video's whole state, recovering quiet clips on the way. The studio reads it under the person's session; the workspace preview through its board token. */
 export async function videoState(supabase: SupabaseClient, id: string, origin: string): Promise<NextResponse> {
@@ -31,7 +33,11 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
 
   const [{ data: versions }, { data: assets }, { data: renderRows }] = await Promise.all([
     supabase.from("video_versions").select("version, plan, issues, note, created_at").eq("video_id", id).order("version", { ascending: false }).limit(30),
-    supabase.from("video_assets").select("id, kind, storage_path, mime").eq("video_id", id).order("created_at"),
+    supabase
+      .from("video_assets")
+      .select("id, kind, storage_path, mime, name, status, error, duration_s, width, height, has_audio, working_path, poster_path, updated_at, created_at")
+      .eq("video_id", id)
+      .order("created_at"),
     supabase.from("video_renders").select("id, scene, engine, provider, status, output_path, error, updated_at, created_at").eq("video_id", id).eq("version", video.current_version),
   ]);
 
@@ -150,6 +156,40 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
 
   const latest = versions?.find((row) => row.version === video.current_version) ?? versions?.[0] ?? null;
 
+  /* Uploads, each with a link to play it and its poster. One whose
+     preparation never reported (a function stopped mid-way) is usable as
+     uploaded, with what the browser measured. */
+  const studioAssets = await Promise.all(
+    (assets ?? []).map(async (asset) => {
+      let status = asset.status as string;
+      if (status === "processing" && Date.now() - new Date(asset.updated_at ?? asset.created_at).getTime() > PREPARE_STALE_MS) {
+        status = "ready";
+        await supabase.from("video_assets").update({ status, updated_at: new Date().toISOString() }).eq("id", asset.id).eq("status", "processing");
+      }
+      const sign = async (path: string | null | undefined) => {
+        if (!path) return null;
+        const { data } = await supabase.storage.from("video-assets").createSignedUrl(path, 60 * 60);
+        return data?.signedUrl ?? null;
+      };
+      const isMedia = asset.kind !== "render";
+      return {
+        id: asset.id,
+        kind: asset.kind,
+        storage_path: asset.storage_path,
+        mime: asset.mime,
+        name: asset.name ?? "",
+        status,
+        error: asset.error ?? null,
+        durationS: asset.duration_s === null || asset.duration_s === undefined ? null : Number(asset.duration_s),
+        width: asset.width ?? null,
+        height: asset.height ?? null,
+        hasAudio: asset.has_audio ?? null,
+        url: isMedia ? await sign(asset.working_path ?? asset.storage_path) : null,
+        posterUrl: isMedia ? await sign(asset.poster_path ?? (asset.kind === "video" || asset.kind === "audio" ? null : asset.storage_path)) : null,
+      };
+    }),
+  );
+
   /* The ready-to-post versions made beside the cut (compose-local.ts). */
   const cutPath = (renderRows ?? []).find((row) => row.engine === "compose" && row.status === "done")?.output_path;
   const exports = cutPath?.startsWith("storage:") && latest
@@ -166,7 +206,7 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     video: { ...video, status },
     latest,
     versions: (versions ?? []).map(({ version, note, created_at }) => ({ version, note, created_at })),
-    assets: assets ?? [],
+    assets: studioAssets,
     readiness: latest ? readiness(latest.plan as ProductionPlan) : null,
     /* Worked out here, where FAL_KEY is visible: the button shows it. */
     cost: latest ? renderCost(latest.plan as ProductionPlan, process.env, ((video.answers ?? {}) as Record<string, string>).quality ?? null) : 0,

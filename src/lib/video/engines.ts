@@ -116,13 +116,24 @@ export function engineHealth(engine: EngineId, env: Env = process.env): EngineHe
 
 /* A clone needs its avatar; for everyone else lip sync is an upgrade. */
 const isClone = (pipeline: PipelineId) => pipeline === "clone";
-export const wantsMusic = (plan: ProductionPlan) => Boolean(plan.music) && !/^(none|no music)$/i.test(plan.music.trim());
+/* Music is made only when the cut asks for made music: not for "none", and
+   not for the person's own audio file, which is laid in as it is. */
+export const wantsMusic = (plan: ProductionPlan) => {
+  const source = plan.cut?.music?.source;
+  if (source) return source === "generate";
+  return Boolean(plan.music) && !/^(none|no music)$/i.test(plan.music.trim());
+};
 
 /** Every engine a plan needs, and whether each is required for the cut. */
 export function enginesNeeded(plan: ProductionPlan): { engine: EngineId; required: boolean }[] {
   const needed = new Map<EngineId, boolean>();
   const avatarScenes = plan.scenes.filter((scene) => scene.engine === "avatar");
   for (const scene of plan.scenes) {
+    /* An upload needs no engine to film it — only lip sync, when it speaks. */
+    if (scene.source) {
+      if (scene.engine === "avatar" && scene.voiceover.trim()) needed.set("avatar", needed.get("avatar") ?? false);
+      continue;
+    }
     if (scene.engine === "avatar") {
       /* A clone's presenter scenes ARE the avatar; everyone else's start as a
          clip, and lip sync is laid on afterwards. */
@@ -151,7 +162,7 @@ export function renderCost(plan: ProductionPlan, env: Env = process.env, quality
   for (const scene of plan.scenes) {
     const avatar = scene.engine === "avatar";
     const spoken = Boolean(scene.voiceover.trim()) && plan.cut?.audio !== "original" && plan.cut?.audio !== "none";
-    if (!(avatar && isClone(plan.pipeline))) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality, skip)) : CLIP_COST;
+    if (!(avatar && isClone(plan.pipeline)) && !scene.source) total += anyClipEngine(env) ? clipCost(firstEngineFor(plan, scene, env, quality, skip)) : CLIP_COST;
     if (spoken) total += VOICE_COST;
     if (avatar && spoken && line) total += productionJobCost(line, isClone(plan.pipeline) ? "avatar" : "lipsync", scene.duration, tier);
   }
