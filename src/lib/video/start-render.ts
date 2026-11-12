@@ -32,7 +32,7 @@ import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
-import { castPrompt, castReferences, sceneCast } from "@/lib/video/cast";
+import { castPrompt, planReferences, sceneCast } from "@/lib/video/cast";
 import { castPictures } from "@/lib/video/characters";
 import { awaitProvider, continuityLinks } from "@/lib/video/continuity";
 import { releaseWaiting } from "@/lib/video/continuity-release";
@@ -236,7 +236,11 @@ export async function startRender(
          the same pictures for every scene, so the face never drifts. When
          no reference engine takes it, it starts from their front picture. */
       const cast = scene ? sceneCast(scene, plan) : [];
-      const references = castReferences(cast, pictures);
+      /* Pictures shared fairly: everyone's front first, then extra angles,
+         and the prompt says which pictures are whose. A scene that will
+         wait for its last frame is held back below. */
+      const refPlan = planReferences(cast, pictures);
+      const references = refPlan.images;
       let frame: string | null = references[0] ?? firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
       let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip, references: references.length > 0 });
       /* No connected engine can film this scene from text at this shape:
@@ -259,7 +263,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {

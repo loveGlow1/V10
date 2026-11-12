@@ -193,3 +193,23 @@ ended (`lib/video/continuity.ts`).
 - **Speed:** only linked scenes are made one after another. Every other
   scene is still made at once, so a render takes as long as its longest run
   of linked scenes, which the Settings panel shows.
+
+## Many characters
+
+- **Limits:** a video can have up to 12 characters, and one scene up to 9
+  (the nine reference-picture slots, at least one each).
+- **Sharing the pictures** (`planReferences`): every character in the scene
+  gets their front picture first, then extra angles go round in turn. The
+  pictures stay grouped by character, and the prompt says which are whose
+  ("Reference images 1–3 show Ama: …").
+  - A tenth person is still described word for word.
+  - A continuing scene's last frame only takes a spare slot, never a
+    character's only picture.
+- **The script decides the cast** (QA in `plan.ts`):
+  - Anyone the script names in a scene (as a name, not an ordinary word) is
+    added to that scene.
+  - A line with several speakers ("AMA: … KOFI: …") becomes one shot per
+    speaker. Each shot keeps the full cast, is read in that speaker's voice,
+    and carries on from the one before.
+- **Live test:** a two-person scene (Ama and Kofi) on MiniMax H3, landscape,
+  kept both people exactly and never swapped them.

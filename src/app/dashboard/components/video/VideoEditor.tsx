@@ -55,7 +55,7 @@ import { sceneFromAsset } from "@/lib/video/timeline";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
 import { callableModels, isModelAvailable } from "@/app/dashboard/models";
-import type { PlanCharacter } from "@/lib/video/cast";
+import { MAX_SCENE_CAST, type PlanCharacter } from "@/lib/video/cast";
 import { continuesFrom } from "@/lib/video/continuity";
 
 import CharactersPanel from "./CharactersPanel";
@@ -999,7 +999,7 @@ function SceneInspector(props: {
                 <button
                   key={c.id}
                   onClick={() => {
-                    const ids = on ? (scene.characters ?? []).filter((x) => x !== c.id) : [...(scene.characters ?? []), c.id].slice(0, 3);
+                    const ids = on ? (scene.characters ?? []).filter((x) => x !== c.id) : [...(scene.characters ?? []), c.id].slice(0, MAX_SCENE_CAST);
                     set({ characters: ids.length ? ids : undefined });
                   }}
                   className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11.5px] ${on ? "border-accent/50 bg-accent/[0.08] text-accent" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}

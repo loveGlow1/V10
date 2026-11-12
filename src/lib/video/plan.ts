@@ -7,7 +7,7 @@
 
 import { PIPELINES, type Engine, type PipelineId } from "./pipelines";
 import { isVoiceId } from "./voices";
-import { normalizeCast, normalizeSceneCast, type PlanCharacter } from "./cast";
+import { MAX_SCENE_CAST, mentionedCast, normalizeCast, normalizeSceneCast, splitDialogue, type PlanCharacter } from "./cast";
 import { normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
 
 /* A scene made from the person's own upload instead of being generated: a
@@ -349,6 +349,44 @@ export function qaAndRepair(input: ProductionPlan): { plan: ProductionPlan; issu
     const factor = plan.target / total;
     for (const scene of plan.scenes) scene.duration = Math.max(1, Math.round(scene.duration * factor));
     issues.push({ scene: null, issue: `Scenes ran ${total}s against a ${plan.target}s target — durations rescaled to ${totalSeconds(plan)}s.`, repaired: true });
+  }
+
+  /* The script decides the cast. A line with more than one speaker becomes
+     one shot per speaker — each read in that character's own voice, each
+     carrying straight on from the last — and anyone the script names in a
+     scene is on screen in it, filmed from their own pictures. */
+  if (plan.characters?.length) {
+    const cast = plan.characters;
+    const count = plan.scenes.length;
+    plan.scenes = plan.scenes
+      .flatMap((scene) => {
+        if (scene.source || scene.voiceAsset) return [scene];
+        const parts = splitDialogue(scene.voiceover);
+        if (parts.length < 2) return [scene];
+        const words = parts.map((part) => part.split(/\s+/).length);
+        const total = words.reduce((a, b) => a + b, 0) || 1;
+        return parts.map((line, i) => ({
+          ...scene,
+          voiceover: line,
+          duration: Math.max(2, Math.round((scene.duration * words[i]) / total)),
+          onScreenText: i === 0 ? scene.onScreenText : "",
+          ...(i > 0 ? { continues: true } : {}),
+        }));
+      })
+      .map((scene, index) => ({ ...scene, n: index + 1 }));
+    if (plan.scenes.length > count) {
+      issues.push({ scene: null, issue: `Dialogue split into one shot per speaker (${plan.scenes.length - count} more), so each character speaks in their own voice.`, repaired: true });
+    }
+    for (const scene of plan.scenes) {
+      if (scene.source) continue;
+      const named = mentionedCast(scene, cast);
+      const have = scene.characters ?? [];
+      const added = named.filter((id) => !have.includes(id));
+      if (!added.length) continue;
+      scene.characters = [...have, ...added].slice(0, MAX_SCENE_CAST);
+      const names = added.map((id) => cast.find((c) => c.id === id)?.name ?? "").filter(Boolean);
+      issues.push({ scene: scene.n, issue: `${names.join(" and ")} ${names.length === 1 ? "is" : "are"} in the script here — added to the scene so ${names.length === 1 ? "they look" : "they all look"} exactly like their pictures.`, repaired: true });
+    }
   }
 
   /* One clip per scene, each short enough to be made in one go. A clone's

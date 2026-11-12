@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { castPrompt, castReferences, sceneCast } from "./cast";
+import { castPrompt, planReferences, sceneCast } from "./cast";
 import { castPictures } from "./characters";
 import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom } from "./clip-engines";
 import { CONTINUE_FRAME_NOTE, CONTINUE_NOTE, awaitedScene, lastFrameArgs, withLastFrame } from "./continuity";
@@ -87,11 +87,13 @@ export async function continueScene(service: SupabaseClient, input: { videoId: s
 
     /* 3. Filmed from it. */
     const cast = sceneCast(scene, plan);
-    const own = cast.length ? castReferences(cast, await castPictures(service, userId, cast.map((c) => c.id))) : [];
+    /* The last frame takes a spare slot only — never a character's only picture. */
+    const refPlan = planReferences(cast, cast.length ? await castPictures(service, userId, cast.map((c) => c.id)) : {}, { reserve: lastFrame ? 1 : 0 });
+    const own = refPlan.images;
     const references = own.length ? withLastFrame(own, lastFrame) : [];
     const frame = lastFrame ?? own[0] ?? (await frameFor(service, { userId, videoId, version, plan, scene }));
     const note = lastFrame ? (references.length ? CONTINUE_NOTE : CONTINUE_FRAME_NOTE) : "";
-    const prompt = `${castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast)}${note ? ` ${note}` : ""}`;
+    const prompt = `${castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan)}${note ? ` ${note}` : ""}`;
     const answers = (video.answers ?? {}) as Record<string, string>;
     const chain: ClipEngine[] = routeClip({
       pipeline: plan.pipeline,

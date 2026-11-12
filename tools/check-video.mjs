@@ -598,9 +598,9 @@ const castPlan = L.normalizePlan({
 has(castPlan.characters.length === 2 && castPlan.scenes[0].characters.join() === amaId && castPlan.scenes[1].characters.join() === `${kofiId},${amaId}` && !castPlan.scenes[2].characters, "the cast is read strictly: real ids only, each scene keeps only characters the plan has");
 const lock1 = CA.castPrompt("She walks through the market", CA.sceneCast(castPlan.scenes[0], castPlan));
 has(lock1.includes("Character: Ama, late twenties, dark brown skin, short coily black hair, gold hoop earrings, mustard linen shirt.") && /exactly as in the reference images/.test(lock1), "every scene repeats the character's description word for word");
-has(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Kofi") < CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Ama") && /never swap or blend/.test(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan))), "two characters are named in the order of their pictures, never swapped");
+has(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Kofi") < CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Ama") && /never swap, merge, duplicate or blend/.test(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan))), "two characters are named in the order of their pictures, never swapped");
 const refs = CA.castReferences(CA.sceneCast(castPlan.scenes[1], castPlan), { [amaId]: ["a1", "a2", "a3", "a4", "a5"], [kofiId]: ["k1", "k2", "k3", "k4", "k5"] });
-has(refs.length === 8 && refs[0] === "k1" && refs[4] === "a1" && CA.castReferences([CA.sceneCast(castPlan.scenes[0], castPlan)[0]], { [amaId]: Array.from({ length: 12 }, (_, i) => `a${i}`) }).length === 9, "pictures are shared fairly between characters, front first, never more than nine");
+has(refs.length === 9 && refs[0] === "k1" && refs[5] === "a1" && CA.castReferences([CA.sceneCast(castPlan.scenes[0], castPlan)[0]], { [amaId]: Array.from({ length: 12 }, (_, i) => `a${i}`) }).length === 9, "pictures are shared fairly between characters, front first, never more than nine");
 has(CA.castVoice(castPlan.scenes[0], castPlan, "D") === "English_Graceful_Lady" && CA.castVoice(castPlan.scenes[1], castPlan, "D") === "English_Trustworth_Man" && CA.castVoice(castPlan.scenes[2], castPlan, "D") === "D", "a character speaks in their own voice; \"KOFI: …\" is read by Kofi");
 const castJobs = R.jobsFor(castPlan, {});
 has(castJobs.find((j) => j.kind === "voice" && j.n === 2)?.voiceId === "English_Trustworth_Man", "and the render orders the line in that voice");
@@ -657,6 +657,40 @@ const cs = readFileSync(join(root, "src/lib/video/continue-scene.ts"), "utf8");
 has(/\.eq\("provider", row\.provider\)/.test(cs) && /withLastFrame\(own, lastFrame\)/.test(cs) && /lastFrame \?\? own\[0\]/.test(cs), "a waiting scene is claimed once, then filmed from the last frame (after the character's pictures, or as its first frame)");
 has(/"\/api\/video\/\[id\]\/render\/continue": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(readFileSync(join(root, "next.config.mjs"), "utf8")), "the continue route carries ffmpeg");
 has(/awaitedScene\(row\.provider\)/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a lost hand-off is recovered when the studio polls");
+
+
+console.log("\nmany characters, kept by the script");
+const ids9 = Array.from({ length: 11 }, (_, i) => `cccccccc-cccc-4ccc-8ccc-${String(i + 1).padStart(12, "0")}`);
+const names9 = ["Ama", "Kofi", "Esi", "Yaw", "Abena", "Kwame", "Akosua", "Kojo", "Adwoa", "Fiifi", "Efua"];
+const bigCast = ids9.map((id, i) => ({ id, name: names9[i], descriptor: `${names9[i]}'s exact look` }));
+has(CA.normalizeCast(bigCast).length === 11 && CA.MAX_CAST >= 11 && CA.MAX_SCENE_CAST === 9, "a video can hold a large cast, a scene up to nine people (one picture each at least)");
+const pics = Object.fromEntries(ids9.map((id, i) => [id, [`${names9[i]}-front`, `${names9[i]}-side`, `${names9[i]}-full`]]));
+const plan9 = CA.planReferences(bigCast.slice(0, 9), pics);
+has(plan9.images.length === 9 && plan9.images.every((img) => img.endsWith("-front")) && plan9.slots.length === 9, "nine people in one scene: every one gets their front picture");
+const plan3 = CA.planReferences(bigCast.slice(0, 3), pics);
+has(plan3.images.length === 9 && plan3.slots.every((slot) => slot.to - slot.from === 2), "three people: three pictures each, shared fairly");
+const plan2r = CA.planReferences(bigCast.slice(0, 2), pics, { reserve: 1 });
+has(plan2r.images.length === 6 && CA.planReferences(bigCast.slice(0, 9), pics, { reserve: 1 }).images.length === 9, "a continuing scene's last frame takes a spare slot — never a character's only picture");
+const lock3 = CA.castLock(bigCast.slice(0, 3), plan3);
+has(/Reference images 1–3 show Ama: Ama's exact look\./.test(lock3) && /Reference images 7–9 show Esi/.test(lock3) && /3 people in this scene/.test(lock3), "the prompt says which pictures are whose, every description word for word", lock3);
+const lock10 = CA.castLock(bigCast.slice(0, 10), CA.planReferences(bigCast.slice(0, 10), pics));
+has(/Fiifi \(no picture — follow these words exactly\)/.test(lock10), "someone beyond nine pictures is still described exactly");
+has(CA.splitDialogue("AMA: Are you coming? KOFI: Right behind you. ESI: Wait for me!").length === 3 && CA.splitDialogue("Just narration here.").length === 1, "a line with several speakers is split per speaker");
+has(CA.mentionedCast({ shot: "wide", visual: "Ama hands Kofi a mango while Esi laughs", motionPrompt: "", voiceover: "", onScreenText: "" }, bigCast).join() === [ids9[0], ids9[1], ids9[2]].join() && CA.mentionedCast({ shot: "", visual: "the will of the people", motionPrompt: "", voiceover: "", onScreenText: "" }, [{ id: ids9[0], name: "Will", descriptor: "x" }]).length === 0, "the script names who is on screen (as names, not ordinary words)");
+const scripted = L.qaAndRepair(L.normalizePlan({
+  characters: bigCast.slice(0, 3),
+  scenes: [
+    { duration: 6, visual: "Ama and Kofi at the market stall", motionPrompt: "They talk", voiceover: "AMA: How much? KOFI: For you, two cedis." },
+    { duration: 4, visual: "Esi waves from across the road", motionPrompt: "Esi waves" },
+  ],
+}, "cinematic_short", { length: "10s" }));
+const ss = scripted.plan.scenes;
+has(ss.length === 3 && ss[0].voiceover.startsWith("AMA:") && ss[1].voiceover.startsWith("KOFI:") && ss[1].continues === true, "the dialogue scene becomes one shot per speaker, the second carrying on from the first");
+has(ss[0].characters?.join() === [ids9[0], ids9[1]].join() && ss[1].characters?.join() === [ids9[0], ids9[1]].join() && ss[2].characters?.join() === ids9[2], "each shot has exactly the people its script names");
+has(CA.castVoice(ss[1], scripted.plan, "D") !== CA.castVoice(ss[0], scripted.plan, "D") || !bigCast[0].voiceId, "each speaker's shot is read in their own voice");
+has(scripted.issues.some((i) => /one shot per speaker/.test(i.issue)) && scripted.issues.some((i) => /in the script here/.test(i.issue)), "and the studio says what it did");
+const cs2 = readFileSync(join(root, "src/lib/video/continue-scene.ts"), "utf8");
+has(/planReferences\(cast, [^\n]*\{ reserve: lastFrame \? 1 : 0 \}\)/.test(cs2) && /castPrompt\([^\n]*refPlan\)/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")), "the render and continuation use the fair picture plan and say which pictures are whose");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -23,7 +23,7 @@ import { chargeCredits } from "@/lib/credits-server";
 
 import { type Aspect, type ClipEngine, canSpeak, clipCost, parseProvider, providerOf, routeClip, tierFrom } from "./clip-engines";
 import { frameFor } from "./frames";
-import { castPrompt, castReferences, castVoice, sceneCast } from "./cast";
+import { castPrompt, castVoice, planReferences, sceneCast } from "./cast";
 import { castPictures } from "./characters";
 import { releaseWaiting } from "./continuity-release";
 import type { ProductionPlan } from "./plan";
@@ -137,7 +137,8 @@ export async function retryClip(
   /* The same pictures the first engine had: a character scene keeps its
      character on every engine it is handed to. */
   const cast = sceneCast(scene, plan);
-  const references = cast.length ? castReferences(cast, await castPictures(service, video.user_id as string, cast.map((c) => c.id))) : [];
+  const refPlan = planReferences(cast, cast.length ? await castPictures(service, video.user_id as string, cast.map((c) => c.id)) : {});
+  const references = refPlan.images;
   const frame = references[0] ?? (await frameFor(service, { userId: video.user_id as string, videoId: input.videoId, version: input.version, plan, scene }));
   const answers = (video.answers ?? {}) as Record<string, string>;
   const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier: tierFrom(process.env, answers.quality), references: references.length > 0 });
@@ -147,7 +148,7 @@ export async function retryClip(
   for (const engine of next) {
     const sent = await submitClip(
       engine,
-      { prompt: castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
+      { prompt: castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
       clipWebhookUrl(input.origin, input.videoId, input.version, input.n, engine),
     );
     if (sent.ok) {
