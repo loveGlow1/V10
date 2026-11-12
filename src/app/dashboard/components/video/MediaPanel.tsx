@@ -12,7 +12,7 @@
 import { useRef, useState } from "react";
 import { Check, FastForward, Film, Image as ImageIcon, Loader2, Music, Palette, Plus, Upload, X } from "lucide-react";
 
-import { ACCEPT_ATTRIBUTE, formatSeconds, type StudioAsset } from "@/lib/video/assets";
+import { ACCEPT_ATTRIBUTE, formatSeconds, handles, type StudioAsset } from "@/lib/video/assets";
 import { uploadStudioFile } from "@/lib/video/upload-client";
 
 export type PanelAsset = StudioAsset & { error?: string | null; url?: string | null; posterUrl?: string | null };
@@ -62,6 +62,8 @@ export default function MediaPanel({
   const [removing, setRemoving] = useState<string | null>(null);
 
   const shown = assets.filter((asset) => asset.kind !== "render");
+  /* How a prompt names each upload: "@lagos-street". */
+  const refs = handles(shown);
 
   async function send(files: File[]) {
     if (!files.length) return;
@@ -170,6 +172,14 @@ export default function MediaPanel({
                 </span>
                 <span className="min-w-0">
                   <span className="block max-w-[160px] truncate text-[12.5px] text-ink" title={asset.name}>{asset.name || (asset.kind === "video" ? "Clip" : asset.kind === "audio" ? "Sound" : "Picture")}</span>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(refs.get(asset.id) ?? "").catch(() => {})}
+                    title="Use this name in your idea to say how this file is used — click to copy"
+                    className="block max-w-[160px] truncate text-left font-mono text-[10.5px] text-accent hover:underline"
+                  >
+                    {refs.get(asset.id)}
+                  </button>
                   <span className="block text-[11px] text-muted">
                     {asset.status === "processing" ? (
                       <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Preparing…</span>

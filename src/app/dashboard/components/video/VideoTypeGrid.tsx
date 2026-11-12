@@ -9,7 +9,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Scissors, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
+import { Box, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Film, Image as ImageIcon, Lightbulb, Megaphone, Play, Popcorn, Scissors, Smartphone, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 
 import { GRID, PIPELINES, type PipelineId } from "@/lib/video/pipelines";
 
@@ -25,6 +25,7 @@ export const PIPELINE_ICON: Record<string, LucideIcon> = {
   Film,
   Image: ImageIcon,
   Scissors,
+  Popcorn,
 };
 
 export default function VideoTypeGrid({

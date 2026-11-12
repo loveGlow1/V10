@@ -42,6 +42,7 @@ ${spec.director.map((rule) => `- ${rule}`).join("\n")}
 RULES FOR EVERY VIDEO:
 - Target length: ${target} seconds. Scene durations must add up to it.
 - ATTACHMENTS (before the idea) lists the person's own uploads and is the only truth about them. A scene may use an uploaded clip or picture instead of generating one: set "source": {"assetId": "<an assetId from ATTACHMENTS>", "trimStart": 0, "trimEnd": 8} (seconds; leave the trims out to use it whole). Such a scene runs as long as its trimmed footage, needs no motionPrompt, and its engine is "video" for a clip or "image" for a picture. Never invent an assetId; never say there is footage when ATTACHMENTS says video x0.
+- @NAMES: when the idea calls an upload by its @ref, use it the way the idea says. A clip or picture to SHOW becomes a scene with "source". A photo or clip that sets the LOOK of a place, a world or the film — or a person's photo when CHARACTERS does not already have them — goes in "referenceClips": ["<assetId>"] (up to four), and every generated scene is filmed to match it. A song for the SOUNDTRACK sets "cut":{"music":{"source":"upload","assetId":"<assetId>"}}.
 - Each generated scene is ONE clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
 - ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
@@ -56,7 +57,7 @@ RULES FOR EVERY VIDEO:
 Reply with ONLY raw JSON, no markdown fences:
 {"title":"","concept":"","strategy":"","aspect":"9:16|1:1|16:9|4:5","voice":"","music":"","hooks":[""],"locks":{"product":"","style":""},"cta":"",
  "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}","characters":[],"continues":false}]}
-A scene made from an upload adds "source":{"assetId":"","trimStart":0,"trimEnd":0}. You may also set "cut":{"transition":"crossfade|cut|fadeblack","captions":true,"audio":"voiceover|original|mix|none"} when the idea asks for it.`;
+A scene made from an upload adds "source":{"assetId":"","trimStart":0,"trimEnd":0}. Uploads that set the look go in a top-level "referenceClips":["<assetId>"]. You may also set "cut":{"transition":"crossfade|cut|fadeblack","captions":true,"audio":"voiceover|original|mix|none"} when the idea asks for it.`;
 }
 
 export type DirectorInput = {
