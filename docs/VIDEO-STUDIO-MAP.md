@@ -168,3 +168,28 @@ picked: the workspace composer's picker, or the editor's AI picker (stored
 on the device under `qs-video-agent`). `lib/video/agent.ts` checks that the
 plan includes the model and charges at its rate (`creditMultiplierFor`).
 Otherwise it falls back to the studio's default and says so.
+
+## Scene-to-scene continuity
+
+A scene that carries straight on from the one before starts where that one
+ended (`lib/video/continuity.ts`).
+
+- **Which scenes carry on:**
+  - a scene marked `continues: true`, set by the planner, the editor or the
+    split of a long shot;
+  - otherwise a scene that shares a character with the scene before.
+  - `continues: false` keeps a scene apart, and `cut.continuity: false`
+    turns continuity off for the whole video.
+- **The render:** a continuing scene's row waits as `queued` with provider
+  `await:<scene>`.
+  - When the scene before lands, `continuity-release.ts` calls
+    `/api/video/[id]/render/continue` (`continue-scene.ts`, ffmpeg bundled).
+  - That route takes the last frame and films the scene from it. A character
+    scene gets the frame as one more reference picture, after the
+    character's own. Any other scene gets it as its first frame.
+  - If the scene before failed, the waiting scene is filmed as it would have
+    been anyway.
+  - A hand-off that gets lost is recovered when the studio polls.
+- **Speed:** only linked scenes are made one after another. Every other
+  scene is still made at once, so a render takes as long as its longest run
+  of linked scenes, which the Settings panel shows.

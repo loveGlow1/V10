@@ -24,6 +24,7 @@ import {
   resolveCut,
 } from "@/lib/video/cut-settings";
 import type { Cut, ProductionPlan } from "@/lib/video/plan";
+import { longestRun } from "@/lib/video/continuity";
 import type { StudioAsset } from "@/lib/video/assets";
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -140,6 +141,11 @@ export default function VideoSettings({
           <div className="flex flex-wrap gap-x-4 gap-y-2 sm:col-span-2">
             <Toggle checked={now.fadeIn} onChange={(fadeIn) => set({ fadeIn })} label="Fade in at the start" />
             <Toggle checked={now.fadeOut} onChange={(fadeOut) => set({ fadeOut })} label="Fade out at the end" />
+            <Toggle
+              checked={plan.cut?.continuity !== false}
+              onChange={(continuity) => set({ continuity })}
+              label={`Scenes that carry on start where the last ended${plan.cut?.continuity !== false && longestRun(plan) > 1 ? ` (up to ${longestRun(plan)} made one after another)` : ""}`}
+            />
           </div>
         </Group>
 

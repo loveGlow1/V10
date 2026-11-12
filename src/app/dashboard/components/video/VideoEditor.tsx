@@ -56,6 +56,7 @@ import { VOICES, voiceLabel } from "@/lib/video/voices";
 
 import { callableModels, isModelAvailable } from "@/app/dashboard/models";
 import type { PlanCharacter } from "@/lib/video/cast";
+import { continuesFrom } from "@/lib/video/continuity";
 
 import CharactersPanel from "./CharactersPanel";
 import MediaPanel, { type PanelAsset } from "./MediaPanel";
@@ -702,6 +703,7 @@ function Storyboard(props: {
                       {formatSeconds(seg?.seconds ?? scene.duration)}
                       {scene.onScreenText ? ` · “${scene.onScreenText}”` : ""}
                       {scene.voiceover || scene.voiceAsset ? " · voice-over" : ""}
+                      {continuesFrom(props.plan, scene.n) !== null ? " · ↳ carries on" : ""}
                       {scene.characters?.length ? ` · ${scene.characters.map((cid) => props.plan.characters?.find((c) => c.id === cid)?.name ?? "").filter(Boolean).join(", ")}` : ""}
                     </span>
                   </span>
@@ -969,6 +971,23 @@ function SceneInspector(props: {
             <textarea rows={3} value={scene.motionPrompt} onChange={(e) => set({ motionPrompt: e.target.value })} className={`${field} resize-y`} />
           </label>
         </>
+      )}
+      {!scene.source && plan.scenes[0]?.n !== scene.n && (
+        <label className="block text-[11.5px] text-muted">
+          From the scene before
+          <select
+            value={scene.continues === true ? "yes" : scene.continues === false ? "no" : "auto"}
+            onChange={(e) => set({ continues: e.target.value === "yes" ? true : e.target.value === "no" ? false : undefined })}
+            className={field}
+          >
+            <option value="auto">Automatic — carries on when it shares a character</option>
+            <option value="yes">Carries on — starts where the last scene ended</option>
+            <option value="no">Cuts away — a fresh shot</option>
+          </select>
+          <span className="mt-0.5 block text-[11px]">
+            {continuesFrom(plan, scene.n) !== null ? "Filmed from the last frame of the scene before, so the place, light and look carry straight on." : "Filmed on its own, at the same time as the others."}
+          </span>
+        </label>
       )}
       {!scene.source && (plan.characters?.length ?? 0) > 0 && (
         <div>

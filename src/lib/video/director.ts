@@ -46,6 +46,7 @@ RULES FOR EVERY VIDEO:
 - ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - CHARACTERS (before the idea) are the people who recur. Every scene showing one lists their id in "characters" (who is on screen, in order). Their look comes from reference pictures and their locked description, so a prompt names them and says what they DO, never what they look like. Give recurring people only through CHARACTERS; with none set, describe a person fully in each prompt and keep it identical in "locks".
+- A scene that carries straight on from the previous one (same place, same moment, the action continuing — not a cut to somewhere else) sets "continues": true; it is then filmed from the previous scene's last frame. Set "continues": false on a scene that deliberately cuts away. Scenes sharing a character continue by default.
 - Anything else that must look the same in more than one scene (product, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
 - When the video names QuickStark itself, the name is always "QuickStark.ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
@@ -54,7 +55,7 @@ RULES FOR EVERY VIDEO:
 
 Reply with ONLY raw JSON, no markdown fences:
 {"title":"","concept":"","strategy":"","aspect":"9:16|1:1|16:9|4:5","voice":"","music":"","hooks":[""],"locks":{"product":"","style":""},"cta":"",
- "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}","characters":[]}]}
+ "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}","characters":[],"continues":false}]}
 A scene made from an upload adds "source":{"assetId":"","trimStart":0,"trimEnd":0}. You may also set "cut":{"transition":"crossfade|cut|fadeblack","captions":true,"audio":"voiceover|original|mix|none"} when the idea asks for it.`;
 }
 

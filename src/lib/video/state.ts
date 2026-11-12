@@ -12,6 +12,8 @@ import { readiness, renderCost } from "@/lib/video/engines";
 import { clipStatus } from "@/lib/video/providers";
 import { advance, lineTaskOf } from "@/lib/video/production";
 import { settleRunwareLineJob } from "@/lib/video/line-results";
+import { awaitedScene } from "@/lib/video/continuity";
+import { releaseWaiting } from "@/lib/video/continuity-release";
 import { announceFinal } from "@/lib/video/announce";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
@@ -90,6 +92,21 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     );
     const { data: fresh } = await supabase.from("video_renders").select("id, scene, engine, provider, status, output_path, error, updated_at, created_at").eq("video_id", id).eq("version", video.current_version);
     if (fresh) renderRows?.splice(0, renderRows.length, ...fresh);
+  }
+
+  /* A scene waiting on the one before, when that one has finished or failed
+     but the hand-off was lost: handed on now. */
+  if (service) {
+    const rows = renderRows ?? [];
+    for (const row of rows) {
+      const before = awaitedScene(row.provider);
+      if (row.status !== "queued" || before === null || Date.now() - new Date(row.updated_at).getTime() < 90_000) continue;
+      const prev = rows.find((r) => r.scene === before && r.engine === "video");
+      if (!prev || prev.status === "done" || prev.status === "failed") {
+        await service.from("video_renders").update({ updated_at: new Date().toISOString() }).eq("id", row.id).eq("status", "queued");
+        await releaseWaiting(service, { videoId: id, version: video.current_version as number, n: before, origin });
+      }
+    }
   }
 
   /* A job that never reported is not coming: n8n stops an execution at 180s. */

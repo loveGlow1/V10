@@ -25,6 +25,7 @@ import { type Aspect, type ClipEngine, canSpeak, clipCost, parseProvider, provid
 import { frameFor } from "./frames";
 import { castPrompt, castReferences, castVoice, sceneCast } from "./cast";
 import { castPictures } from "./characters";
+import { releaseWaiting } from "./continuity-release";
 import type { ProductionPlan } from "./plan";
 import { advance } from "./production";
 import { clipWebhookUrl, speak, submitClip } from "./providers";
@@ -96,6 +97,10 @@ export async function landResult(service: SupabaseClient, landing: Landing): Pro
       dedupeKey: `video-job:${id}:${version}:${kind}:${n}`,
     });
   }
+
+  /* A scene that carries on from this one can start now — from its last
+     frame, or (when this one failed) as it would have anyway. */
+  if (kind === "clip") await releaseWaiting(service, { videoId: id, version, n, origin: landing.origin });
 
   await advance(service, id, version, landing.origin);
   await settleVideo(service, id, version);
