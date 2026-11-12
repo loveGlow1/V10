@@ -15,10 +15,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { direct } from "@/lib/video/director";
+import { direct, planChapterCount } from "@/lib/video/director";
 import { readiness } from "@/lib/video/engines";
 import { isPipelineId } from "@/lib/video/pipelines";
-import { normalizePlan, qaAndRepair, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
+import { normalizePlan, qaAndRepair, secondsFrom, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
 import type { StudioAsset } from "@/lib/video/assets";
 import { stitchPlan } from "@/lib/video/timeline";
 import type { PlanCharacter } from "@/lib/video/cast";
@@ -78,7 +78,14 @@ export function keepKnownCast(plan: ProductionPlan, cast: PlanCharacter[]): Prod
 /** Drops any scene source that names an upload this video does not have. Pure. */
 export function keepKnownSources(plan: ProductionPlan, assets: Pick<StudioAsset, "id" | "status">[]): ProductionPlan {
   const known = new Set(assets.filter((asset) => asset.status !== "failed").map((asset) => asset.id));
-  return { ...plan, scenes: plan.scenes.map((scene) => (scene.source && !known.has(scene.source.assetId) ? { ...scene, source: undefined } : scene)) };
+  const referenceClips = (plan.referenceClips ?? []).filter((id) => known.has(id));
+  const { referenceClips: _dropped, ...rest } = plan;
+  void _dropped;
+  return {
+    ...rest,
+    ...(referenceClips.length ? { referenceClips } : {}),
+    scenes: plan.scenes.map((scene) => (scene.source && !known.has(scene.source.assetId) ? { ...scene, source: undefined } : scene)),
+  };
 }
 
 
@@ -112,6 +119,8 @@ export async function planVideo(
   let issues;
   let note: string;
   let outputTokens = 0;
+  /* A long film is planned in several calls (an outline, then each chapter), each paid for. */
+  let calls = 1;
   let stitched = false;
 
   const uploads = await loadStudioAssets(supabase, id);
@@ -158,7 +167,7 @@ export async function planVideo(
     const service = createSupabaseServiceClient();
     if (service) {
       const balance = await currentBalance(service, userId);
-      if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < agentCost(PLAN_COST, agent)) {
+      if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < agentCost(PLAN_COST, agent) * (1 + (planChapterCount(secondsFrom(answers.length)) > 1 ? planChapterCount(secondsFrom(answers.length)) : 0))) {
         return NextResponse.json({ error: "You are out of credits. Top up to plan this video." }, { status: 402 });
       }
     }
@@ -166,7 +175,10 @@ export async function planVideo(
     /* What the director can look at: reference pictures, and a frame from
        each uploaded clip — never a video or a sound file. */
     const images: string[] = [];
-    for (const asset of uploads) {
+    /* The clips marked as the look come first: their frames are what the plan must match. */
+    const marked = ((current?.plan as ProductionPlan | undefined)?.referenceClips ?? []);
+    const ordered = [...uploads].sort((a, b) => Number(marked.includes(b.id)) - Number(marked.includes(a.id)));
+    for (const asset of ordered) {
       if (images.length >= 3 || asset.status === "failed") continue;
       const path = asset.kind === "video" ? asset.poster_path : asset.kind === "audio" ? null : asset.storage_path;
       if (!path) continue;
@@ -187,6 +199,10 @@ export async function planVideo(
     });
     if ("error" in directed) return NextResponse.json({ error: directed.error }, { status: 502 });
     ({ plan, issues, outputTokens } = directed);
+    calls = directed.calls ?? 1;
+    /* The look the person chose stays chosen when the plan is made again. */
+    const keptLook = (current?.plan as ProductionPlan | undefined)?.referenceClips;
+    if (keptLook?.length) plan = { ...plan, referenceClips: keptLook };
     plan = keepKnownCast(keepKnownSources(plan, uploads), cast);
     note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 300) : video.current_version ? "Planned again" : "First plan";
   }
@@ -211,8 +227,8 @@ export async function planVideo(
       await chargeCredits(service, {
         userId,
         action: "generate",
-        cost: agentCost(PLAN_COST, agent),
-        description: `Video plan (${agent.name}): ${plan.title}`,
+        cost: agentCost(PLAN_COST, agent) * calls,
+        description: `Video plan (${agent.name}${calls > 1 ? `, ${calls - 1} chapters` : ""}): ${plan.title}`,
         outputTokens,
         dedupeKey: `video-plan:${id}:${version}`,
       });

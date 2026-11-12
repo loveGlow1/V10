@@ -17,7 +17,7 @@ import { refuseWithoutCard } from "@/lib/card-gate";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 /* The Creative Director writes a whole production plan in one call. */
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;

@@ -3,8 +3,9 @@
  *
  *   kind        from the MIME type, on the client AND again on the server
  *               from the stored object's own content type
- *   limits      a clip up to 400 MB and 3 minutes (it is prepared in a
- *               function whose /tmp holds 512 MB), sound up to 50 MB, a
+ *   limits      a clip up to 400 MB and an hour (it is prepared in a
+ *               function whose /tmp holds 512 MB; one over three minutes is
+ *               read as it is, with no working copy), sound up to 50 MB, a
  *               picture up to 20 MB
  *   manifest    the ATTACHMENTS block the Creative Director and the editor
  *               read before anything else, so nothing is ever assumed about
@@ -42,7 +43,7 @@ export const ACCEPTED_TYPES = [
 export const ACCEPT_ATTRIBUTE = [...ACCEPTED_TYPES, ".mov", ".m4a", ".mp3", ".wav"].join(",");
 
 export const LIMITS = {
-  video: { bytes: 400 * 1024 * 1024, seconds: 180 },
+  video: { bytes: 400 * 1024 * 1024, seconds: 3600 },
   audio: { bytes: 50 * 1024 * 1024, seconds: 600 },
   image: { bytes: 20 * 1024 * 1024, seconds: 0 },
 } as const;
@@ -50,7 +51,7 @@ export const LIMITS = {
 /** How many uploads one video holds. */
 export const MAX_UPLOADS = 30;
 /** The longest stitched cut this studio makes in one go (seconds). */
-export const MAX_CUT_SECONDS = 600;
+export const MAX_CUT_SECONDS = 60 * 60;
 
 const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
 

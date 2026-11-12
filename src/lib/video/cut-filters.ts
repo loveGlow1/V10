@@ -325,9 +325,18 @@ export function musicMixArgs(input: {
   duck?: boolean;
   /** Start this many seconds into the music file. */
   start?: number;
+  /** Play the music round again when it ends (a part of a long film). */
+  loop?: boolean;
+  /** Fade the music in at the start / out at the end. Both default on; a film's middle parts have neither. */
+  fadeIn?: boolean;
+  fadeOut?: boolean;
 }): string[] {
   const seconds = Math.max(1, input.seconds).toFixed(2);
-  const fade = `afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, Number(seconds) - 1.5).toFixed(2)}:d=1.5`;
+  const fades = [
+    input.fadeIn !== false ? "afade=t=in:d=0.5" : "",
+    input.fadeOut !== false ? `afade=t=out:st=${Math.max(0, Number(seconds) - 1.5).toFixed(2)}:d=1.5` : "",
+  ].filter(Boolean);
+  const fade = fades.length ? fades.join(",") : "anull";
   const level = (input.spoken ? 0.25 : 0.7) * (input.level ?? 1);
   const duck = input.duck !== false;
   const filter = duck
@@ -340,7 +349,7 @@ export function musicMixArgs(input: {
       `[vo][m]amix=inputs=2:duration=first:normalize=0[a]`;
   const start = input.start && input.start > 0 ? ["-ss", input.start.toFixed(2)] : [];
   return [
-    "-nostdin", "-hide_banner", "-y", "-i", input.joined, ...start, "-t", seconds, "-i", input.music,
+    "-nostdin", "-hide_banner", "-y", "-i", input.joined, ...(input.loop ? ["-stream_loop", "-1"] : []), ...start, "-t", seconds, "-i", input.music,
     "-filter_complex", filter,
     "-map", "0:v", "-map", "[a]",
     "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-ar", "48000",

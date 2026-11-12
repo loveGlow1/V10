@@ -22,6 +22,10 @@
  * on for the video (cut.continuity, default on), and the scene before is not
  * a clone's presenter (made from a photo, not a clip).
  *
+ * A generated scene after the person's own clip or picture carries on from
+ * it only when it says so (continues: true) — "continue my video": it starts
+ * on the clip's last frame (at its trim end), or on the picture.
+ *
  * Pure: the planner, the render and the editor all read it. */
 
 import type { ProductionPlan, Scene } from "./plan";
@@ -33,14 +37,33 @@ export const CONTINUE_FRAME_NOTE = "Continue straight on from the first frame: s
 const generated = (scene: Scene | undefined, plan: Pick<ProductionPlan, "pipeline">) =>
   Boolean(scene) && !scene!.source && !(plan.pipeline === "clone" && scene!.engine === "avatar");
 
+/* A run of scenes linked only because they share a character is broken every
+   this many, so a long film is never made one clip after another for hours:
+   the next scene starts fresh from the characters' own pictures, which keep
+   the faces. A scene that says it carries on always does. */
+export const MAX_AUTO_RUN = 6;
+
 /** The scene a scene waits for, or null when it is filmed at once. Pure. */
 export function continuesFrom(plan: Pick<ProductionPlan, "scenes" | "cut" | "pipeline">, n: number): number | null {
-  if (plan.cut?.continuity === false) return null;
   const at = plan.scenes.findIndex((scene) => scene.n === n);
+  const linked = linkAt(plan, at);
+  if (linked === null || plan.scenes[at]?.continues === true) return linked;
+  /* Automatic: count the run behind it. */
+  let run = 1;
+  for (let i = at - 1; i > 0 && linkAt(plan, i) !== null; i -= 1) run += 1;
+  return run % MAX_AUTO_RUN === 0 ? null : linked;
+}
+
+function linkAt(plan: Pick<ProductionPlan, "scenes" | "cut" | "pipeline">, at: number): number | null {
+  if (plan.cut?.continuity === false) return null;
   if (at <= 0) return null;
   const scene = plan.scenes[at];
   const before = plan.scenes[at - 1];
-  if (!generated(scene, plan) || !generated(before, plan)) return null;
+  if (!generated(scene, plan)) return null;
+  /* After an upload, only when asked: the scene starts on the upload's last
+     frame (where it was trimmed to end). */
+  if (before?.source) return scene.continues === true ? before.n : null;
+  if (!generated(before, plan)) return null;
   if (scene.continues === true) return before.n;
   if (scene.continues === false) return null;
   const shared = (scene.characters ?? []).some((id) => before.characters?.includes(id));
@@ -86,4 +109,15 @@ export function withLastFrame(references: string[], lastFrame: string | null, ma
 /** The ffmpeg arguments for a clip's last frame, as a JPEG. Pure. */
 export function lastFrameArgs(input: { source: string; out: string }): string[] {
   return ["-hide_banner", "-y", "-sseof", "-0.25", "-i", input.source, "-frames:v", "1", "-q:v", "2", "-update", "1", input.out];
+}
+
+/** The ffmpeg arguments for the frame of an uploaded clip at `at` seconds, as a JPEG. Pure. */
+export function frameAtArgs(input: { source: string; out: string; at: number }): string[] {
+  return ["-hide_banner", "-y", "-ss", Math.max(0, input.at).toFixed(3), "-i", input.source, "-frames:v", "1", "-q:v", "2", "-update", "1", input.out];
+}
+
+/** Where an uploaded clip's scene ends — the frame a continuation starts on. Pure. */
+export function uploadEnd(source: { trimStart?: number; trimEnd?: number }, clipSeconds: number | null): number {
+  const end = source.trimEnd ?? (clipSeconds && clipSeconds > 0 ? clipSeconds : 0);
+  return Math.max(source.trimStart ?? 0, end - 0.08);
 }

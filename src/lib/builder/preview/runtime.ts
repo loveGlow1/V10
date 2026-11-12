@@ -975,6 +975,8 @@ export const PREVIEW_RUNTIME = `
   }
 
   window.__qsNavigate = navigate;
+  /* Where the app is, for the automatic test (lib/builder/verify-app.ts). */
+  window.__qsPath = function () { return current.pathname; };
 
   /* A plain <a href="/somewhere">, which is not next/link and so never reached
      navigate(): in this document it resolved against the WORKSPACE's address

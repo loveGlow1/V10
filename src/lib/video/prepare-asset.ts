@@ -84,15 +84,18 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
     const poster = join(dir, "poster.jpg");
     let workingPath: string | null = null;
     let posterPath: string | null = null;
+    /* A long clip is read as it is: a working copy of it would not be made in
+       one run. The cut encodes every scene again anyway. */
+    const long = found.seconds > WORKING_COPY_SECONDS;
     try {
+      if (long) throw new Error("long");
       await runFfmpeg(workingCopyArgs({ source, out: work, hasAudio: found.hasAudio }), 270_000);
       if ((await stat(work)).size > 0) {
         const path = `${base}/work-${assetId}.mp4`;
         const { error } = await service.storage.from("video-assets").upload(path, await readFile(work), { contentType: "video/mp4", upsert: true });
         if (!error) workingPath = path;
       }
-      /* The source is no longer needed once the copy is stored. */
-      if (workingPath) await rm(source, { force: true });
+      /* The source is needed for the frames below; it goes with the folder. */
     } catch {
       /* The cut reads the upload as it is. */
     }
@@ -103,6 +106,20 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
       if (!error) posterPath = path;
     } catch {
       /* No poster: the studio shows the kind's icon. */
+    }
+    /* Three frames across the clip — what the director looks at, and what a
+       generated scene is matched to when the clip is a reference. */
+    const frames: string[] = [];
+    for (const [i, at] of referenceFrameTimes(found.seconds).entries()) {
+      try {
+        const out = join(dir, `frame-${i}.jpg`);
+        await runFfmpeg(posterArgs({ source: workingPath ? work : source, out, at }), 30_000);
+        const path = `${base}/frame-${assetId}-${i}.jpg`;
+        const { error } = await service.storage.from("video-assets").upload(path, await readFile(out), { contentType: "image/jpeg", upsert: true });
+        if (!error) frames.push(path);
+      } catch {
+        /* One fewer frame. */
+      }
     }
     await service
       .from("video_assets")
@@ -115,6 +132,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
         has_audio: found.hasAudio,
         working_path: workingPath,
         poster_path: posterPath,
+        analysis: { frames, ...(long ? { long: true } : {}) },
         updated_at: new Date().toISOString(),
       })
       .eq("id", assetId);
@@ -127,6 +145,15 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
 }
 
 const round = (seconds: number) => Math.round(seconds * 1000) / 1000;
+
+/** Clips longer than this (seconds) are read as uploaded, with no working copy. */
+export const WORKING_COPY_SECONDS = 180;
+
+/** Where the reference frames of a clip are taken: a fifth, half and four fifths in. Pure. */
+export function referenceFrameTimes(seconds: number): number[] {
+  if (!(seconds > 0)) return [0];
+  return [0.2, 0.5, 0.8].map((f) => Math.round(seconds * f * 100) / 100);
+}
 
 /* A prepared upload is charged once, by its kind. A failed one never is. */
 async function charge(service: SupabaseClient, asset: { id: unknown; kind: unknown; user_id: unknown; name: unknown }) {

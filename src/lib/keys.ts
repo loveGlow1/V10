@@ -37,6 +37,7 @@ export const FEATURES: KeyFeature[] = [
   { id: "supabase", area: "Core", required: true, label: "Database & accounts (Supabase)", unlocks: "Sign-in, projects, credits — the site itself.", needs: [["NEXT_PUBLIC_SUPABASE_URL"], ["NEXT_PUBLIC_SUPABASE_ANON_KEY"]], where: "Supabase → Project Settings → API" },
   { id: "service", area: "Core", required: true, label: "Server access to the database", unlocks: "Background work: builds finishing, renders landing, credits, payments.", needs: [["SUPABASE_SERVICE_ROLE_KEY"]], where: "Supabase → Project Settings → API → service_role" },
   { id: "site", area: "Core", label: "Site address", unlocks: "Links in emails, OAuth returns and callbacks use your domain.", needs: [["NEXT_PUBLIC_SITE_URL"]], also: "Worked out from the request when not set." },
+  { id: "owner", area: "Core", label: "Owner access", unlocks: "Who may see the Keys page and the owner's tools.", needs: [["OWNER_EMAILS", "ALERT_EMAIL"]], where: "Your email address(es), comma-separated" },
   { id: "cron", area: "Core", label: "Scheduled jobs", unlocks: "The sweeps that settle payments, refresh trials and clean up.", needs: [["CRON_SECRET"]], where: "Any long random string" },
 
   { id: "anthropic", area: "AI building", required: true, label: "Claude (the builder's brain)", unlocks: "Editing pages, planning videos, the video editor, flier briefs, text checks.", needs: [["ANTHROPIC_API_KEY"]], where: "console.anthropic.com → API keys" },
@@ -68,6 +69,8 @@ export const FEATURES: KeyFeature[] = [
 
   { id: "vercel", area: "Publishing", label: "Publishing apps (Vercel)", unlocks: "People publish apps to live addresses, and their server keys are stored.", needs: [["VERCEL_API_TOKEN"]], optional: ["VERCEL_TEAM_ID", "VERCEL_PROJECT_ID"], where: "vercel.com/account/tokens" },
 
+  { id: "db-tables", area: "Databases", label: "Creating app tables", unlocks: "Builds create their tables on the shared preview database, and the tables of a pasted connection.", needs: [["SUPABASE_DB_URL"]], where: "Supabase → Connect → Session pooler (port 5432)", also: "The username must be postgres.<project-ref>, not postgres, and the database password percent-encoded. The direct db.<ref>.supabase.co host cannot be reached from Vercel." },
+  { id: "connect-supabase-agent", area: "Databases", label: "Database agent approvals", unlocks: "Signs the database agent's one-time write approvals with a key of its own.", needs: [["DB_AGENT_APPROVAL_SECRET", "SUPABASE_OAUTH_CLIENT_SECRET", "SUPABASE_SERVICE_ROLE_KEY"]], where: "Any long random string", also: "Falls back to the Supabase OAuth secret, then the service key." },
   { id: "managed-db", area: "Databases", label: "Managed databases", unlocks: "A database made for people who don't bring their own.", needs: [["SUPABASE_MANAGEMENT_TOKEN"], ["SUPABASE_ORG_ID"], ["MANAGED_DATABASES_ENABLED"]], optional: ["SUPABASE_MANAGED_REGION"], also: "Off until MANAGED_DATABASES_ENABLED=true on purpose: each one is a monthly Supabase bill." },
 ];
 

@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -450,7 +450,7 @@ const lineRoute = readFileSync(join(root, "src/app/api/video/[id]/render/line/ro
 has(/verifyFalToken\(id, version, `line:/.test(lineRoute) && /settleRunwareLineJob\(/.test(lineRoute) && /named !== taskUUID/.test(lineRoute), "Runware's webhook takes only its own token, and asks Runware before believing it");
 has(/settleRunwareLineJob\(/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a quiet Runware job is asked about when the studio polls");
 const mixSrc = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(root, "src/lib/video", f), "utf8")).join("\n");
-has(/sidechaincompress=threshold=0\.05:ratio=8/.test(mixSrc) && /musicMixArgs\(\{ joined, music: musicPath/.test(mixSrc), "the score goes under the cut, ducked under the voice");
+has(/sidechaincompress=threshold=0\.05:ratio=8/.test(mixSrc) && /musicMixArgs\(\{ joined: input\.joined, music: musicPath/.test(mixSrc), "the score goes under the cut, ducked under the voice");
 
 /* Media lengths, read from the header without ffmpeg (probe.ts). */
 const Probe = await import(join(dir, "probe.js"));
@@ -482,7 +482,7 @@ const T = await import(join(dir, "timeline.js"));
 const MF = await import(join(dir, "media-files.js"));
 const id1 = "11111111-1111-4111-8111-111111111111", id2 = "22222222-2222-4222-8222-222222222222", id3 = "33333333-3333-4333-8333-333333333333";
 has(A.assetKind("video/quicktime") === "video" && A.assetKind("audio/mpeg") === "audio" && A.assetKind("image/webp") === "image" && A.assetKind("application/pdf") === "file", "an upload's kind comes from its MIME type");
-has(A.uploadProblem({ mime: "video/mp4", size: 401 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 200 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 170 }) === null, "clips up to 400 MB and 3 minutes");
+has(A.uploadProblem({ mime: "video/mp4", size: 401 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 3700 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 3500 }) === null, "clips up to 400 MB and an hour");
 has(A.uploadProblem({ mime: "audio/wav", size: 51 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "application/zip", size: 10 }) !== null, "sound up to 50 MB; other files are refused");
 const vids = [
   { id: id1, kind: "video", name: "a.mov", mime: "video/quicktime", status: "ready", durationS: 8.4, width: 1080, height: 1920, hasAudio: true },
@@ -642,7 +642,8 @@ const contPlan = L.normalizePlan({
 }, "cinematic_short", {});
 const linksX = CO.continuityLinks(contPlan);
 has(linksX.get(2) === 1 && !linksX.has(3) && linksX.get(4) === 3 && !linksX.has(5), "a scene sharing a character with the one before carries on; a marked one does too; \"cuts away\" never does");
-has(!linksX.has(6) && !linksX.has(7), "an upload never waits, and nothing waits on an upload (it is already filmed)");
+has(!linksX.has(6) && linksX.get(7) === 6, "an upload never waits; a scene marked to carry on starts where the upload ends");
+has(!CO.continuityLinks({ ...contPlan, scenes: contPlan.scenes.map((s) => (s.n === 7 ? { ...s, continues: undefined } : s)) }).has(7), "after an upload, a scene only carries on when asked");
 has(CO.continuityLinks({ ...contPlan, cut: { continuity: false } }).size === 0, "continuity can be switched off for the whole video");
 has(CO.longestRun(contPlan) === 2, "only linked runs are made one after another — the rest at once");
 has(CO.withLastFrame(["c1", "c2", "c3"], "last").join() === "c1,c2,c3,last" && CO.withLastFrame(Array.from({ length: 9 }, (_, i) => `c${i}`), "last").length === 9 && CO.withLastFrame(Array.from({ length: 9 }, (_, i) => `c${i}`), "last")[8] === "last", "the character's pictures come first, the last frame after, never more than nine");
@@ -690,7 +691,7 @@ has(ss[0].characters?.join() === [ids9[0], ids9[1]].join() && ss[1].characters?.
 has(CA.castVoice(ss[1], scripted.plan, "D") !== CA.castVoice(ss[0], scripted.plan, "D") || !bigCast[0].voiceId, "each speaker's shot is read in their own voice");
 has(scripted.issues.some((i) => /one shot per speaker/.test(i.issue)) && scripted.issues.some((i) => /in the script here/.test(i.issue)), "and the studio says what it did");
 const cs2 = readFileSync(join(root, "src/lib/video/continue-scene.ts"), "utf8");
-has(/planReferences\(cast, [^\n]*\{ reserve: lastFrame \? 1 : 0 \}\)/.test(cs2) && /castPrompt\([^\n]*refPlan\)/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")), "the render and continuation use the fair picture plan and say which pictures are whose");
+has(/planReferences\(cast, [^\n]*\{ reserve: \(lastFrame \? 1 : 0\) \+ Math\.min\(look\.length, 3\) \}\)/.test(cs2) && /castPrompt\([^\n]*refPlan\)/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")), "the render and continuation use the fair picture plan and say which pictures are whose");
 
 
 console.log("\nno free work");
@@ -722,6 +723,47 @@ const sug = ED.normalizeReview({ quiet: false, suggestions: [
 has(sug.length === 3 && sug[0].edit.scenes[0].characters[0] === kofiId && sug[0].edit.reply === sug[0].why, "a suggestion is a real, small edit — empty ones and \"start over\" are dropped, at most three");
 const rv = readFileSync(join(root, "src/app/api/video/[id]/review/route.ts"), "utf8");
 has(/skipped: "credits"/.test(rv) && rv.indexOf("currentBalance(") < rv.indexOf("reviewEdit(") && /chargeCredits\(service/.test(rv), "a look-over is checked before it runs, stays quiet without credit, and is charged when it runs");
+
+console.log("\nlong films, references and continuations");
+const LK = await import(join(dir, "look.js"));
+const CH = await import(join(dir, "chapters.js"));
+has(JSON.stringify(LK.pickFrames(["a", "b", "c"], 2)) === '["b","a"]' && LK.pickFrames(["a"], 0).length === 0, "a reference clip lends its middle frame first, within the room left");
+const vidAsset = { id: "11111111-1111-4111-8111-111111111111", kind: "video", name: "beach.mov", durationS: 12, status: "ready" };
+const filmBase = L.normalizePlan({ scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "cinematic_short", {});
+const cont = T.withContinuation(filmBase, vidAsset);
+has(cont.scenes.length === 3 && cont.scenes[1].source?.assetId === vidAsset.id && cont.scenes[2].continues === true && !cont.scenes[2].source && cont.scenes.map((s) => s.n).join() === "1,2,3", "Continue it: the clip goes in, then a new scene that starts where it ends");
+has(CO.continuesFrom(cont, 3) === 2, "and that scene is filmed from the clip's last frame");
+const again = T.withContinuation(cont, vidAsset);
+has(again.scenes.length === 4 && again.scenes[2].continues === true && again.scenes[1].source, "continuing a clip already in the video adds the scene right after it");
+const looked = T.toggleReference(filmBase, vidAsset.id);
+has(looked.referenceClips?.[0] === vidAsset.id && !("referenceClips" in T.toggleReference(looked, vidAsset.id)), "a clip is marked as the look, and unmarked");
+has(L.referenceClipsOf(["x", vidAsset.id, vidAsset.id]).length === 1 && L.normalizePlan({ referenceClips: [vidAsset.id], scenes: [{ duration: 3, visual: "a" }] }, "cinematic_short", {}).referenceClips?.[0] === vidAsset.id, "the look survives a save; anything that is not an upload id is dropped");
+has(CO.uploadEnd({ trimEnd: 8 }, 12) > 7.9 && CO.uploadEnd({}, 12) > 11.9 && CO.frameAtArgs({ source: "a", out: "b", at: 7.92 }).join(" ").includes("-ss 7.920"), "a continuation starts on the frame where the clip was trimmed to end");
+const chain = L.normalizePlan({ characters: [{ id: amaId, name: "Ama", description: "x" }], scenes: Array.from({ length: 14 }, (_, i) => ({ duration: 5, visual: "v", motionPrompt: "Ama walks", characters: [amaId] })) }, "cinematic_short", {});
+const chainLinks = CO.continuityLinks(chain);
+has(chainLinks.size < 13 && CO.longestRun(chain) <= CO.MAX_AUTO_RUN, `scenes linked only by a shared character restart every ${CO.MAX_AUTO_RUN}, so a long film is never made one clip at a time`, `run ${CO.longestRun(chain)}`);
+const hourPlan = L.normalizePlan({ scenes: Array.from({ length: 450 }, (_, i) => ({ duration: 8, visual: `s${i}`, motionPrompt: "x" })) }, "cinematic_short", { length: "60 min" });
+has(hourPlan.scenes.length === 450 && L.secondsFrom("60 min") === 3600, "a plan holds an hour of scenes");
+has(P.PIPELINES.cinematic_short.questions.find((q) => q.id === "length").options.includes("60 min"), "a cinematic film can be up to 60 minutes");
+has(CH.chaptersOf(hourPlan.scenes).length >= 25, "and it is cut in chapters");
+const filmEditPlan = L.normalizePlan({ scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }, { duration: 5, visual: "b", motionPrompt: "y" }] }, "cinematic_short", {});
+const filmUploads = [{ ...vidAsset, mime: "video/mp4", width: 1920, height: 1080, hasAudio: true }];
+const contEdit = ED.normalizeEdit({ reply: "ok", continueFrom: [{ assetId: vidAsset.id, prompt: "She runs into the sea", seconds: 5 }, { assetId: "nope", prompt: "x" }], look: [vidAsset.id] }, filmEditPlan);
+has(contEdit.continueFrom?.length === 1 && contEdit.look?.[0] === vidAsset.id, "the editor can continue a clip and set the look, and drops what is not an upload");
+const contApplied = ED.applyEdit(filmEditPlan, contEdit, filmUploads);
+has(contApplied.plan.scenes.length === 4 && contApplied.plan.scenes[2].source?.assetId === vidAsset.id && contApplied.plan.scenes[3].continues === true && contApplied.plan.scenes[3].motionPrompt === "She runs into the sea" && contApplied.plan.referenceClips?.[0] === vidAsset.id, "\"continue my clip\" puts the clip in and a new scene after it that starts where it ends; the look is set");
+has(contApplied.carry.length === 2 && contApplied.carry.every((c) => c.clip), "the scenes already made carry over; only the new one is filmed");
+has(!("referenceClips" in ED.applyEdit({ ...filmEditPlan, referenceClips: [vidAsset.id] }, ED.normalizeEdit({ look: [] }, filmEditPlan), filmUploads).plan), "an empty look stops matching");
+const lenSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
+has(/directFilm/.test(lenSrc) && /Promise\.all\(\s*chapters\.map/.test(lenSrc) && /The chapter before ends on/.test(lenSrc), "a long film is outlined, then every chapter is written at once, each told how the ones beside it begin and end");
+const filmPlan = readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8");
+has(/agentCost\(PLAN_COST, agent\) \* calls/.test(filmPlan), "every planning call of a long film is paid for");
+const filmCut = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+has(/chaptersOf\(plan\.scenes\)/.test(filmCut) && /kick\(origin, videoId, version, i \+ 1\)/.test(filmCut) && /maybeJoin/.test(filmCut) && /streamToStorage/.test(filmCut), "a long cut: every chapter at once, then one join streamed into storage");
+has(/partsOutput\(parts\.length, base\)/.test(filmCut), "if the single file cannot be stored, the film is kept as its parts");
+has(/remote = Boolean\(upload && !still && Number\(upload\.duration_s\) > WORKING_COPY_SECONDS\)/.test(filmCut), "a long upload is read where it is stored, not copied onto the server");
+const filmRender = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
+has(/inBatches\(\s*jobs,\s*8/.test(filmRender) && /lookFrames\(writer, plan\)/.test(filmRender), "hundreds of scenes are sent a few at a time, each with the look of the person's footage");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

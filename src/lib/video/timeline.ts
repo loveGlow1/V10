@@ -102,3 +102,49 @@ export function stitchPlan(input: { assets: StudioAsset[]; answers: Record<strin
     cut,
   };
 }
+
+/** What a continuation is told to film until the person words it. */
+export const CONTINUE_PROMPT = "The action carries straight on from the end of the clip before: the same place, the same people, the same light, moving naturally forward.";
+
+/**
+ * "Continue it": a generated scene right after the person's clip that starts
+ * on the clip's last frame (continuity.ts). The clip is added first when it
+ * is not in the timeline yet. Pure.
+ */
+export function withContinuation(plan: ProductionPlan, asset: StudioAsset, prompt = CONTINUE_PROMPT, seconds = 6): ProductionPlan {
+  let scenes = [...plan.scenes];
+  let at = -1;
+  for (let i = scenes.length - 1; i >= 0; i -= 1) {
+    if (scenes[i].source?.assetId === asset.id) {
+      at = i;
+      break;
+    }
+  }
+  if (at < 0) {
+    scenes.push(sceneFromAsset(asset, scenes.length + 1));
+    at = scenes.length - 1;
+  }
+  const next: Scene = {
+    n: 0,
+    duration: seconds,
+    shot: "Carries on from your clip",
+    visual: prompt,
+    onScreenText: "",
+    voiceover: "",
+    motionPrompt: prompt,
+    sound: "",
+    engine: "video",
+    continues: true,
+  };
+  scenes = [...scenes.slice(0, at + 1), next, ...scenes.slice(at + 1)].map((scene, i) => ({ ...scene, n: i + 1 }));
+  return { ...plan, scenes };
+}
+
+/** Marks or unmarks an upload as the look every generated scene matches (look.ts). Pure. */
+export function toggleReference(plan: ProductionPlan, assetId: string): ProductionPlan {
+  const now = plan.referenceClips ?? [];
+  const next = now.includes(assetId) ? now.filter((id) => id !== assetId) : [...now, assetId].slice(-4);
+  const { referenceClips: _old, ...rest } = plan;
+  void _old;
+  return next.length ? { ...rest, referenceClips: next } : rest;
+}

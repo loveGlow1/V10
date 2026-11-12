@@ -30,7 +30,7 @@ import { attachmentManifest, type StudioAsset } from "./assets";
 import { sceneFromAsset } from "./timeline";
 import { VOICES, isVoiceId } from "./voices";
 import { castManifest, normalizeSceneCast } from "./cast";
-import { MAX_CLIP_SECONDS, normalizeCut, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
+import { MAX_CLIP_SECONDS, normalizeCut, referenceClipsOf, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
 
 export type SceneEdit = {
   n: number;
@@ -59,6 +59,10 @@ export type Edit = {
   order?: number[];
   /** Uploads to put in the video: each after an old scene number, or at the end. */
   add?: { assetId: string; after?: number }[];
+  /** New scenes that carry straight on from the end of an uploaded clip (continuity.ts). */
+  continueFrom?: { assetId: string; prompt: string; seconds?: number }[];
+  /** The uploads every generated scene matches (look.ts); an empty list clears it. */
+  look?: string[];
 };
 
 const ACTIONS = ["keep", "refilm", "revoice", "remove"] as const;
@@ -102,6 +106,15 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
     .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId))
     .map((entry) => ({ assetId: String(entry.assetId).toLowerCase(), ...(numbers.has(Number(entry.after)) ? { after: Number(entry.after) } : {}) }));
+  const continueFrom = (Array.isArray(r.continueFrom) ? r.continueFrom : [])
+    .slice(0, 6)
+    .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
+    .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId) && text(entry.prompt, 1600))
+    .map((entry) => {
+      const seconds = Math.round(Number(entry.seconds));
+      return { assetId: String(entry.assetId).toLowerCase(), prompt: text(entry.prompt, 1600), ...(seconds >= 2 && seconds <= MAX_CLIP_SECONDS ? { seconds } : {}) };
+    });
+  const look = Array.isArray(r.look) ? referenceClipsOf(r.look.map((id) => (typeof id === "string" ? id.toLowerCase() : id))) : undefined;
   return {
     reply: text(r.reply, 500) || "Done.",
     replan: r.replan === true,
@@ -109,6 +122,8 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     scenes,
     ...(order ? { order } : {}),
     ...(add.length ? { add } : {}),
+    ...(continueFrom.length ? { continueFrom } : {}),
+    ...(look ? { look } : {}),
   };
 }
 
@@ -135,6 +150,20 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
     const scene = { ...sceneFromAsset(asset as StudioAsset, 0) };
     const at = entry.after === undefined ? -1 : ordered.findIndex((s) => s.n === entry.after);
     ordered = at < 0 ? [...ordered, scene] : [...ordered.slice(0, at + 1), scene, ...ordered.slice(at + 1)];
+  }
+
+  /* "Continue my clip": a new scene right after it that starts on its last frame. */
+  for (const entry of edit.continueFrom ?? []) {
+    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio");
+    if (!asset) continue;
+    let at = -1;
+    for (let i = ordered.length - 1; i >= 0; i -= 1) if (ordered[i].source?.assetId === asset.id) { at = i; break; }
+    if (at < 0) {
+      ordered = [...ordered, { ...sceneFromAsset(asset as StudioAsset, 0) }];
+      at = ordered.length - 1;
+    }
+    const next: Scene = { n: 0, duration: entry.seconds ?? 6, shot: "Carries on from your clip", visual: entry.prompt, onScreenText: "", voiceover: "", motionPrompt: entry.prompt, sound: "", engine: "video", continues: true };
+    ordered = [...ordered.slice(0, at + 1), next, ...ordered.slice(at + 1)];
   }
 
   const merged = { ...(plan.cut ?? {}), ...(edit.cut ?? {}) };
@@ -181,6 +210,12 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
   const next: ProductionPlan = { ...plan, scenes };
   if (cut) next.cut = cut;
   else delete next.cut;
+  /* The look: only uploads that are really there. */
+  if (edit.look) {
+    const known = edit.look.filter((id) => uploads.some((a) => a.id === id && a.status !== "failed" && a.kind !== "audio"));
+    if (known.length) next.referenceClips = known;
+    else delete next.referenceClips;
+  }
   return { plan: next, carry, refilm, revoice };
 }
 
@@ -270,6 +305,8 @@ What you can do, cheapest first:
 4. refilm — a new clip for a scene (expensive). Give the COMPLETE new clip prompt: subject, setting, lighting, lens/shot, camera move, motion, mood, aspect ratio — keep every lock (creator, product, style) word for word so it matches the other scenes.
 5. remove — drop a scene. order — old scene numbers in a new order.
    add — put the person's uploads (from ATTACHMENTS, by assetId) into the video: [{"assetId":"...","after":2}] (after a scene number, or at the end without "after"). Free.
+   continueFrom — "continue my clip": a NEW generated scene right after an uploaded clip that starts exactly where it ends: [{"assetId":"...","prompt":"the COMPLETE clip prompt for what happens next","seconds":6}]. The clip is put in first if it is not in the video. Costs one new clip each.
+   look — uploads (by assetId) whose setting, light, colour and people every generated scene should match: ["..."]; [] stops matching. Only affects scenes filmed from now on.
    characters on a scene — who is on screen, by id from CHARACTERS (e.g. "characters":["<id>"]): the scene is filmed again from their reference pictures so they look exactly the same. Use it whenever the person asks for a character in a scene.
    voiceId on a scene — read its line in another voice; "cut":{"voiceId":"..."} — every line in another voice. Voices: ${VOICES.map((v) => v.id).join(", ")}.
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
@@ -283,7 +320,7 @@ Rules:
 - reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
-{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[]}],"order":[1,2,3],"add":[{"assetId":"","after":1}]}
+{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[]}],"order":[1,2,3],"add":[{"assetId":"","after":1}],"continueFrom":[{"assetId":"","prompt":"","seconds":6}],"look":[]}
 Omit any field you are not changing.`;
 
 /** Asks the editor model for the edits an instruction needs. Server-only. */
@@ -349,7 +386,7 @@ export function normalizeReview(raw: unknown, plan: Pick<ProductionPlan, "scenes
     if (!title || !why) continue;
     const edit = normalizeEdit(e.edit, plan);
     if (edit.replan) continue;
-    if (!edit.cut && !edit.scenes.length && !edit.order && !edit.add) continue;
+    if (!edit.cut && !edit.scenes.length && !edit.order && !edit.add && !edit.continueFrom && !edit.look) continue;
     out.push({ title, why, edit: { ...edit, reply: why } });
   }
   return out;

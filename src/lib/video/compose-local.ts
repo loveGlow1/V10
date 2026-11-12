@@ -40,6 +40,10 @@ import { downloadTo, inspect, runFfmpeg } from "./media-files";
 import { signedUrl } from "./production";
 import { chargeCredits } from "@/lib/credits-server";
 import { cutCredits } from "./pricing";
+import { chapterStarts, chaptersOf, concatList, musicOffset, partOf, partPath, partProvider, partsOutput, streamJoinArgs } from "./chapters";
+import { falToken, verifyFalToken } from "./fal";
+import { ffmpegOutput, streamToStorage } from "./stream-upload";
+import { WORKING_COPY_SECONDS } from "./prepare-asset";
 
 export { musicMixArgs } from "./cut-filters";
 
@@ -135,35 +139,62 @@ async function font(): Promise<string | null> {
 type Row = { scene: number | null; engine: string; status: string; output_path: string | null };
 type Upload = { kind: string; storage_path: string; working_path: string | null; duration_s: number | null };
 
-/** Makes the version's final MP4 and lands it on the compose row. Never throws. */
-export async function composeLocally(service: SupabaseClient, videoId: string, version: number, origin: string): Promise<void> {
-  const dir = `/tmp/qs-compose-${videoId}-${version}-${Date.now()}`;
-  const finish = (update: Record<string, unknown>) =>
-    service.from("video_renders").update({ ...update, updated_at: new Date().toISOString() }).eq("video_id", videoId).eq("version", version).eq("engine", "compose");
-  try {
-    const { data: video } = await service.from("video_projects").select("id, user_id, title, project_id").eq("id", videoId).maybeSingle();
-    const { data: planRow } = await service.from("video_versions").select("plan").eq("video_id", videoId).eq("version", version).maybeSingle();
-    if (!video || !planRow) throw new Error("The video or its plan is missing.");
-    const plan = planRow.plan as ProductionPlan;
-    const { data } = await service.from("video_renders").select("scene, engine, status, output_path").eq("video_id", videoId).eq("version", version);
-    const rows = (data ?? []) as Row[];
-    const pick = (scene: number, engine: string) => rows.find((row) => row.scene === scene && row.engine === engine && row.status === "done");
-    const { data: assetRows } = await service.from("video_assets").select("id, kind, storage_path, working_path, duration_s").eq("video_id", videoId);
-    const uploads = new Map(((assetRows ?? []) as (Upload & { id: string })[]).map((asset) => [asset.id, asset]));
+/** What every part of one cut shares. */
+type Cutting = {
+  service: SupabaseClient;
+  plan: ProductionPlan;
+  rows: Row[];
+  uploads: Map<string, Upload & { id: string }>;
+  dir: string;
+  fontPath: string | null;
+  cut: ResolvedCut;
+  width: number;
+  height: number;
+  encoder: { preset: string; crf: number };
+  first: number | undefined;
+  last: number | undefined;
+};
 
-    await mkdir(dir, { recursive: true });
-    const fontPath = await font();
-    const cut = cutFor(plan);
-    const [width, height] = frameSize(plan.aspect, cut.resolution);
-    const planned = plan.scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
-    const encoder = encoderFor(cut.quality, planned);
-    const segments: { path: string; seconds: number }[] = [];
-    const last = plan.scenes[plan.scenes.length - 1]?.n;
-    const first = plan.scenes[0]?.n;
-    /* Whether a voice is heard anywhere: the score ducks under it. */
-    let voiced = false;
+type Loaded = Cutting & { video: { id: string; user_id: string; title: string; project_id: string | null } };
 
-    for (const scene of plan.scenes) {
+async function load(service: SupabaseClient, videoId: string, version: number, dir: string): Promise<Loaded> {
+  const { data: video } = await service.from("video_projects").select("id, user_id, title, project_id").eq("id", videoId).maybeSingle();
+  const { data: planRow } = await service.from("video_versions").select("plan").eq("video_id", videoId).eq("version", version).maybeSingle();
+  if (!video || !planRow) throw new Error("The video or its plan is missing.");
+  const plan = planRow.plan as ProductionPlan;
+  const { data } = await service.from("video_renders").select("scene, engine, status, output_path").eq("video_id", videoId).eq("version", version);
+  const { data: assetRows } = await service.from("video_assets").select("id, kind, storage_path, working_path, duration_s").eq("video_id", videoId);
+  await mkdir(dir, { recursive: true });
+  const cut = cutFor(plan);
+  const [width, height] = frameSize(plan.aspect, cut.resolution);
+  const planned = plan.scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
+  return {
+    video: video as Loaded["video"],
+    service,
+    plan,
+    rows: (data ?? []) as Row[],
+    uploads: new Map(((assetRows ?? []) as (Upload & { id: string })[]).map((asset) => [asset.id, asset])),
+    dir,
+    fontPath: await font(),
+    cut,
+    width,
+    height,
+    /* One encoder for the whole film, so its parts join without encoding again. */
+    encoder: encoderFor(cut.quality, planned),
+    first: plan.scenes[0]?.n,
+    last: plan.scenes[plan.scenes.length - 1]?.n,
+  };
+}
+
+/** Some scenes of the plan, cut and joined (with their transitions) into one MP4 in `dir`. */
+async function cutScenes(ctx: Cutting, scenes: ProductionPlan["scenes"], name: string): Promise<{ joined: string; voiced: boolean; count: number }> {
+  const { service, plan, rows, uploads, dir, fontPath, cut, width, height, encoder, first, last } = ctx;
+  const pick = (scene: number, engine: string) => rows.find((row) => row.scene === scene && row.engine === engine && row.status === "done");
+  const segments: { path: string; seconds: number }[] = [];
+  /* Whether a voice is heard anywhere: the score ducks under it. */
+  let voiced = false;
+
+    for (const scene of scenes) {
       const talking = pick(scene.n, "avatar");
       const upload = scene.source && !talking ? uploads.get(scene.source.assetId) : undefined;
       const still = Boolean(upload && upload.kind !== "video" && upload.kind !== "audio");
@@ -175,8 +206,11 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       if (!pictureUrl) continue;
       /* ffmpeg reads a picture by its extension. */
       const ext = still ? (picturePath?.match(/\.(png|jpe?g|webp)$/i)?.[0] ?? ".jpg") : ".mp4";
-      const clipPath = join(dir, `clip-${scene.n}${ext}`);
-      if (!(await downloadTo(pictureUrl, clipPath))) continue;
+      /* A long upload is read where it is stored — only the part this scene
+         uses is fetched — rather than copied whole onto this disk. */
+      const remote = Boolean(upload && !still && Number(upload.duration_s) > WORKING_COPY_SECONDS);
+      const clipPath = remote ? pictureUrl : join(dir, `clip-${scene.n}${ext}`);
+      if (!remote && !(await downloadTo(pictureUrl, clipPath))) continue;
       const clip = await inspect(clipPath);
 
       /* The script's voice, unless the cut is the clips' own sound. A
@@ -243,44 +277,127 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
       const out = join(dir, `scene-${scene.n}.mp4`);
       await runFfmpeg(sceneEncodeArgs({ clipPath, inputOptions, voicePath: hasVoice ? voicePath : null, seconds, videoFilter, audioFilter, encoder, out }), 240_000);
       /* The bytes are written; the source is not needed again. */
-      await rm(clipPath, { force: true });
+      if (!remote) await rm(clipPath, { force: true });
       segments.push({ path: out, seconds: (await inspect(out)).seconds || seconds });
     }
 
     if (!segments.length) throw new Error("No scene had a clip to put in the cut.");
-    const final = join(dir, "final.mp4");
-    const joined = join(dir, "joined.mp4");
-    const listPath = join(dir, "list.txt");
-    const join_ = joinArgs({ segments, transition: cut.transition, duration: cut.transitionSeconds, listPath, out: joined, encoder });
-    if (join_.list !== null) await writeFile(listPath, join_.list);
-    await runFfmpeg(join_.args, 280_000);
-    for (const segment of segments) await rm(segment.path, { force: true });
+  const joined = join(dir, `${name}-joined.mp4`);
+  const listPath = join(dir, `${name}-list.txt`);
+  const join_ = joinArgs({ segments, transition: cut.transition, duration: cut.transitionSeconds, listPath, out: joined, encoder });
+  if (join_.list !== null) await writeFile(listPath, join_.list);
+  await runFfmpeg(join_.args, 280_000);
+  for (const segment of segments) await rm(segment.path, { force: true });
+  return { joined, voiced, count: segments.length };
+}
 
-    /* The score under it: made, or the person's own file. */
-    const musicRow = cut.audio === "none" || cut.music.source === "none" ? undefined : rows.find((row) => row.engine === "music" && row.status === "done");
-    const musicUrl = musicRow ? await signedUrl(service, musicRow.output_path) : null;
-    const musicPath = join(dir, "music.audio");
-    const withMusic = Boolean(musicUrl && (await downloadTo(musicUrl, musicPath)));
-    const scored = join(dir, "scored.mp4");
-    let source = joined;
-    if (withMusic) {
-      const seconds = (await inspect(joined)).seconds;
-      const mixed = await runFfmpeg(
-        musicMixArgs({ joined, music: musicPath, out: scored, seconds, spoken: voiced, level: cut.musicVolume, duck: cut.duck, start: cut.music.source === "upload" ? cut.music.start : 0 }),
-        180_000,
-      )
-        .then(() => true)
-        .catch(() => false);
-      /* A score that will not mix is left out; the cut is made without it. */
-      if (mixed) source = scored;
+/** The score under a cut, then one loudness: the finished MP4 at `out`. */
+async function scoreAndFinish(ctx: Cutting, input: { joined: string; voiced: boolean; out: string; name: string; chapterStart?: number; fadeIn?: boolean; fadeOut?: boolean; loop?: boolean }): Promise<void> {
+  const { service, rows, dir, cut } = ctx;
+  const musicRow = cut.audio === "none" || cut.music.source === "none" ? undefined : rows.find((row) => row.engine === "music" && row.status === "done");
+  const musicUrl = musicRow ? await signedUrl(service, musicRow.output_path) : null;
+  const musicPath = join(dir, `${input.name}-music.audio`);
+  const withMusic = Boolean(musicUrl && (await downloadTo(musicUrl, musicPath)));
+  const scored = join(dir, `${input.name}-scored.mp4`);
+  let source = input.joined;
+  if (withMusic) {
+    const seconds = (await inspect(input.joined)).seconds;
+    const songStart = cut.music.source === "upload" ? cut.music.start : 0;
+    const start = input.chapterStart === undefined ? songStart : musicOffset(songStart, input.chapterStart, (await inspect(musicPath)).seconds);
+    const mixed = await runFfmpeg(
+      musicMixArgs({ joined: input.joined, music: musicPath, out: scored, seconds, spoken: input.voiced, level: cut.musicVolume, duck: cut.duck, start, loop: input.loop, fadeIn: input.fadeIn, fadeOut: input.fadeOut }),
+      180_000,
+    )
+      .then(() => true)
+      .catch(() => false);
+    /* A score that will not mix is left out; the cut is made without it. */
+    if (mixed) source = scored;
+  }
+  /* One loudness for the whole video, at the level social apps play at
+     (-14 LUFS), so it is neither quieter nor louder than what is around it.
+     The picture is copied, not encoded again. A silent cut has nothing to
+     level — but a film in parts always carries sound, so every part joins
+     the same way. */
+  await runFfmpeg(finishArgs({ source, out: input.out, loudness: cut.loudness, silent: cut.audio === "none" && !withMusic && input.chapterStart === undefined }), 120_000);
+}
+
+const composeToken = (videoId: string, version: number, part: number | "join") => falToken(videoId, version, part === "join" ? "compose-join" : `compose-part:${part}`);
+export const verifyComposeJob = (videoId: string, version: number, part: number | "join", token: string | null) =>
+  verifyFalToken(videoId, version, part === "join" ? "compose-join" : `compose-part:${part}`, token);
+
+async function kick(origin: string, videoId: string, version: number, part: number | "join"): Promise<boolean> {
+  const response = await fetch(`${origin}/api/video/${videoId}/render/compose?v=${version}&part=${part}&t=${composeToken(videoId, version, part)}`, {
+    method: "POST",
+    signal: AbortSignal.timeout(15_000),
+    cache: "no-store",
+  }).catch(() => null);
+  return Boolean(response?.ok);
+}
+
+/**
+ * Makes the version's final MP4 and lands it on the compose row. Never throws.
+ *
+ * A cut longer than ONE_RUN_SECONDS is made in chapters (chapters.ts):
+ * called without `part`, this starts every chapter at once; each chapter is
+ * a call with its number; the last to finish starts the join.
+ */
+export async function composeLocally(service: SupabaseClient, videoId: string, version: number, origin: string, part?: number | "join"): Promise<void> {
+  const dir = `/tmp/qs-compose-${videoId}-${version}-${part ?? "all"}-${Date.now()}`;
+  const finish = (update: Record<string, unknown>) =>
+    service.from("video_renders").update({ ...update, updated_at: new Date().toISOString() }).eq("video_id", videoId).eq("version", version).eq("engine", "compose");
+  const failed = async (error: unknown) => {
+    await finish({ status: "failed", error: (error instanceof Error ? error.message : "The final cut could not be made.").slice(0, 500) });
+    const { data: rows } = await service.from("video_renders").select("engine, status").eq("video_id", videoId).eq("version", version);
+    const pictures = (rows ?? []).some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done");
+    await service.from("video_projects").update({ status: pictures ? "ready" : "failed" }).eq("id", videoId);
+  };
+  try {
+    if (part === "join") return await joinParts(service, videoId, version, origin, failed);
+    const ctx = await load(service, videoId, version, dir);
+    const { plan, video } = ctx;
+    const chapters = chaptersOf(plan.scenes);
+    const base = `${video.user_id}/${videoId}/v${version}`;
+
+    if (part === undefined && chapters.length > 1) {
+      /* A long film: every chapter at once, each in a run of its own. */
+      await service.from("video_renders").delete().eq("video_id", videoId).eq("version", version).eq("engine", "part");
+      const { error } = await service.from("video_renders").insert(
+        chapters.map((_, i) => ({ video_id: videoId, user_id: video.user_id, version, scene: null, engine: "part", provider: partProvider(i + 1), status: "running" })),
+      );
+      if (error) throw new Error(`The film's parts could not be started: ${error.message}`);
+      const started = await Promise.all(chapters.map((_, i) => kick(origin, videoId, version, i + 1)));
+      const missed = started.map((ok, i) => (ok ? 0 : i + 1)).filter(Boolean);
+      if (missed.length === chapters.length) throw new Error("The film's parts could not be started.");
+      for (const k of missed) await markPart(service, videoId, version, k, { status: "failed", error: "This part could not be started." });
+      if (missed.length) await maybeJoin(service, videoId, version, origin);
+      return;
     }
-    /* One loudness for the whole video, at the level social apps play at
-       (-14 LUFS), so it is neither quieter nor louder than what is around it.
-       The picture is copied, not encoded again. A silent cut has nothing to
-       level. */
-    await runFfmpeg(finishArgs({ source, out: final, loudness: cut.loudness, silent: cut.audio === "none" && !withMusic }), 120_000);
 
-    const path = `${video.user_id}/${videoId}/v${version}/final.mp4`;
+    if (typeof part === "number") {
+      const scenes = (chapters[part - 1] ?? []).map((n) => plan.scenes.find((scene) => scene.n === n)!).filter(Boolean);
+      if (!scenes.length) throw new Error(`There is no part ${part}.`);
+      try {
+        const made = await cutScenes(ctx, scenes, `part-${part}`);
+        const out = join(dir, `part-${part}.mp4`);
+        const starts = chapterStarts(plan.scenes, chapters);
+        await scoreAndFinish(ctx, { joined: made.joined, voiced: made.voiced, out, name: `part-${part}`, chapterStart: starts[part - 1], loop: true, fadeIn: part === 1, fadeOut: part === chapters.length });
+        const path = partPath(base, part);
+        const { error } = await service.storage.from("video-assets").upload(path, await readFile(out), { contentType: "video/mp4", upsert: true });
+        if (error) throw new Error(`Part ${part} could not be stored: ${error.message}`);
+        await markPart(service, videoId, version, part, { status: "done", output_path: `storage:${path}`, error: null });
+      } catch (error) {
+        await markPart(service, videoId, version, part, { status: "failed", error: (error instanceof Error ? error.message : "This part could not be cut.").slice(0, 500) });
+      }
+      await maybeJoin(service, videoId, version, origin);
+      return;
+    }
+
+    /* A short cut: one run, as it always was. */
+    const made = await cutScenes(ctx, plan.scenes, "all");
+    const final = join(dir, "final.mp4");
+    await scoreAndFinish(ctx, { joined: made.joined, voiced: made.voiced, out: final, name: "all" });
+
+    const path = `${base}/final.mp4`;
     const { error } = await service.storage.from("video-assets").upload(path, await readFile(final), { contentType: "video/mp4", upsert: true });
     if (error) throw new Error(`The MP4 could not be stored: ${error.message}`);
 
@@ -290,7 +407,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     for (const kind of exportsFor(plan.aspect)) {
       try {
         const out = join(dir, `final-${kind}.mp4`);
-        await runFfmpeg(exportArgs(kind, { source: final, out, seconds: total, width, height }), 120_000);
+        await runFfmpeg(exportArgs(kind, { source: final, out, seconds: total, width: ctx.width, height: ctx.height }), 120_000);
         await service.storage.from("video-assets").upload(exportPath(path, kind), await readFile(out), { contentType: "video/mp4", upsert: true });
       } catch {
         /* Left out. */
@@ -298,22 +415,112 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     }
 
     await finish({ status: "done", output_path: `storage:${path}`, error: null });
-    /* The cut is work: charged once per version, by its length. */
-    await chargeCredits(service, {
-      userId: video.user_id as string,
-      action: "generate",
-      cost: cutCredits(total),
-      description: `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
-      dedupeKey: `video-cut:${videoId}:${version}`,
-    });
+    await chargeCut(service, video, videoId, version, total);
     await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
-    await announceFinal(service, { videoId, version, origin, scenes: segments.length });
+    await announceFinal(service, { videoId, version, origin, scenes: made.count });
   } catch (error) {
-    await finish({ status: "failed", error: (error instanceof Error ? error.message : "The final cut could not be made.").slice(0, 500) });
-    const { data: rows } = await service.from("video_renders").select("engine, status").eq("video_id", videoId).eq("version", version);
-    const pictures = (rows ?? []).some((row) => (row.engine === "video" || row.engine === "avatar") && row.status === "done");
-    await service.from("video_projects").update({ status: pictures ? "ready" : "failed" }).eq("id", videoId);
+    await failed(error);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+/* The cut is work: charged once per version, by its length. */
+async function chargeCut(service: SupabaseClient, video: { user_id: string; title: string }, videoId: string, version: number, total: number) {
+  await chargeCredits(service, {
+    userId: video.user_id,
+    action: "generate",
+    cost: cutCredits(total),
+    description: `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
+    dedupeKey: `video-cut:${videoId}:${version}`,
+  });
+}
+
+async function markPart(service: SupabaseClient, videoId: string, version: number, k: number, update: Record<string, unknown>) {
+  await service
+    .from("video_renders")
+    .update({ ...update, updated_at: new Date().toISOString() })
+    .eq("video_id", videoId)
+    .eq("version", version)
+    .eq("engine", "part")
+    .eq("provider", partProvider(k));
+}
+
+/* Once every part has finished, one caller — the one that moves the compose
+   row on — starts the join. */
+async function maybeJoin(service: SupabaseClient, videoId: string, version: number, origin: string) {
+  const { data } = await service.from("video_renders").select("status").eq("video_id", videoId).eq("version", version).eq("engine", "part");
+  const parts = data ?? [];
+  if (!parts.length || parts.some((row) => row.status === "running" || row.status === "queued")) return;
+  const { data: claimed } = await service
+    .from("video_renders")
+    .update({ provider: "local:joining", updated_at: new Date().toISOString() })
+    .eq("video_id", videoId)
+    .eq("version", version)
+    .eq("engine", "compose")
+    .eq("status", "running")
+    .neq("provider", "local:joining")
+    .select("id");
+  if (!claimed?.length) return;
+  if (!(await kick(origin, videoId, version, "join"))) {
+    await service
+      .from("video_renders")
+      .update({ status: "failed", error: "The film's parts were cut but could not be joined. Export again to retry.", updated_at: new Date().toISOString() })
+      .eq("video_id", videoId)
+      .eq("version", version)
+      .eq("engine", "compose");
+  }
+}
+
+/* The parts, end to end, as one MP4 written into storage while it is made. */
+async function joinParts(service: SupabaseClient, videoId: string, version: number, origin: string, failed: (error: unknown) => Promise<void>) {
+  const { data: video } = await service.from("video_projects").select("id, user_id, title").eq("id", videoId).maybeSingle();
+  const { data } = await service.from("video_renders").select("provider, status, output_path, error").eq("video_id", videoId).eq("version", version).eq("engine", "part");
+  if (!video) return failed(new Error("The video is missing."));
+  const parts = (data ?? [])
+    .map((row) => ({ k: partOf(row.provider as string), status: row.status as string, path: row.output_path as string | null, error: row.error as string | null }))
+    .filter((row): row is { k: number; status: string; path: string | null; error: string | null } => row.k !== null)
+    .sort((a, b) => a.k - b.k);
+  const broken = parts.find((row) => row.status !== "done" || !row.path);
+  if (!parts.length || broken) {
+    return failed(new Error(broken ? `Part ${broken.k} of ${parts.length} could not be cut${broken.error ? `: ${broken.error}` : ""}. Export again to retry it.` : "The film has no parts."));
+  }
+  const base = `${video.user_id}/${videoId}/v${version}`;
+  const urls: string[] = [];
+  for (const row of parts) {
+    const url = await signedUrl(service, row.path);
+    if (!url) return failed(new Error(`Part ${row.k} could not be read back.`));
+    urls.push(url);
+  }
+  const dir = `/tmp/qs-join-${videoId}-${version}-${Date.now()}`;
+  await mkdir(dir, { recursive: true });
+  const list = join(dir, "parts.txt");
+  await writeFile(list, concatList(urls));
+  const path = `${base}/final.mp4`;
+  const stored = await streamToStorage({
+    bucket: "video-assets",
+    path,
+    contentType: "video/mp4",
+    make: () => ffmpegOutput(streamJoinArgs({ list }), 280_000),
+  });
+  await rm(dir, { recursive: true, force: true }).catch(() => {});
+  const { data: plan } = await service.from("video_versions").select("plan").eq("video_id", videoId).eq("version", version).maybeSingle();
+  const scenes = ((plan?.plan as ProductionPlan | undefined)?.scenes ?? []);
+  const total = scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
+  await service
+    .from("video_renders")
+    .update({
+      status: "done",
+      provider: "local",
+      /* One file when it could be stored; otherwise the parts, played one after another. */
+      output_path: stored.ok ? `storage:${path}` : partsOutput(parts.length, base),
+      error: stored.ok ? null : `Kept as ${parts.length} parts: the single file could not be stored (${stored.reason}).`.slice(0, 500),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("video_id", videoId)
+    .eq("version", version)
+    .eq("engine", "compose");
+  await chargeCut(service, video as { user_id: string; title: string }, videoId, version, total);
+  await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
+  await announceFinal(service, { videoId, version, origin, scenes: scenes.length });
 }
