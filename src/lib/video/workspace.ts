@@ -61,6 +61,8 @@ export async function startVideoTurn(input: {
   prompt: string;
   requestId: string;
   origin: string;
+  /** The AI agent picked in the workspace's composer — it plans and edits. */
+  model?: unknown;
 }): Promise<VideoTurn> {
   const { supabase, service, userId, project, prompt, origin } = input;
   const { data: video } = await supabase
@@ -112,7 +114,7 @@ export async function startVideoTurn(input: {
         const audio = soundCommand(prompt);
         const edited = audio
           ? await setSound({ writer, userId, videoId: video.id, audio, origin })
-          : await editVideo({ writer, userId, videoId: video.id, instruction: prompt, origin });
+          : await editVideo({ writer, userId, videoId: video.id, instruction: prompt, origin, model: input.model });
         if (edited) {
           await finish(edited.ok, edited.message);
           return;
@@ -121,7 +123,7 @@ export async function startVideoTurn(input: {
       /* Before the first plan, a message other than the brief itself is the
          person filling in its blanks. */
       const fill = first && prompt.trim() && prompt.trim() !== (video.brief ?? "").trim() ? prompt : undefined;
-      const planned = await planVideo(writer, userId, video.id, first ? { fill } : { note: prompt });
+      const planned = await planVideo(writer, userId, video.id, first ? { fill, model: input.model } : { note: prompt, model: input.model });
       plan = (await planned.json().catch(() => null)) as typeof plan;
       if (!planned.ok) plan = { error: plan?.error };
     }

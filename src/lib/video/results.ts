@@ -23,6 +23,8 @@ import { chargeCredits } from "@/lib/credits-server";
 
 import { type Aspect, type ClipEngine, canSpeak, clipCost, parseProvider, providerOf, routeClip, tierFrom } from "./clip-engines";
 import { frameFor } from "./frames";
+import { castPrompt, castReferences, castVoice, sceneCast } from "./cast";
+import { castPictures } from "./characters";
 import type { ProductionPlan } from "./plan";
 import { advance } from "./production";
 import { clipWebhookUrl, speak, submitClip } from "./providers";
@@ -127,16 +129,20 @@ export async function retryClip(
 
   /* The same frame the first engine started from, so the next one keeps the
      same face and the same photo. */
-  const frame = await frameFor(service, { userId: video.user_id as string, videoId: input.videoId, version: input.version, plan, scene });
+  /* The same pictures the first engine had: a character scene keeps its
+     character on every engine it is handed to. */
+  const cast = sceneCast(scene, plan);
+  const references = cast.length ? castReferences(cast, await castPictures(service, video.user_id as string, cast.map((c) => c.id))) : [];
+  const frame = references[0] ?? (await frameFor(service, { userId: video.user_id as string, videoId: input.videoId, version: input.version, plan, scene }));
   const answers = (video.answers ?? {}) as Record<string, string>;
-  const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier: tierFrom(process.env, answers.quality) });
+  const chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier: tierFrom(process.env, answers.quality), references: references.length > 0 });
   /* Forward only, and never back to n8n: a clip handed on from n8n has
      already had its turn on the usage credit. */
   const next = chain.slice(chain.indexOf(input.failed) + 1).filter((engine) => engine !== "n8n");
   for (const engine of next) {
     const sent = await submitClip(
       engine,
-      { prompt: clipPrompt(scene.motionPrompt || scene.visual), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
+      { prompt: castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast), seconds: scene.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${input.videoId}:${input.version}:${input.n}:${engine}` },
       clipWebhookUrl(input.origin, input.videoId, input.version, input.n, engine),
     );
     if (sent.ok) {
@@ -195,7 +201,7 @@ export async function failoverN8n(service: SupabaseClient, input: { videoId: str
         .eq("version", input.version)
         .eq("scene", row.scene)
         .eq("engine", "voice");
-      const spoken = await speak({ text: line, voiceId: sceneOf?.voiceId ?? plan.cut?.voiceId ?? voiceIdFor(answers), language: languageFor(answers) });
+      const spoken = await speak({ text: line, voiceId: sceneOf ? castVoice(sceneOf, plan, voiceIdFor(answers)) : plan.cut?.voiceId ?? voiceIdFor(answers), language: languageFor(answers) });
       await landResult(service, { videoId: input.videoId, version: input.version, kind: "voice", n: row.scene, bytes: spoken.ok ? spoken.audio : null, error: spoken.ok ? null : spoken.error, origin: input.origin });
       return true;
     }),

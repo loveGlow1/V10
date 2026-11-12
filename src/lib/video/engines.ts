@@ -150,7 +150,11 @@ export function enginesNeeded(plan: ProductionPlan): { engine: EngineId; require
 /* What a render costs when every job delivers — shown on the button, checked
    against the balance before anything is sent. */
 /* The engine a scene's clip goes to first: where its price comes from. */
-export function firstEngineFor(plan: ProductionPlan, scene: { engine: string }, env: Env = process.env, quality?: string | null, skip: ClipEngine[] = []) {
+export function firstEngineFor(plan: ProductionPlan, scene: { engine: string; characters?: string[] }, env: Env = process.env, quality?: string | null, skip: ClipEngine[] = []) {
+  if (scene.characters?.length) {
+    const ref = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: true, tier: tierFrom(env, quality), skip, references: true }, env)[0];
+    if (ref) return ref;
+  }
   const fromFrame = plan.pipeline === "photo_to_video" || (scene.engine === "avatar" && ["ugc_influencer", "commercial_ad", "social_video"].includes(plan.pipeline));
   return routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame, tier: tierFrom(env, quality), skip }, env)[0] ?? null;
 }

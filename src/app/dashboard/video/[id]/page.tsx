@@ -21,6 +21,7 @@ import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 import { sceneFromAsset } from "@/lib/video/timeline";
 
+import CharactersPanel from "../../components/video/CharactersPanel";
 import MediaPanel, { type PanelAsset } from "../../components/video/MediaPanel";
 import TimelineClip from "../../components/video/TimelineClip";
 import VideoSettings from "../../components/video/VideoSettings";
@@ -93,10 +94,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     async (payload: Record<string, unknown> = {}, kind: "plan" | "save" = "plan") => {
       setBusy(kind);
       setError(null);
+      /* The AI agent picked in the editor (or the workspace) plans too. */
+      let model = "auto";
+      try {
+        model = window.localStorage.getItem("qs-video-agent") || "auto";
+      } catch {
+        /* Auto. */
+      }
       const response = await fetch(`/api/video/${id}/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ model, ...payload }),
       }).catch(() => null);
       const body = (await response?.json().catch(() => null)) as { error?: string } | null;
       if (!response?.ok) setError(body?.error ?? "The plan could not be made. Try again.");
@@ -310,6 +318,26 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </button>
         )}
       </MediaPanel>
+
+      <div className="mt-4">
+        <CharactersPanel
+          videoId={id}
+          cast={shown?.characters ?? []}
+          photos={data.assets}
+          onCast={(cast) => {
+            const ids = new Set(cast.map((c) => c.id));
+            setDraft((current) =>
+              current
+                ? {
+                    ...current,
+                    characters: cast.length ? cast : undefined,
+                    scenes: current.scenes.map((scene) => (scene.characters ? { ...scene, characters: scene.characters.filter((cid) => ids.has(cid)) } : scene)),
+                  }
+                : current,
+            );
+          }}
+        />
+      </div>
 
       {!shown && busy === "plan" && (
         <div className="mt-10 flex flex-col items-center gap-3 text-center text-soft">

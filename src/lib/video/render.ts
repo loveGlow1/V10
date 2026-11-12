@@ -19,6 +19,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { WEBHOOK_TOKEN_HEADER } from "@/lib/n8n";
 
 import { CLIP_COST, VOICE_COST } from "./engines";
+import { castVoice } from "./cast";
 import { MAX_CLIP_SECONDS, usesVoice, type ProductionPlan } from "./plan";
 
 export { CLIP_COST, VOICE_COST, MAX_CLIP_SECONDS };
@@ -91,14 +92,14 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
        thrown away, so none is ordered. */
     if (plan.pipeline === "clone" && scene.engine === "avatar") {
       const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-      if (line && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: scene.voiceId ?? videoVoice, language });
+      if (line && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: castVoice(scene, plan, videoVoice), language });
       continue;
     }
     /* The person's own footage or picture is the scene: nothing is filmed,
        but its voice line (if any) is still spoken. */
     if (scene.source) {
       const line = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-      if (line && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: scene.voiceId ?? videoVoice, language });
+      if (line && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text: line, voiceId: castVoice(scene, plan, videoVoice), language });
       continue;
     }
     /* At most 6s a clip: a 4s MiniMax-H3 clip took ~126s in testing, against
@@ -116,7 +117,7 @@ export function jobsFor(plan: ProductionPlan, answers: Record<string, string>, o
        A cut of the clips' own sound, or a silent one, uses no voice lines,
        so none is made. */
     const text = scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim();
-    if (text && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text, voiceId: scene.voiceId ?? videoVoice, language });
+    if (text && usesVoice(plan.cut) && !scene.voiceAsset) jobs.push({ kind: "voice", n: scene.n, text, voiceId: castVoice(scene, plan, videoVoice), language });
   }
   return jobs;
 }

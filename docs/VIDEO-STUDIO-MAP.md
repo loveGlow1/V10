@@ -131,3 +131,40 @@ made by hand, the way CapCut works, and none of it needs AI:
 The deterministic operations live in `lib/video/editor-timeline.ts` (pure,
 checked offline). Music and voice made on request go through
 `POST [id]/audio` and become audio uploads that can be reused and swapped.
+
+## Characters: the same person in every scene
+
+A character belongs to the person and is reused across all their videos
+(`video_characters`). It has a name, a fixed description, reference pictures
+made once, and a voice.
+
+- **Reference sheet:** made once, when the character is created
+  (`lib/video/characters.ts makeSheet`). Seedream 4.5 makes a front portrait
+  from the description, or the person's own photo is used as the front
+  (only after they confirm the likeness; `consent_at` is recorded). The
+  three-quarter and full-body views are made from that front picture, so the
+  face is the same in all of them. Pictures are never made again per scene.
+- **Every scene with a character** (`scene.characters`) is filmed in
+  reference mode: the same pictures go with every scene, and the
+  description is repeated word for word (`lib/video/cast.ts castPrompt`).
+  - Engines are tried in order: MiniMax H3, then Seedance 2.0, then any
+    engine that can start from the character's front picture
+    (`clip-engines.ts routeClip`, `references: true`).
+  - H3 goes first because ByteDance's moderation refuses realistic human
+    faces as reference pictures.
+- **Voices:** a character speaks in their own voice. A line written
+  "AMA: …" is read by Ama.
+- **Security:** pictures are read from the database for the video's owner
+  only. A plan can name a character id, but never where its pictures are
+  stored.
+- **The video's cast:** `video_projects.character_ids` holds who is in the
+  video; `POST [id]/cast` sets it. The Creative Director and the editor read
+  a locked CHARACTERS block and tag each scene with who is in it.
+
+## The AI agent
+
+Planning, chat edits and the editor's assistant run on the model the person
+picked: the workspace composer's picker, or the editor's AI picker (stored
+on the device under `qs-video-agent`). `lib/video/agent.ts` checks that the
+plan includes the model and charges at its rate (`creditMultiplierFor`).
+Otherwise it falls back to the studio's default and says so.

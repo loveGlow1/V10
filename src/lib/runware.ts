@@ -276,6 +276,91 @@ export async function submitRunwareTask(task: Item): Promise<{ ok: true; id: str
   }
 }
 
+/* ── Characters: the same face in every scene ──────────────────────────── */
+
+/* Reference-to-video: the character's pictures are passed with EVERY scene
+   (never a chain of frames, which drifts). MiniMax H3 first — ByteDance's
+   moderation refuses realistic human faces as references, so Seedance 2.0 is
+   the second try. Both take width/height beside referenceImages, which keeps
+   the scene's shape (a resolution preset would take the pictures' shape). */
+export const REFERENCE_VIDEO_MODEL = { h3: "minimax:h3@0", seedance: "bytedance:seedance@2.0" } as const;
+const SEEDANCE_720: Record<RunwareAspect, [number, number]> = { "9:16": [720, 1280], "16:9": [1280, 720], "1:1": [960, 960], "4:5": [834, 1112] };
+
+/** One scene filmed from a character's reference pictures. Pure. */
+export function referenceVideoTask(input: {
+  taskUUID: string;
+  engine: keyof typeof REFERENCE_VIDEO_MODEL;
+  prompt: string;
+  seconds: number;
+  aspect: RunwareAspect;
+  references: string[];
+  webhookUrl: string;
+}): Item {
+  const [width, height] = input.engine === "h3" ? H3_SIZE[input.aspect] : SEEDANCE_720[input.aspect];
+  return {
+    taskType: "videoInference",
+    taskUUID: input.taskUUID,
+    model: REFERENCE_VIDEO_MODEL[input.engine],
+    positivePrompt: input.prompt.slice(0, input.engine === "h3" ? 6900 : 9900),
+    width,
+    height,
+    duration: Math.min(15, Math.max(4, Math.round(input.seconds))),
+    inputs: { referenceImages: input.references.slice(0, 9) },
+    /* The voice, lip sync and music come from the production line. */
+    ...(input.engine === "seedance" ? { settings: { audio: false } } : {}),
+    outputType: "URL",
+    outputFormat: "MP4",
+    deliveryMethod: "async",
+    webhookURL: input.webhookUrl,
+    includeCost: true,
+  };
+}
+
+export async function submitReferenceVideo(input: Omit<Parameters<typeof referenceVideoTask>[0], "taskUUID">): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (!input.references.length) return { ok: false, error: "This scene's character has no reference pictures." };
+  return submitRunwareTask(referenceVideoTask({ ...input, taskUUID: randomUUID() }));
+}
+
+/* The reference sheet: Seedream 4.5. A front portrait from words alone (it
+   needs at least 3.7 MP), then each other view made FROM that portrait, so
+   the face is the same in all of them. */
+export const SHEET_MODEL = "bytedance:seedream@4.5";
+export const SHEET_VIEWS = [
+  { id: "front", prompt: "Character reference, front view, head and shoulders, looking straight at the camera, neutral relaxed expression" },
+  { id: "three-quarter", prompt: "The same person as in the reference image, three-quarter view turned slightly to the side, from the waist up" },
+  { id: "full-body", prompt: "The same person as in the reference image, full body standing, facing the camera, whole outfit and shoes visible" },
+] as const;
+
+/** One view of a character's reference sheet. Pure. */
+export function sheetTask(input: { taskUUID: string; view: (typeof SHEET_VIEWS)[number]; descriptor: string; references?: string[] }): Item {
+  const keep = input.references?.length ? " Same face, same hair, same skin tone, same outfit and accessories as in the reference image." : "";
+  return {
+    taskType: "imageInference",
+    taskUUID: input.taskUUID,
+    model: SHEET_MODEL,
+    positivePrompt: `${input.view.prompt}.${keep} Plain light grey studio background, soft even light, photorealistic, no text. Character: ${input.descriptor}`.slice(0, 2950),
+    ...(input.references?.length ? { inputs: { referenceImages: input.references.slice(0, 4) }, resolution: "2K" } : { width: 1536, height: 2560 }),
+    outputType: "base64Data",
+    outputFormat: "JPG",
+    includeCost: true,
+  };
+}
+
+/** One sheet view, made now. The JPEG and what Runware charged. */
+export async function runwareSheetImage(input: Omit<Parameters<typeof sheetTask>[0], "taskUUID">): Promise<{ ok: true; image: Buffer; cost: number | null } | { ok: false; error: string }> {
+  if (!runwareConfigured()) return { ok: false, error: "Characters need the Runware key (RUNWARE_API_KEY) on this deployment." };
+  try {
+    const sent = await call([sheetTask({ ...input, taskUUID: randomUUID() })], 110000);
+    if (sent.errors.length || sent.status >= 400) return { ok: false, error: `${runwareError(sent.errors, sent.status)}.` };
+    const item = sent.data[0] ?? {};
+    const b64 = typeof item.imageBase64Data === "string" ? item.imageBase64Data : null;
+    if (!b64) return { ok: false, error: "Runware returned no picture." };
+    return { ok: true, image: Buffer.from(b64, "base64"), cost: typeof item.cost === "number" ? item.cost : null };
+  } catch {
+    return { ok: false, error: "Could not reach Runware for the character." };
+  }
+}
+
 /* ── Images ────────────────────────────────────────────────────────────── */
 
 /** One or more stills from a prompt. Empty when Runware made none; throws only the reason. */

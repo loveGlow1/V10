@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -156,7 +156,7 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(junk.replan === false && junk.scenes.length === 0 && !junk.order && junk.reply === "Done.", "the editor's answer is read strictly — unknown scenes, actions and orders are dropped");
   const apply = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
   const ws = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
-  has(/: await editVideo\(\{ writer, userId, videoId: video\.id, instruction: prompt, origin \}\)/.test(ws) && /if \(decided\.edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
+  has(/: await editVideo\(\{ writer, userId, videoId: video\.id, instruction: prompt, origin, model: input\.model \}\)/.test(ws) && /if \(decided\.edit\.replan\) return null;/.test(apply), "a message on a made video is an edit; only a different video is planned again");
   has(/status: "done", output_path: picture\.output_path/.test(apply) && /onlyMissing: true/.test(apply) && /keyframePath\(video\.user_id as string, videoId, nextVersion\)/.test(apply), "carried clips and lines are filed under the new version as they are, the keyframe too; only the missing pieces render");
   has(/await advance\(service, videoId, nextVersion, origin\)/.test(apply), "with nothing to make, the new cut is made at once");
 }
@@ -355,7 +355,7 @@ const vpreview = readFileSync(join(root, "src/app/preview/[projectId]/route.ts")
 const vstart = readFileSync(join(root, "src/app/dashboard/components/StartBuildButton.tsx"), "utf8");
 has(/projectId: workspace\.id/.test(vstart) && /router\.push\(`\/dashboard\/project\/\$\{workspace\.id\}/.test(vstart), "the Video tab opens the workspace on a project linked to the video");
 has(/project\.intent === VIDEO_INTENT/.test(vbuild) && /startVideoTurn\(/.test(vbuild), "a video project's messages plan and render it, not build a page");
-has(/planVideo\(writer, userId, video\.id, first \? \{ fill \} : \{ note: prompt \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
+has(/planVideo\(writer, userId, video\.id, first \? \{ fill, model: input\.model \} : \{ note: prompt, model: input\.model \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
 const vplan = readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8");
 has(vplan.indexOf("unfilledPlaceholders(brief)") > 0 && vplan.indexOf("unfilledPlaceholders(brief)") < vplan.indexOf("currentBalance("), "a first plan with [BLANKS] left is stopped before any credit");
 has(/FILLED\}\\n\$\{fill\}/.test(vplan) && /first && prompt\.trim\(\) && prompt\.trim\(\) !== \(video\.brief/.test(vws), "a reply before the first plan fills the blanks, and is kept with the brief");
@@ -580,8 +580,50 @@ has(revoiced.revoice.join() === "1" && revoiced.refilm.length === 0, "changing o
 const added = ED.applyEdit(edPlan, { reply: "", replan: false, scenes: [], add: [{ assetId: id2, after: 1 }] }, [{ id: id2, kind: "image", name: "p.png", durationS: null, status: "ready", mime: "image/png", width: 1, height: 1, hasAudio: null }]);
 has(added.plan.scenes.length === 4 && added.plan.scenes[1].source.assetId === id2 && added.carry.length === 3, "the AI editor can put an upload into the video — free, nothing else changes");
 has(/settleRunwareCredits\(quote, made\.cost\)/.test(readFileSync(join(root, "src/app/api/video/[id]/audio/route.ts"), "utf8")) && /lyrics/.test(read_runware()), "music on demand is charged at what Runware billed; songs take lyrics");
-has(/decideEdit\(\{ plan, made, instruction, assets: uploads \}\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")), "the AI editor sees every upload and the timeline on screen, and saves nothing itself");
+has(/decideEdit\(\{ plan, made, instruction, assets: uploads, model: agent\.apiId \}\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")), "the AI editor sees every upload and the timeline on screen, and saves nothing itself");
 function read_runware() { return readFileSync(join(root, "src/lib/runware.ts"), "utf8"); }
+
+
+console.log("\ncharacter lock");
+const CA = await import(join(dir, "cast.js"));
+const amaId = "aaaaaaaa-aaaa-4aaa-8aaa-000000000001", kofiId = "aaaaaaaa-aaaa-4aaa-8aaa-000000000002";
+const castPlan = L.normalizePlan({
+  characters: [{ id: amaId, name: "Ama", descriptor: "late twenties, dark brown skin, short coily black hair, gold hoop earrings, mustard linen shirt", voiceId: "English_Graceful_Lady" }, { id: kofiId, name: "Kofi", descriptor: "early thirties, tall, shaved head, round glasses, navy suit", voiceId: "English_Trustworth_Man" }, { id: "nope", name: "X", descriptor: "y" }],
+  scenes: [
+    { duration: 5, visual: "market", motionPrompt: "She walks through the market", characters: [amaId, "bbbbbbbb-bbbb-4bbb-8bbb-000000000009"], voiceover: "AMA: Fresh mangoes!" },
+    { duration: 5, visual: "office", motionPrompt: "They shake hands", characters: [kofiId, amaId], voiceover: "KOFI: Deal." },
+    { duration: 4, visual: "skyline", motionPrompt: "City skyline at dusk" },
+  ],
+}, "cinematic_short", {});
+has(castPlan.characters.length === 2 && castPlan.scenes[0].characters.join() === amaId && castPlan.scenes[1].characters.join() === `${kofiId},${amaId}` && !castPlan.scenes[2].characters, "the cast is read strictly: real ids only, each scene keeps only characters the plan has");
+const lock1 = CA.castPrompt("She walks through the market", CA.sceneCast(castPlan.scenes[0], castPlan));
+has(lock1.includes("Character: Ama, late twenties, dark brown skin, short coily black hair, gold hoop earrings, mustard linen shirt.") && /exactly as in the reference images/.test(lock1), "every scene repeats the character's description word for word");
+has(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Kofi") < CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan)).indexOf("Ama") && /never swap or blend/.test(CA.castPrompt("x", CA.sceneCast(castPlan.scenes[1], castPlan))), "two characters are named in the order of their pictures, never swapped");
+const refs = CA.castReferences(CA.sceneCast(castPlan.scenes[1], castPlan), { [amaId]: ["a1", "a2", "a3", "a4", "a5"], [kofiId]: ["k1", "k2", "k3", "k4", "k5"] });
+has(refs.length === 8 && refs[0] === "k1" && refs[4] === "a1" && CA.castReferences([CA.sceneCast(castPlan.scenes[0], castPlan)[0]], { [amaId]: Array.from({ length: 12 }, (_, i) => `a${i}`) }).length === 9, "pictures are shared fairly between characters, front first, never more than nine");
+has(CA.castVoice(castPlan.scenes[0], castPlan, "D") === "English_Graceful_Lady" && CA.castVoice(castPlan.scenes[1], castPlan, "D") === "English_Trustworth_Man" && CA.castVoice(castPlan.scenes[2], castPlan, "D") === "D", "a character speaks in their own voice; \"KOFI: …\" is read by Kofi");
+const castJobs = R.jobsFor(castPlan, {});
+has(castJobs.find((j) => j.kind === "voice" && j.n === 2)?.voiceId === "English_Trustworth_Man", "and the render orders the line in that voice");
+has(/CHARACTERS \(locked/.test(CA.castManifest(castPlan.characters)) && /\[id aaaaaaaa/.test(CA.castManifest(castPlan.characters)) && /none/.test(CA.castManifest([])), "the planner and the editor read the cast, locked, before anything else");
+const refRoute = C.routeClip({ pipeline: "cinematic_short", aspect: "16:9", fromFrame: true, tier: "credit", references: true }, { RUNWARE_API_KEY: "k", MINIMAX_API_KEY: "m" });
+has(refRoute[0] === "h3-ref" && refRoute[1] === "seedance-ref" && refRoute.includes("minimax"), "a character scene is filmed from their pictures first (MiniMax H3, then Seedance 2.0), then from their front picture");
+has(!C.routeClip({ pipeline: "cinematic_short", aspect: "16:9", fromFrame: false, tier: "best" }, { RUNWARE_API_KEY: "k" }).some((e) => e.endsWith("-ref")), "scenes without a character never use the reference engines");
+has(C.parseProvider(C.providerOf("h3-ref", "1b4e28ba-2fa1-11d2-883f-0016d3cca427"))?.engine === "h3-ref", "a character clip's row reads back as its engine");
+const reCast = ED.carryByContent(castPlan, { ...castPlan, scenes: castPlan.scenes.map((x) => (x.n === 3 ? { ...x, characters: [amaId] } : x)) });
+has(reCast.refilm.join() === "3", "putting a character into a scene films only that scene again");
+const castEdit = ED.normalizeEdit({ scenes: [{ n: 3, action: "keep", characters: [kofiId, "ffffffff-ffff-4fff-8fff-000000000000"] }] }, castPlan);
+has(castEdit.scenes[0].characters.join() === kofiId && ED.applyEdit(castPlan, castEdit).refilm.join() === "3", "the AI editor can put a character in a scene — only real cast members");
+has(!E.renderCost(castPlan, { RUNWARE_API_KEY: "k" }) || E.firstEngineFor(castPlan, castPlan.scenes[0], { RUNWARE_API_KEY: "k" }) === "h3-ref", "a character scene is priced on the engine that will film it");
+const runwareSrc = readFileSync(join(root, "src/lib/runware.ts"), "utf8");
+has(/referenceImages: input\.references\.slice\(0, 9\)/.test(runwareSrc) && /settings: \{ audio: false \}/.test(runwareSrc) && /bytedance:seedream@4\.5/.test(runwareSrc), "reference-to-video sends the pictures with every scene; the sheet is made once on Seedream");
+has(/castPictures\(writer \?\? supabase, userId/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")) && /\.eq\("user_id", ownerId\)/.test(readFileSync(join(root, "src/lib/video/characters.ts"), "utf8")), "a character's pictures are read for the video's owner only — never from a path the browser sent");
+has(/source = 'generated' or consent_at is not null/.test(readFileSync(join(root, "supabase/migrations/20261112120000_video_characters.sql"), "utf8")), "a character made from a real person's photo needs the owner's recorded consent");
+
+console.log("\nthe AI agent from the workspace");
+const agentSrc = readFileSync(join(root, "src/lib/video/agent.ts"), "utf8");
+has(/resolveModel\(asked\)/.test(agentSrc) && /modelAllowedOnPlan/.test(agentSrc) && /creditMultiplierFor/.test(agentSrc), "the agent picked is checked against the plan and charged at its rate");
+has(/model: body\.model/.test(readFileSync(join(root, "src/app/api/build/route.ts"), "utf8")) && /model: input\.model/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "a message in the workspace plans and edits the video on the agent picked there");
+has(/model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
