@@ -22,7 +22,7 @@ a sensible default.
 | `SUPABASE_SERVICE_ROLE_KEY` | Required, **secret** | same page → `service_role` |
 | `ANTHROPIC_API_KEY` | Required | console.anthropic.com → API keys |
 | `NEXT_PUBLIC_SITE_URL` | Strongly advised | `https://www.quickstark.tech` (links in emails, OAuth returns) |
-| `CRON_SECRET` | Strongly advised | any long random string (scheduled sweeps) |
+| `CRON_SECRET` | **Required for the app test** | any long random string (scheduled sweeps, and starting each web app's browser test) |
 | `OWNER_EMAILS` | Strongly advised | your email(s), comma-separated: who sees the Keys page and owner tools (falls back to `ALERT_EMAIL`) |
 
 ## 2. Building websites and web apps
@@ -37,8 +37,8 @@ a sensible default.
 | `E2B_TEMPLATE` | Optional | your E2B template id |
 | `TERMINAL_SECRET` | Optional | signs terminal bridges (defaults to the E2B key) |
 | `NEXT_PUBLIC_WEBCONTAINER_CLIENT_ID` | Feature | StackBlitz WebContainer client id, for the in-browser terminal |
-| `BROWSERLESS_TOKEN` | Feature | browserless.io: the agent's screenshots and page checks |
-| `BROWSERLESS_URL` | Optional | a self-hosted Browserless address |
+| `BROWSERLESS_TOKEN` | **Required for the app test** | browserless.io: screenshots, and the sign-in / dashboard / save test every web app must pass before it is Built |
+| `BROWSERLESS_URL` | **Required for the app test** | e.g. `https://production-sfo.browserless.io` (the test calls its `/function` API). Without it, apps are Built untested and the thread says so |
 | `OPENAI_API_KEY` | Feature | GPT models in the model picker (also OpenAI images) |
 | `GEMINI_API_KEY` *or* `GOOGLE_API_KEY` | Feature | Gemini models in the picker (also Gemini images) |
 
@@ -175,3 +175,7 @@ or large clips are refused.
      3 seconds and before any step ran.
    - Check the `production` environment's protection rules and that the
      secret exists. Until it works, migrations have to be applied by hand.
+
+## The web app guarantee
+
+A web app with sign-in and a database is not marked **Built**, and not charged, until it passes a test in a real browser (`src/lib/builder/verify-run.ts`): a confirmed test member signs in, the dashboard opens without a database error, and a record they save is found in the database. A failure is repaired automatically (up to two rounds, one file each) and tested again; if it still fails the project is **Needs fixing**, the owner is told which step failed, and nothing is charged. A web app whose database is not ready stops before the test, uncharged, with the reason. Each run is recorded in `build_verifications`. Needs `BROWSERLESS_URL`, `BROWSERLESS_TOKEN` and `CRON_SECRET`.

@@ -34,6 +34,7 @@
  * on the container. This does not, which is why it is here first.
  */
 
+import { runVerification, staleVerifications } from "@/lib/builder/verify-run";
 import { NextResponse } from "next/server";
 
 import { pendingDeployments } from "@/lib/publish/deployment-store";
@@ -45,7 +46,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /* Bounded by HOW MANY it looks at rather than by how long it waits, so this
    number is a ceiling it does not approach rather than a budget it spends. */
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /* Ten per run, each one a single API call. A project with more deployments in
    flight than that is not a state anybody should be in, and the ones left over
@@ -73,13 +74,22 @@ export async function GET(request: Request) {
   if (!authorised(request)) {
     return NextResponse.json({ error: "Not authorised." }, { status: 401 });
   }
-  if (!deploymentsConfigured()) {
-    return NextResponse.json({ checked: 0, reason: "no VERCEL_API_TOKEN" });
-  }
-
   const service = createSupabaseServiceClient();
   if (!service) {
     return NextResponse.json({ error: "No service key." }, { status: 503 });
+  }
+
+  /* App tests that never finished — the function running one was stopped.
+     Each is run again here, one after another, inside this run's budget. */
+  let verified = 0;
+  for (const id of await staleVerifications(service)) {
+    if (verified >= 2) break;
+    await runVerification(service, id).catch(() => undefined);
+    verified += 1;
+  }
+
+  if (!deploymentsConfigured()) {
+    return NextResponse.json({ checked: 0, verified, reason: "no VERCEL_API_TOKEN" });
   }
 
   const pending = await pendingDeployments(service, PER_RUN);

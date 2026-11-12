@@ -50,6 +50,8 @@ import { existingVercelProject, recordDeployment } from "@/lib/publish/deploymen
 import { type FileTree, TreeError, previewDocument, readTree } from "@/lib/builder/tree";
 import { PageHtmlError, filesTouchedFor, readGeneratedDocument, restoreImages, stashImages } from "@/lib/page-html";
 import { runAutopilot } from "@/lib/builder/backend/agent/autopilot";
+import { needsVerification } from "@/lib/builder/verify-app";
+import { browserTestsConfigured, kickVerification, openVerification } from "@/lib/builder/verify-run";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { recordAndConfirm, recordMessage } from "@/lib/thread-server";
 import { SITE_URL } from "@/lib/site";
@@ -1421,10 +1423,21 @@ export async function POST(request: Request) {
     );
   }
 
+  /* ── Sign-in apps are tested before they are Built ─────────────────────
+   *
+   * A web app with members is only handed over once a real browser has signed
+   * in to it, opened the dashboard and saved a record — see
+   * lib/builder/verify-run.ts. Until then it is "Checking", and its price is
+   * held rather than charged. And it is not tested at all without a database
+   * that is really there: that build stops here, with the reason, uncharged. */
+  const verifying = needsVerification(sentArchitecture ? summaryArchitecture : null, tree) && !project.deleted_at;
+  const databaseMissing = verifying && !summaryBackendReady;
+  const testing = verifying && !databaseMissing && browserTestsConfigured() && Boolean(process.env.CRON_SECRET?.trim());
+
   const { error: updateError } = await supabase
     .from("projects")
     .update({
-      status: "Built",
+      status: databaseMissing ? "Needs fixing" : testing ? "Checking" : "Built",
       ...(builtKind ? { intent: builtKind } : {}),
       preview_url: previewUrl,
       last_build_at: landedAt,
@@ -1723,9 +1736,8 @@ export async function POST(request: Request) {
   const carriedWords = carriedContextWords(brief);
   const contextCost = contextSurcharge([carriedWords, countWords(brief) - carriedWords]);
 
-  await chargeCredits(supabase, {
-    userId: claim.userId,
-    action: "generate",
+  const buildCharge = {
+    action: "generate" as const,
     /* The model n8n reports, which is the one the app sent in a signed
        request and the workflow forwarded — not a browser's word for it. */
     cost: roundCredits(pageCost + contextCost),
@@ -1750,7 +1762,61 @@ export async function POST(request: Request) {
      * A build with no request behind it is one save per project, and charging
      * that once is the safer error. */
     dedupeKey: `build:${claim.requestId || project.id}`,
-  });
+  };
+
+  /* No database, no app: said plainly, and not charged. */
+  if (databaseMissing) {
+    const { data: backendRow } = await supabase
+      .from("project_backends")
+      .select("last_error")
+      .eq("project_id", project.id)
+      .maybeSingle();
+    const why = typeof backendRow?.last_error === "string" && backendRow.last_error.trim() ? ` What went wrong: ${backendRow.last_error.trim().slice(0, 300)}` : "";
+    await recordMessage(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      role: "system",
+      body: `Your app needs a database for sign-in and saving, and it was not ready, so this build is not marked Built.${why}\n\nOpen the Database panel to connect your Supabase or create one, then rebuild. You were not charged for this build.`,
+      tone: "error",
+      kind: "chat",
+      dedupeKey: `no-database:${claim.requestId || project.id}`,
+    });
+    return NextResponse.json({ previewUrl, filesTouched, charged: false, qa, verification: "no-database" });
+  }
+
+  /* Tested first, charged only when it passes — see lib/builder/verify-run.ts. */
+  if (testing) {
+    const verificationId = await openVerification(supabase, {
+      projectId: project.id as string,
+      userId: claim.userId,
+      buildId: inserted.id as string,
+      requestId: claim.requestId || null,
+      charge: buildCharge,
+    });
+    if (verificationId) {
+      await recordMessage(supabase, {
+        projectId: project.id as string,
+        userId: claim.userId,
+        role: "system",
+        body: "Now testing your app in a real browser: signing in as a new member, opening the dashboard and saving a record. It is marked Built, and charged, only when that works.",
+        tone: "normal",
+        kind: "chat",
+        dedupeKey: `verify-start:${claim.requestId || project.id}`,
+      });
+      after(async () => {
+        const kicked = await kickVerification(verificationId, SITE_URL);
+        if (!kicked) {
+          // eslint-disable-next-line no-console
+          console.warn(`save: ${project.id} — the app test could not be started now; the daily check will run it.`);
+        }
+      });
+      return NextResponse.json({ previewUrl, filesTouched, charged: false, qa, verification: verificationId });
+    }
+    /* The check could not be opened: the build is Built as it always was. */
+    await supabase.from("projects").update({ status: "Built" }).eq("id", project.id).eq("user_id", claim.userId);
+  }
+
+  await chargeCredits(supabase, { ...buildCharge, userId: claim.userId });
 
   return NextResponse.json({ previewUrl, filesTouched, qa });
 }

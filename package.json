@@ -15,6 +15,7 @@
     "check:tree-brief": "node tools/check-tree-brief.mjs",
     "check:web-reference": "node tools/check-web-reference.mjs",
     "check:architecture": "node tools/check-architecture.mjs",
+    "check:verify-app": "node tools/check-verify-app.mjs",
     "check:assets": "node --conditions=react-server tools/check-assets.mjs",
     "check:keys": "node tools/check-keys.mjs",
     "check:domain": "node tools/check-domain.mjs",
