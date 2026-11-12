@@ -110,8 +110,8 @@ password rather than a mis-typed URL. Generating an alphanumeric password
 avoids the question entirely.
 
 If the tables are still not created after switching, the reason is now recorded
-against the build rather than only spoken once in the chat — see
-`project_builds.database_error`.
+against the project rather than only spoken once in the chat — see
+`project_backends.last_error` (and `verification_error`).
 
 `SUPABASE_DB_URL` is the one that is probably missing, and it is the one that
 makes the difference between a store that works and a store whose products table
