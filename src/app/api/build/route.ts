@@ -942,6 +942,8 @@ async function handle(
       prompt,
       requestId: typeof body.requestId === "string" && body.requestId ? body.requestId : crypto.randomUUID(),
       origin: new URL(request.url).origin,
+      /* The agent picked in the composer plans and edits the video too. */
+      model: body.model,
     });
     if (!turn.ok) return NextResponse.json({ error: turn.error, steps: steps.list() }, { status: turn.status });
     steps.mark("video", "Started", "the Creative Director is on it");

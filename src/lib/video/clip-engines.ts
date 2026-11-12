@@ -35,7 +35,7 @@
 
 import type { PipelineId } from "./pipelines";
 
-export type ClipEngine = "seedance" | "minimax" | "kling" | "seedance-fal" | "runware" | "n8n";
+export type ClipEngine = "seedance" | "minimax" | "kling" | "seedance-fal" | "runware" | "n8n" | "h3-ref" | "seedance-ref";
 export type Tier = "credit" | "best" | "economy";
 export type Aspect = "9:16" | "1:1" | "16:9" | "4:5";
 
@@ -50,6 +50,8 @@ export type EngineSpec = {
   /** Aspects it can make from a prompt alone. From a frame, the frame decides. */
   textAspects: Aspect[] | "landscape-only";
   imageToVideo: boolean;
+  /** Films a scene from a character's reference pictures (the same face every time). */
+  references?: boolean;
   configured: (env: Env) => boolean;
 };
 
@@ -96,6 +98,26 @@ export const ENGINES: Record<ClipEngine, EngineSpec> = {
     imageToVideo: true,
     configured: (env) => Boolean(env.RUNWARE_API_KEY),
   },
+  /* Character scenes: filmed from the character's reference pictures, passed
+     with every scene, so the face never drifts (runware.ts referenceVideoTask). */
+  "h3-ref": {
+    label: "MiniMax H3, character reference (Runware)",
+    cost: 5,
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    textAspects: ALL,
+    imageToVideo: false,
+    references: true,
+    configured: (env) => Boolean(env.RUNWARE_API_KEY),
+  },
+  "seedance-ref": {
+    label: "Seedance 2.0, character reference (Runware)",
+    cost: 8,
+    durations: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    textAspects: ALL,
+    imageToVideo: false,
+    references: true,
+    configured: (env) => Boolean(env.RUNWARE_API_KEY),
+  },
   n8n: {
     label: "MiniMax-H3 (n8n, usage credit)",
     cost: 4,
@@ -135,8 +157,9 @@ export function ranking(pipeline: PipelineId, tier: Tier, fromFrame: boolean): C
 }
 
 /** Whether an engine can make this scene as asked — never a crop or a stretch. */
-export function canMake(engine: ClipEngine, scene: { aspect: Aspect; fromFrame: boolean }): boolean {
+export function canMake(engine: ClipEngine, scene: { aspect: Aspect; fromFrame: boolean; references?: boolean }): boolean {
   const spec = ENGINES[engine];
+  if (spec.references) return Boolean(scene.references);
   if (scene.fromFrame) return spec.imageToVideo;
   return spec.textAspects === "landscape-only" ? scene.aspect === "16:9" : spec.textAspects.includes(scene.aspect);
 }
@@ -146,15 +169,20 @@ export function canMake(engine: ClipEngine, scene: { aspect: Aspect; fromFrame: 
  * its aspect, best first for the tier. Empty means no connected engine can.
  */
 export function routeClip(
-  input: { pipeline: PipelineId; aspect: Aspect; fromFrame: boolean; tier?: Tier; prefer?: ClipEngine | null; skip?: ClipEngine[] },
+  input: { pipeline: PipelineId; aspect: Aspect; fromFrame: boolean; tier?: Tier; prefer?: ClipEngine | null; skip?: ClipEngine[]; references?: boolean },
   env: Env = process.env,
 ): ClipEngine[] {
   const tier = input.tier ?? tierFrom(env);
-  let order = ranking(input.pipeline, tier, input.fromFrame);
+  /* A scene with a character: its reference pictures first, on every tier —
+     consistency is not traded for price. After them, the engines that film
+     from the character's front picture as a first frame. */
+  let order: ClipEngine[] = input.references
+    ? ["h3-ref", "seedance-ref", ...ranking(input.pipeline, tier, true)]
+    : ranking(input.pipeline, tier, input.fromFrame);
   if (input.prefer && order.includes(input.prefer)) order = [input.prefer, ...order.filter((engine) => engine !== input.prefer)];
   /* Paused engines — n8n once its usage credit is spent (credit.ts). */
   const skip = new Set(input.skip ?? []);
-  return order.filter((engine) => !skip.has(engine) && ENGINES[engine].configured(env) && canMake(engine, input));
+  return order.filter((engine) => !skip.has(engine) && ENGINES[engine].configured(env) && canMake(engine, input.references ? { ...input, fromFrame: !ENGINES[engine].references } : input));
 }
 
 /**
@@ -203,6 +231,7 @@ export function voiceDirect(env: Env = process.env, tier: Tier = tierFrom(env), 
    own lip sync, avatar, music and compose rows use. */
 export function providerOf(engine: ClipEngine, id: string): string {
   if (engine === "runware") return `runware:${id}`;
+  if (engine === "h3-ref" || engine === "seedance-ref") return `rwref:${engine}:${id}`;
   return engine === "minimax" ? `minimax:${id}` : engine === "seedance-fal" ? `fal-clip:${id}` : engine === "n8n" ? "n8n:minimax" : `hf:${engine}:${id}`;
 }
 
@@ -211,6 +240,8 @@ export function parseProvider(value: string | null | undefined): { engine: ClipE
   if (v.startsWith("minimax:") && v !== "minimax:speech") return { engine: "minimax", id: v.slice(8) };
   if (v.startsWith("fal-clip:")) return { engine: "seedance-fal", id: v.slice(9) };
   if (v.startsWith("runware:")) return { engine: "runware", id: v.slice(8) };
+  const ref = v.match(/^rwref:(h3-ref|seedance-ref):(.+)$/);
+  if (ref) return { engine: ref[1] as ClipEngine, id: ref[2] };
   const hf = v.match(/^hf:(seedance|kling):(.+)$/);
   if (hf) return { engine: hf[1] as ClipEngine, id: hf[2] };
   return null;

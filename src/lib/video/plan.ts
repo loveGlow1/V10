@@ -7,6 +7,7 @@
 
 import { PIPELINES, type Engine, type PipelineId } from "./pipelines";
 import { isVoiceId } from "./voices";
+import { normalizeCast, normalizeSceneCast, type PlanCharacter } from "./cast";
 import { normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
 
 /* A scene made from the person's own upload instead of being generated: a
@@ -47,6 +48,8 @@ export type Scene = {
   voiceId?: string;
   /** An audio upload (the person's recording, or a voice made in the editor) used as this scene's voice line. */
   voiceAsset?: string;
+  /** Character ids (plan.characters) on screen in this scene: filmed from their reference pictures. */
+  characters?: string[];
 };
 
 /* How the final cut is put together — what a person changes by asking
@@ -109,6 +112,8 @@ export type ProductionPlan = {
   scenes: Scene[];
   cta: string;
   cut?: Cut;
+  /** The cast: characters that must look the same in every scene (cast.ts). */
+  characters?: PlanCharacter[];
 };
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
@@ -209,6 +214,7 @@ export function routeScene(pipeline: PipelineId, asked: unknown, scene: Pick<Sce
 export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Record<string, string>): ProductionPlan {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const rawScenes = Array.isArray(r.scenes) ? r.scenes.slice(0, 24) : [];
+  const cast = normalizeCast(r.characters);
   const scenes: Scene[] = rawScenes.map((entry, index) => {
     const s = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
     const source = normalizeSource(s.source);
@@ -230,6 +236,10 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
       ...(source ? { source } : {}),
       ...(isVoiceId(s.voiceId) ? { voiceId: s.voiceId } : {}),
       ...(voiceAsset ? { voiceAsset } : {}),
+      ...(() => {
+        const ids = normalizeSceneCast(s.characters, cast);
+        return ids.length ? { characters: ids } : {};
+      })(),
     };
   });
   const locks: Record<string, string> = {};
@@ -253,6 +263,7 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
     scenes,
     cta: text(r.cta, 300),
     ...(normalizeCut(r.cut) ? { cut: normalizeCut(r.cut) } : {}),
+    ...(cast.length ? { characters: cast } : {}),
   };
 }
 
@@ -423,9 +434,10 @@ export function scriptText(plan: ProductionPlan): string {
     Object.keys(plan.locks).length ? `LOCKS\n${Object.entries(plan.locks).map(([k, v]) => `- ${k}: ${v}`).join("\n")}\n` : "",
     plan.hooks.length ? `HOOKS\n${plan.hooks.map((h, i) => `${i + 1}. ${h}`).join("\n")}\n` : "",
     `VOICE: ${plan.voice || "—"}\nMUSIC: ${plan.music || "—"}\n`,
+    plan.characters?.length ? `CHARACTERS\n${plan.characters.map((c) => `- ${c.name}: ${c.descriptor}`).join("\n")}\n` : "",
     ...plan.scenes.map(
       (s) =>
-        `SCENE ${s.n} · ${s.duration}s · ${s.source ? "YOUR CLIP" : s.engine.toUpperCase()}\nShot: ${s.shot}\nVisual: ${s.visual}\nOn screen: ${s.onScreenText || "—"}\nVoiceover: ${s.voiceover || "—"}\nSound: ${s.sound || "—"}\nPrompt: ${s.motionPrompt}\n`,
+        `SCENE ${s.n} · ${s.duration}s · ${s.source ? "YOUR CLIP" : s.engine.toUpperCase()}${s.characters?.length ? ` · WITH ${s.characters.map((id) => plan.characters?.find((c) => c.id === id)?.name ?? "?").join(", ").toUpperCase()}` : ""}\nShot: ${s.shot}\nVisual: ${s.visual}\nOn screen: ${s.onScreenText || "—"}\nVoiceover: ${s.voiceover || "—"}\nSound: ${s.sound || "—"}\nPrompt: ${s.motionPrompt}\n`,
     ),
     plan.cta && `CTA: ${plan.cta}`,
   ];

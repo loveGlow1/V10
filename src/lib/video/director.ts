@@ -11,6 +11,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { attachmentManifest, type StudioAsset } from "./assets";
+import { castManifest, type PlanCharacter } from "./cast";
 import { PIPELINES, type PipelineId } from "./pipelines";
 import { MAX_CLIP_SECONDS, normalizePlan, qaAndRepair, secondsFrom, type ProductionPlan, type QaIssue } from "./plan";
 import { withPolicy } from "@/lib/safety/policy";
@@ -44,7 +45,8 @@ RULES FOR EVERY VIDEO:
 - Each generated scene is ONE clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
 - ${narrationRule(answers.voice)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
-- Anything that must look the same in more than one scene (product, creator, characters, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
+- CHARACTERS (before the idea) are the people who recur. Every scene showing one lists their id in "characters" (who is on screen, in order). Their look comes from reference pictures and their locked description, so a prompt names them and says what they DO, never what they look like. Give recurring people only through CHARACTERS; with none set, describe a person fully in each prompt and keep it identical in "locks".
+- Anything else that must look the same in more than one scene (product, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
 - When the video names QuickStark itself, the name is always "QuickStark.ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
 - Never depict or imitate a real, identifiable person or brand the user did not supply. No unsafe, hateful or sexual content.
@@ -52,7 +54,7 @@ RULES FOR EVERY VIDEO:
 
 Reply with ONLY raw JSON, no markdown fences:
 {"title":"","concept":"","strategy":"","aspect":"9:16|1:1|16:9|4:5","voice":"","music":"","hooks":[""],"locks":{"product":"","style":""},"cta":"",
- "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}"}]}
+ "scenes":[{"duration":3,"shot":"","visual":"","onScreenText":"","voiceover":"","sound":"","motionPrompt":"","engine":"${spec.defaultEngine}","characters":[]}]}
 A scene made from an upload adds "source":{"assetId":"","trimStart":0,"trimEnd":0}. You may also set "cut":{"transition":"crossfade|cut|fadeblack","captions":true,"audio":"voiceover|original|mix|none"} when the idea asks for it.`;
 }
 
@@ -64,6 +66,10 @@ export type DirectorInput = {
   images?: string[];
   /** Everything the person uploaded: the ATTACHMENTS block is made from it. */
   assets?: StudioAsset[];
+  /** The cast, locked: the CHARACTERS block is made from it. */
+  characters?: PlanCharacter[];
+  /** The model that plans (agent.ts); the studio's default otherwise. */
+  model?: string;
   /** For a re-plan: what to change. */
   note?: string;
   previous?: ProductionPlan | null;
@@ -75,6 +81,7 @@ export async function direct(input: DirectorInput): Promise<{ plan: ProductionPl
   const answers = Object.entries(input.answers).map(([key, value]) => `${key}: ${value}`).join("\n");
   const text = [
     attachmentManifest(input.assets ?? []),
+    castManifest(input.characters ?? []),
     `IDEA:\n${input.brief.slice(0, 6000)}`,
     answers && `CHOICES:\n${answers}`,
     input.images?.length ? `REFERENCE IMAGES: ${input.images.length} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
@@ -91,7 +98,7 @@ export async function direct(input: DirectorInput): Promise<{ plan: ProductionPl
 
   try {
     const message = await new Anthropic().messages.create({
-      model: DIRECTOR_MODEL,
+      model: input.model || DIRECTOR_MODEL,
       max_tokens: 8000,
       system: withPolicy(systemFor(input.pipeline, input.answers)),
       messages: [{ role: "user", content }],
@@ -105,6 +112,9 @@ export async function direct(input: DirectorInput): Promise<{ plan: ProductionPl
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     const parsed = JSON.parse(raw.slice(start, end + 1));
+    /* The cast is the person's, never the model's: it is set here, and only
+       the scene tags the model wrote are read against it. */
+    parsed.characters = input.characters ?? [];
     const { plan, issues } = qaAndRepair(normalizePlan(parsed, input.pipeline, input.answers));
     if (plan.scenes.length === 0) return { error: "The Creative Director returned no scenes. Try again, or add more detail to your idea." };
     return { plan, issues, outputTokens: message.usage.output_tokens };

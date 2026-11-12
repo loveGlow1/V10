@@ -21,7 +21,7 @@
 
 import { type Aspect, type ClipEngine, durationFor } from "./clip-engines";
 import { falToken, submitFal } from "./fal";
-import { runwareConfigured, runwareSpeak, runwareVideoStatus, submitRunwareVideo } from "@/lib/runware";
+import { runwareConfigured, runwareSpeak, runwareVideoStatus, submitReferenceVideo, submitRunwareVideo } from "@/lib/runware";
 
 export const HF_BASE = "https://api.higgsfield.ai";
 export const MINIMAX_BASE = "https://api.minimax.io";
@@ -33,7 +33,7 @@ const HF_MODELS = {
   kling: { text: "kling-video/v2.5-turbo/pro/text-to-video", image: "kling-video/v2.5-turbo/pro/image-to-video" },
 } as const;
 
-export type ClipRequest = { prompt: string; seconds: number; aspect: Aspect; imageUrl?: string | null; key: string };
+export type ClipRequest = { prompt: string; seconds: number; aspect: Aspect; imageUrl?: string | null; key: string; references?: string[] };
 export type Submitted = { ok: true; id: string; seconds: number } | { ok: false; error: string };
 export type ClipState = { state: "running" } | { state: "done"; url: string } | { state: "failed"; error: string };
 
@@ -121,6 +121,11 @@ export async function submitClip(engine: ClipEngine, clip: ClipRequest, webhookU
       return { ok: false, error: MINIMAX_ERRORS[code] ? `${MINIMAX_ERRORS[code]}.` : `MiniMax refused the clip (${sent.status}).` };
     }
 
+    if (engine === "h3-ref" || engine === "seedance-ref") {
+      const sent = await submitReferenceVideo({ engine: engine === "h3-ref" ? "h3" : "seedance", prompt, seconds, aspect: clip.aspect, references: clip.references ?? [], webhookUrl });
+      return sent.ok ? { ok: true, id: sent.id, seconds } : { ok: false, error: sent.error };
+    }
+
     if (engine === "runware") {
       const sent = await submitRunwareVideo({ prompt, seconds, aspect: clip.aspect, imageUrl: clip.imageUrl, webhookUrl });
       return sent.ok ? { ok: true, id: sent.id, seconds } : { ok: false, error: sent.error };
@@ -139,7 +144,7 @@ export async function submitClip(engine: ClipEngine, clip: ClipRequest, webhookU
 
     return { ok: false, error: "That engine is dispatched through n8n." };
   } catch {
-    return { ok: false, error: `Could not reach ${engine === "runware" ? "Runware" : engine === "minimax" ? "MiniMax" : engine === "seedance-fal" ? "fal" : "Higgsfield"}.` };
+    return { ok: false, error: `Could not reach ${engine === "runware" || engine === "h3-ref" || engine === "seedance-ref" ? "Runware" : engine === "minimax" ? "MiniMax" : engine === "seedance-fal" ? "fal" : "Higgsfield"}.` };
   }
 }
 
@@ -175,7 +180,7 @@ export async function clipStatus(engine: ClipEngine, id: string): Promise<ClipSt
       return url ? { state: "done", url } : { state: "failed", error: "MiniMax's file could not be retrieved." };
     }
 
-    if (engine === "runware") return await runwareVideoStatus(id);
+    if (engine === "runware" || engine === "h3-ref" || engine === "seedance-ref") return await runwareVideoStatus(id);
 
     /* fal reports through its webhook, which is verified by fal's own
        signature as well as our token; there is nothing to poll here. */

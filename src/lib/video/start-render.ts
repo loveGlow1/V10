@@ -32,6 +32,8 @@ import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
+import { castPrompt, castReferences, sceneCast } from "@/lib/video/cast";
+import { castPictures } from "@/lib/video/characters";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
 
@@ -174,6 +176,8 @@ export async function startRender(
 
   /* The creator keyframe, once per version, before any on-camera clip. */
   const writer = createSupabaseServiceClient();
+  /* The cast's reference pictures, read for this video's owner only. */
+  const pictures = plan.characters?.length ? await castPictures(writer ?? supabase, userId, plan.characters.map((c) => c.id)) : {};
   const keyframe =
     writer && wantsKeyframe(plan, (refs ?? []).some((asset) => asset.kind === "person"))
       ? await ensureKeyframe(writer, { userId, videoId: id, version, plan })
@@ -207,8 +211,13 @@ export async function startRender(
         return;
       }
       const scene = plan.scenes.find((entry) => entry.n === job.n);
-      let frame = firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
-      let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip });
+      /* A scene with a character is filmed from that character's pictures —
+         the same pictures for every scene, so the face never drifts. When
+         no reference engine takes it, it starts from their front picture. */
+      const cast = scene ? sceneCast(scene, plan) : [];
+      const references = castReferences(cast, pictures);
+      let frame: string | null = references[0] ?? firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
+      let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip, references: references.length > 0 });
       /* No connected engine can film this scene from text at this shape:
          make a still of it and animate that (frames.ts). */
       if (!chain.length && !frame && scene && writer) {
@@ -229,7 +238,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene ? clipPrompt(scene.motionPrompt || scene.visual) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {

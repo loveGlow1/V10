@@ -29,6 +29,7 @@ import { DIRECTOR_MODEL } from "./director";
 import { attachmentManifest, type StudioAsset } from "./assets";
 import { sceneFromAsset } from "./timeline";
 import { VOICES, isVoiceId } from "./voices";
+import { castManifest, normalizeSceneCast } from "./cast";
 import { MAX_CLIP_SECONDS, normalizeCut, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
 
 export type SceneEdit = {
@@ -44,6 +45,8 @@ export type SceneEdit = {
   duration?: number;
   /** Read the line in another voice (voices.ts). */
   voiceId?: string;
+  /** Who is on screen (cast ids). Changing it films the scene again with their pictures. */
+  characters?: string[];
 };
 
 export type Edit = {
@@ -62,7 +65,8 @@ const ACTIONS = ["keep", "refilm", "revoice", "remove"] as const;
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 /** Reads what the model wrote, whatever it left out. Never throws. Pure. */
-export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes">): Edit {
+export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" | "characters">): Edit {
+  const castOf = plan.characters ?? [];
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const numbers = new Set(plan.scenes.map((scene) => scene.n));
   const scenes: SceneEdit[] = [];
@@ -82,6 +86,7 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes">
     }
     if (typeof e.onScreenText === "string") edit.onScreenText = text(e.onScreenText, 200);
     if (isVoiceId(e.voiceId)) edit.voiceId = e.voiceId;
+    if (Array.isArray(e.characters)) edit.characters = normalizeSceneCast(e.characters, castOf);
     const duration = Math.round(Number(e.duration));
     if (Number.isFinite(duration) && duration >= 2 && duration <= MAX_CLIP_SECONDS) edit.duration = duration;
     scenes.push(edit);
@@ -154,6 +159,10 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
     }
     if (e?.onScreenText !== undefined) scene.onScreenText = withBrand(e.onScreenText);
     if (e?.duration) scene.duration = e.duration;
+    if (e?.characters && JSON.stringify(e.characters) !== JSON.stringify(scene.characters ?? []) && !scene.source) {
+      scene.characters = e.characters.length ? e.characters : undefined;
+      clip = false;
+    }
     if (e?.voiceId && e.voiceId !== scene.voiceId) {
       scene.voiceId = e.voiceId;
       delete scene.voiceAsset;
@@ -184,7 +193,9 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
  * screen and every setting change nothing that was made. Pure.
  */
 export function carryByContent(previous: ProductionPlan, next: ProductionPlan): { carry: Carry[]; refilm: number[]; revoice: number[] } {
-  const pictureKey = (scene: Scene) => (scene.source ? `upload:${scene.source.assetId}` : `gen:${scene.engine}:${scene.motionPrompt.trim()}`);
+  /* A generated picture is the prompt, the engine and who is in it: a
+     different cast is a different scene, filmed again from their pictures. */
+  const pictureKey = (scene: Scene) => (scene.source ? `upload:${scene.source.assetId}` : `gen:${scene.engine}:${scene.motionPrompt.trim()}:${(scene.characters ?? []).join(",")}`);
   const usedPicture = new Set<number>();
   const usedVoice = new Set<number>();
   const carry: Carry[] = [];
@@ -222,6 +233,7 @@ export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: b
     const m = made.find((x) => x.scene === scene.n);
     return [
       `SCENE ${scene.n} · ${scene.duration}s · ${scene.source ? `THE PERSON'S OWN ${scene.engine === "image" ? "PICTURE" : "CLIP"} (upload ${scene.source.assetId}${scene.source.trimStart || scene.source.trimEnd ? `, trimmed ${scene.source.trimStart ?? 0}-${scene.source.trimEnd ?? "end"}s` : ""}${scene.source.speed ? `, ${scene.source.speed}x` : ""}) — never refilm it` : `clip ${m?.clip ? "made" : "missing"}`} · voice ${scene.voiceover ? (m?.voice ? "made" : "missing") : "none"}`,
+      ...(scene.characters?.length ? [`  on screen: ${scene.characters.map((id) => plan.characters?.find((c) => c.id === id)?.name ?? id).join(", ")}`] : []),
       `  spoken: ${scene.voiceover || "—"}`,
       `  on screen: ${scene.onScreenText || "—"}`,
       ...(scene.source ? [] : [`  clip prompt: ${scene.motionPrompt.slice(0, 500)}`]),
@@ -258,6 +270,7 @@ What you can do, cheapest first:
 4. refilm — a new clip for a scene (expensive). Give the COMPLETE new clip prompt: subject, setting, lighting, lens/shot, camera move, motion, mood, aspect ratio — keep every lock (creator, product, style) word for word so it matches the other scenes.
 5. remove — drop a scene. order — old scene numbers in a new order.
    add — put the person's uploads (from ATTACHMENTS, by assetId) into the video: [{"assetId":"...","after":2}] (after a scene number, or at the end without "after"). Free.
+   characters on a scene — who is on screen, by id from CHARACTERS (e.g. "characters":["<id>"]): the scene is filmed again from their reference pictures so they look exactly the same. Use it whenever the person asks for a character in a scene.
    voiceId on a scene — read its line in another voice; "cut":{"voiceId":"..."} — every line in another voice. Voices: ${VOICES.map((v) => v.id).join(", ")}.
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
@@ -270,7 +283,7 @@ Rules:
 - reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
-{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":""}],"order":[1,2,3],"add":[{"assetId":"","after":1}]}
+{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[]}],"order":[1,2,3],"add":[{"assetId":"","after":1}]}
 Omit any field you are not changing.`;
 
 /** Asks the editor model for the edits an instruction needs. Server-only. */
@@ -280,14 +293,16 @@ export async function decideEdit(input: {
   instruction: string;
   /** Everything uploaded: the ATTACHMENTS block is made from it. */
   assets?: StudioAsset[];
+  /** The model that edits (agent.ts); the studio's default otherwise. */
+  model?: string;
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!process.env.ANTHROPIC_API_KEY) return { error: "The video editor is not configured on this server." };
   try {
     const message = await new Anthropic().messages.create({
-      model: DIRECTOR_MODEL,
+      model: input.model || DIRECTOR_MODEL,
       max_tokens: 4000,
       system: withPolicy(SYSTEM),
-      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }],
+      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }],
     });
     const raw = message.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")

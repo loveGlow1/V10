@@ -21,6 +21,8 @@ import { isPipelineId } from "@/lib/video/pipelines";
 import { normalizePlan, qaAndRepair, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
 import type { StudioAsset } from "@/lib/video/assets";
 import { stitchPlan } from "@/lib/video/timeline";
+import type { PlanCharacter } from "@/lib/video/cast";
+import { agentCost, videoAgentFor } from "@/lib/video/agent";
 
 /** A video's uploads as the planner sees them. */
 export async function loadStudioAssets(supabase: SupabaseClient, videoId: string): Promise<(StudioAsset & { storage_path: string; poster_path: string | null })[]> {
@@ -45,6 +47,33 @@ export async function loadStudioAssets(supabase: SupabaseClient, videoId: string
   }));
 }
 
+/** The video's cast as the plan holds it: its chosen characters that are ready, owner's only. */
+export async function loadCast(supabase: SupabaseClient, video: { user_id: string; character_ids?: string[] | null }): Promise<PlanCharacter[]> {
+  const ids = (video.character_ids ?? []).filter(Boolean);
+  if (!ids.length) return [];
+  const { data } = await supabase.from("video_characters").select("id, name, descriptor, voice_id, status").eq("user_id", video.user_id).in("id", ids);
+  const rows = (data ?? []).filter((row) => row.status === "ready");
+  return ids
+    .map((id) => rows.find((row) => row.id === id))
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .map((row) => ({ id: row.id as string, name: row.name as string, descriptor: row.descriptor as string, ...(row.voice_id ? { voiceId: row.voice_id as string } : {}) }));
+}
+
+/** A plan's cast kept to characters the video's owner has; scenes keep only those. Pure. */
+export function keepKnownCast(plan: ProductionPlan, cast: PlanCharacter[]): ProductionPlan {
+  const owned = new Map(cast.map((c) => [c.id, c]));
+  /* The plan's own words for a known character are kept (a finished plan's
+     scenes were made with them); unknown ids are dropped. */
+  const characters = (plan.characters ?? []).filter((c) => owned.has(c.id));
+  for (const c of cast) if (!characters.some((x) => x.id === c.id)) characters.push(c);
+  const ids = new Set(characters.map((c) => c.id));
+  return {
+    ...plan,
+    ...(characters.length ? { characters } : { characters: undefined }),
+    scenes: plan.scenes.map((scene) => (scene.characters?.length ? { ...scene, characters: scene.characters.filter((id) => ids.has(id)) } : scene)),
+  };
+}
+
 /** Drops any scene source that names an upload this video does not have. Pure. */
 export function keepKnownSources(plan: ProductionPlan, assets: Pick<StudioAsset, "id" | "status">[]): ProductionPlan {
   const known = new Set(assets.filter((asset) => asset.status !== "failed").map((asset) => asset.id));
@@ -65,7 +94,7 @@ export async function planVideo(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { note?: unknown; plan?: unknown; fill?: unknown; stitch?: unknown },
+  body: { note?: unknown; plan?: unknown; fill?: unknown; stitch?: unknown; model?: unknown },
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("*").eq("id", id).maybeSingle();
   if (!video || !isPipelineId(video.pipeline)) return NextResponse.json({ error: "No such video." }, { status: 404 });
@@ -84,6 +113,8 @@ export async function planVideo(
   let outputTokens = 0;
 
   const uploads = await loadStudioAssets(supabase, id);
+  const cast = await loadCast(supabase, video as { user_id: string; character_ids?: string[] | null });
+  const agent = await videoAgentFor(createSupabaseServiceClient(), userId, body.model);
   const brief0 = String(video.brief ?? "");
   const fill0 = typeof body.fill === "string" ? body.fill.trim() : "";
   /* "Edit my clips", first time, with nothing asked beyond the template:
@@ -92,13 +123,13 @@ export async function planVideo(
     video.pipeline === "clip_edit" && !body.plan && typeof body.note !== "string" && (!brief0.trim() || (unfilledPlaceholders(brief0).length > 0 && !fill0) || body.stitch === true);
 
   if (body.plan && typeof body.plan === "object") {
-    ({ plan, issues } = qaAndRepair(keepKnownSources(normalizePlan(body.plan, video.pipeline, answers), uploads)));
+    ({ plan, issues } = qaAndRepair(keepKnownCast(keepKnownSources(normalizePlan(body.plan, video.pipeline, answers), uploads), cast)));
     note = "Your edits";
   } else if (stitchNow) {
     if (!uploads.some((asset) => asset.status !== "failed" && (asset.kind === "video" || asset.kind === "image" || asset.kind === "photo"))) {
       return NextResponse.json({ error: "Upload your clips first — they're stitched in the order you add them." }, { status: 400 });
     }
-    ({ plan, issues } = qaAndRepair(stitchPlan({ assets: uploads, answers, title: video.title as string })));
+    ({ plan, issues } = qaAndRepair(keepKnownCast(stitchPlan({ assets: uploads, answers, title: video.title as string }), cast)));
     note = "Your clips, stitched";
   } else {
     /* Before any credit, on a first plan: a template's blanks planned as they
@@ -119,7 +150,7 @@ export async function planVideo(
     const service = createSupabaseServiceClient();
     if (service) {
       const balance = await currentBalance(service, userId);
-      if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < PLAN_COST) {
+      if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < agentCost(PLAN_COST, agent)) {
         return NextResponse.json({ error: "You are out of credits. Top up to plan this video." }, { status: 402 });
       }
     }
@@ -141,12 +172,14 @@ export async function planVideo(
       answers,
       images,
       assets: uploads,
+      characters: cast,
+      model: agent.apiId,
       note: typeof body.note === "string" ? body.note : undefined,
       previous: typeof body.note === "string" && current ? (current.plan as ProductionPlan) : null,
     });
     if ("error" in directed) return NextResponse.json({ error: directed.error }, { status: 502 });
     ({ plan, issues, outputTokens } = directed);
-    plan = keepKnownSources(plan, uploads);
+    plan = keepKnownCast(keepKnownSources(plan, uploads), cast);
     note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 300) : video.current_version ? "Planned again" : "First plan";
   }
 
@@ -165,13 +198,13 @@ export async function planVideo(
       await chargeCredits(service, {
         userId,
         action: "generate",
-        cost: PLAN_COST,
-        description: `Video plan: ${plan.title}`,
+        cost: agentCost(PLAN_COST, agent),
+        description: `Video plan (${agent.name}): ${plan.title}`,
         outputTokens,
         dedupeKey: `video-plan:${id}:${version}`,
       });
     }
   }
 
-  return NextResponse.json({ version, plan, issues, note, readiness: readiness(plan) });
+  return NextResponse.json({ version, plan, issues, note, readiness: readiness(plan), agent: { id: agent.id, name: agent.name, ...(agent.declined ? { declined: agent.declined } : {}) } });
 }

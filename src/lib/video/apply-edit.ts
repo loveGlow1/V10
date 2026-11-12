@@ -30,6 +30,7 @@ import { advance } from "./production";
 import { startRender } from "./start-render";
 import type { StudioAsset } from "./assets";
 import { loadStudioAssets } from "./plan-video";
+import { agentCost, videoAgentFor } from "./agent";
 
 const EDIT_COST = 1;
 
@@ -79,16 +80,20 @@ export async function editVideo(input: {
   videoId: string;
   instruction: string;
   origin: string;
+  /** The AI agent picked in the workspace (agent.ts). */
+  model?: unknown;
 }): Promise<EditResult | null> {
   const loaded = await load(input.writer, input.videoId);
   if (!loaded) return null;
   const { plan, done } = loaded;
   const made = plan.scenes.map((scene) => ({ scene: scene.n, clip: Boolean(done(scene.n, "video") || done(scene.n, "avatar")), voice: Boolean(done(scene.n, "voice")) }));
   const uploads = await loadStudioAssets(input.writer, input.videoId);
-  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads });
+  const agent = await videoAgentFor(input.writer, input.userId, input.model);
+  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (decided.edit.replan) return null;
-  return commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: EDIT_COST, outputTokens: decided.outputTokens });
+  const result = await commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: agentCost(EDIT_COST, agent), outputTokens: decided.outputTokens });
+  return agent.declined ? { ...result, message: `${result.message} (Made with ${agent.name} — ${agent.declined}.)` } : result;
 }
 
 /* An edit, made real as the next version. */

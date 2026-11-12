@@ -54,6 +54,10 @@ import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset } from "@/lib/video/timeline";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
+import { callableModels, isModelAvailable } from "@/app/dashboard/models";
+import type { PlanCharacter } from "@/lib/video/cast";
+
+import CharactersPanel from "./CharactersPanel";
 import MediaPanel, { type PanelAsset } from "./MediaPanel";
 import TimelineClip from "./TimelineClip";
 import VideoSettings from "./VideoSettings";
@@ -89,6 +93,26 @@ export default function VideoEditor({ id }: { id: string }) {
   const [showSettings, setShowSettings] = useState(false);
   const [chat, setChat] = useState<Chat[]>([]);
   const [ask, setAsk] = useState("");
+  /* The AI agent that answers — the same choice as the workspace's picker,
+     remembered on this device. */
+  const agents = useMemo(() => callableModels().filter((m) => isModelAvailable(m) && m.provider === "claude"), []);
+  const [agent, setAgentRaw] = useState("auto");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("qs-video-agent");
+      if (saved) setAgentRaw(saved);
+    } catch {
+      /* Private window: Auto. */
+    }
+  }, []);
+  const setAgent = (id: string) => {
+    setAgentRaw(id);
+    try {
+      window.localStorage.setItem("qs-video-agent", id);
+    } catch {
+      /* Not remembered. */
+    }
+  };
   /* Scenes taken out, kept here to put back with one tap. */
   const [removed, setRemoved] = useState<{ scene: Scene; index: number }[]>([]);
 
@@ -301,8 +325,8 @@ export default function VideoEditor({ id }: { id: string }) {
     setBusy("assist");
     setChat((c) => [...c, { who: "you", text }]);
     setAsk("");
-    const response = await fetch(`/api/video/${id}/assist`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction: text, plan: draft }) }).catch(() => null);
-    const body = (await response?.json().catch(() => null)) as { error?: string; reply?: string; plan?: ProductionPlan | null; refilm?: number[] } | null;
+    const response = await fetch(`/api/video/${id}/assist`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction: text, plan: draft, model: agent }) }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { error?: string; reply?: string; plan?: ProductionPlan | null; refilm?: number[]; agent?: { name: string; declined?: string }; charged?: number } | null;
     setBusy(null);
     if (!response?.ok) {
       setChat((c) => [...c, { who: "ai", text: body?.error ?? "The AI editor couldn't answer just now." }]);
@@ -311,7 +335,7 @@ export default function VideoEditor({ id }: { id: string }) {
     if (body?.plan) change(body.plan);
     setChat((c) => [
       ...c,
-      { who: "ai", text: `${body?.reply ?? "Done."}${body?.plan ? " It's on the timeline — keep it, change it, or Undo." : ""}${body?.refilm?.length ? ` Scene${body.refilm.length === 1 ? "" : "s"} ${body.refilm.join(", ")} will be filmed again on export.` : ""}` },
+      { who: "ai", text: `${body?.agent?.declined ? `(${body.agent.name} answered — ${body.agent.declined}.) ` : ""}${body?.reply ?? "Done."}${body?.plan ? " It's on the timeline — keep it, change it, or Undo." : ""}${body?.refilm?.length ? ` Scene${body.refilm.length === 1 ? "" : "s"} ${body.refilm.join(", ")} will be filmed again on export.` : ""}` },
     ]);
   }
 
@@ -509,8 +533,16 @@ export default function VideoEditor({ id }: { id: string }) {
 
               {/* The AI editor — optional */}
               <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
-                <p className="flex items-center gap-1.5 text-[13.5px] font-medium text-ink"><Sparkles className="h-4 w-4 text-accent" /> AI editor <span className="text-[11.5px] font-normal text-muted">· optional, 1 credit per answer</span></p>
-                <p className="mt-0.5 text-[11.5px] text-muted">It sees your clips, the timeline and your settings. Its change lands on the timeline for you to keep or undo.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-[13.5px] font-medium text-ink"><Sparkles className="h-4 w-4 text-accent" /> AI editor <span className="text-[11.5px] font-normal text-muted">· optional</span></p>
+                  <select value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="AI agent" className="h-7 rounded-full border border-line/[0.1] bg-panel px-2 text-[11.5px] text-ink">
+                    <option value="auto">Auto</option>
+                    {agents.map((m) => (
+                      <option key={m.id} value={m.id}>{m.name}{m.creditMultiplier && m.creditMultiplier !== 1 ? ` · ${m.creditMultiplier}× credits` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-0.5 text-[11.5px] text-muted">Pick any AI agent from your workspace. It sees your clips, characters, timeline and settings; its change lands on the timeline to keep or undo. From 1 credit an answer.</p>
                 {chat.length > 0 && (
                   <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-[12.5px]">
                     {chat.map((m, i) => (
@@ -562,6 +594,15 @@ export default function VideoEditor({ id }: { id: string }) {
               <VideoSettings plan={draft} audioAssets={assets} onChange={(next) => change(next)} />
             </div>
           )}
+
+          <div className="mt-4">
+            <CharactersPanel
+              videoId={id}
+              cast={draft.characters ?? []}
+              photos={assets}
+              onCast={(next) => change((p) => withCast(p, next))}
+            />
+          </div>
 
           <MediaPanel
             videoId={id}
@@ -661,6 +702,7 @@ function Storyboard(props: {
                       {formatSeconds(seg?.seconds ?? scene.duration)}
                       {scene.onScreenText ? ` · “${scene.onScreenText}”` : ""}
                       {scene.voiceover || scene.voiceAsset ? " · voice-over" : ""}
+                      {scene.characters?.length ? ` · ${scene.characters.map((cid) => props.plan.characters?.find((c) => c.id === cid)?.name ?? "").filter(Boolean).join(", ")}` : ""}
                     </span>
                   </span>
                   <span className={`hidden shrink-0 rounded-full px-2 py-0.5 text-[10.5px] sm:inline ${status.tone}`}>{status.text}</span>
@@ -928,6 +970,28 @@ function SceneInspector(props: {
           </label>
         </>
       )}
+      {!scene.source && (plan.characters?.length ?? 0) > 0 && (
+        <div>
+          <p className="text-[11.5px] text-muted">Who&apos;s in this scene <span className="text-muted/80">(they look exactly like their pictures)</span></p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {plan.characters!.map((c) => {
+              const on = scene.characters?.includes(c.id);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    const ids = on ? (scene.characters ?? []).filter((x) => x !== c.id) : [...(scene.characters ?? []), c.id].slice(0, 3);
+                    set({ characters: ids.length ? ids : undefined });
+                  }}
+                  className={`flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11.5px] ${on ? "border-accent/50 bg-accent/[0.08] text-accent" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
+                >
+                  {on ? "✓ " : "+ "}{c.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <label className="block text-[11.5px] text-muted">
         Words on screen
         <input value={scene.onScreenText} onChange={(e) => set({ onScreenText: e.target.value.slice(0, 200) })} placeholder="e.g. Summer sale" className={field} />
@@ -1071,4 +1135,18 @@ function SoundInspector(props: {
       </label>
     </Panel>
   );
+}
+
+/* A new cast in the draft: scenes keep only characters still in it. */
+function withCast(plan: ProductionPlan, cast: PlanCharacter[]): ProductionPlan {
+  const ids = new Set(cast.map((c) => c.id));
+  return {
+    ...plan,
+    characters: cast.length ? cast : undefined,
+    scenes: plan.scenes.map((scene) => {
+      if (!scene.characters) return scene;
+      const kept = scene.characters.filter((cid) => ids.has(cid));
+      return { ...scene, characters: kept.length ? kept : undefined };
+    }),
+  };
 }
