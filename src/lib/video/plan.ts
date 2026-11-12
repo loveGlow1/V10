@@ -50,6 +50,8 @@ export type Scene = {
   voiceAsset?: string;
   /** Character ids (plan.characters) on screen in this scene: filmed from their reference pictures. */
   characters?: string[];
+  /** Carries straight on from the scene before: filmed from its last frame (continuity.ts). False keeps it apart. */
+  continues?: boolean;
 };
 
 /* How the final cut is put together — what a person changes by asking
@@ -91,6 +93,8 @@ export type Cut = {
   stillMotion?: StillMotion;
   /** The voice every generated line is read in (voices.ts); absent is the video's default. */
   voiceId?: string;
+  /** Scenes that carry on from the one before start from its last frame. Default on. */
+  continuity?: boolean;
 };
 
 export type ProductionPlan = {
@@ -177,6 +181,8 @@ export function splitScene(scene: Scene, max = MAX_CLIP_SECONDS): Scene[] {
     /* A title card is shown once, on the first shot. */
     onScreenText: i === 0 ? scene.onScreenText : "",
     motionPrompt: i === 0 ? scene.motionPrompt : `${scene.motionPrompt} Continuation of the previous shot: same subject, setting, framing and light, the action carrying on.`,
+    /* The parts of one shot are one shot: each starts where the last ended. */
+    ...(i > 0 ? { continues: true } : {}),
   }));
 }
 
@@ -236,6 +242,7 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
       ...(source ? { source } : {}),
       ...(isVoiceId(s.voiceId) ? { voiceId: s.voiceId } : {}),
       ...(voiceAsset ? { voiceAsset } : {}),
+      ...(typeof s.continues === "boolean" ? { continues: s.continues } : {}),
       ...(() => {
         const ids = normalizeSceneCast(s.characters, cast);
         return ids.length ? { characters: ids } : {};
@@ -314,6 +321,7 @@ export function normalizeCut(raw: unknown): Cut | undefined {
   }
   Object.assign(cut, normalizeSettings(r));
   if (isVoiceId(r.voiceId)) cut.voiceId = r.voiceId;
+  if (typeof r.continuity === "boolean") cut.continuity = r.continuity;
   return Object.keys(cut).length ? cut : undefined;
 }
 

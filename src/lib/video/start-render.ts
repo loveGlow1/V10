@@ -34,6 +34,8 @@ import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
 import { castPrompt, castReferences, sceneCast } from "@/lib/video/cast";
 import { castPictures } from "@/lib/video/characters";
+import { awaitProvider, continuityLinks } from "@/lib/video/continuity";
+import { releaseWaiting } from "@/lib/video/continuity-release";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
 
@@ -184,6 +186,11 @@ export async function startRender(
       : null;
 
   const sent: { job: RenderJob; ok: boolean; error?: string }[] = [];
+  /* Scenes that carry on from the one before wait for its last frame
+     (continuity.ts); every other scene is filmed at once. */
+  const links = continuityLinks(plan);
+  const clipJobs = new Set(jobs.filter((job) => job.kind === "clip").map((job) => job.n));
+  const releaseNow: number[] = [];
   const voices: Extract<RenderJob, { kind: "voice" }>[] = [];
   const toN8n = async (job: RenderJob) => (await dispatchJobs({ videoId: id, version, userId, aspect: plan.aspect, callbackUrl, jobs: [job] }))[0];
 
@@ -208,6 +215,20 @@ export async function startRender(
           await fail(job, result.error ?? "Not sent.");
           sent.push(result);
         }
+        return;
+      }
+      const waitsFor = links.get(job.n);
+      if (waitsFor !== undefined) {
+        await supabase
+          .from("video_renders")
+          .update({ status: "queued", provider: awaitProvider(waitsFor) })
+          .eq("video_id", id)
+          .eq("version", version)
+          .eq("scene", job.n)
+          .eq("engine", "video");
+        /* The scene before is already made (an edit kept it): start at once. */
+        if (!clipJobs.has(waitsFor)) releaseNow.push(waitsFor);
+        sent.push({ job, ok: true });
         return;
       }
       const scene = plan.scenes.find((entry) => entry.n === job.n);
@@ -279,6 +300,10 @@ export async function startRender(
       );
     });
     for (const job of voices) sent.push({ job, ok: true });
+  }
+
+  if (releaseNow.length && writer) {
+    for (const before of [...new Set(releaseNow)]) await releaseWaiting(writer, { videoId: id, version, n: before, origin });
   }
 
   const accepted = sent.filter((entry) => entry.ok).length + uploaded;

@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -624,6 +624,39 @@ const agentSrc = readFileSync(join(root, "src/lib/video/agent.ts"), "utf8");
 has(/resolveModel\(asked\)/.test(agentSrc) && /modelAllowedOnPlan/.test(agentSrc) && /creditMultiplierFor/.test(agentSrc), "the agent picked is checked against the plan and charged at its rate");
 has(/model: body\.model/.test(readFileSync(join(root, "src/app/api/build/route.ts"), "utf8")) && /model: input\.model/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "a message in the workspace plans and edits the video on the agent picked there");
 has(/model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
+
+
+console.log("\nscene-to-scene continuity");
+const CO = await import(join(dir, "continuity.js"));
+const contPlan = L.normalizePlan({
+  characters: [{ id: amaId, name: "Ama", descriptor: "late twenties, gold hoop earrings" }],
+  scenes: [
+    { duration: 5, visual: "a", motionPrompt: "Ama enters the market", characters: [amaId] },
+    { duration: 5, visual: "b", motionPrompt: "Ama picks a mango", characters: [amaId] },
+    { duration: 4, visual: "c", motionPrompt: "Skyline at dusk" },
+    { duration: 4, visual: "d", motionPrompt: "The sun sets further", continues: true },
+    { duration: 5, visual: "e", motionPrompt: "Ama at home", characters: [amaId], continues: false },
+    { duration: 5, visual: "f", motionPrompt: "x", source: { assetId: id1 } },
+    { duration: 5, visual: "g", motionPrompt: "after the upload", continues: true },
+  ],
+}, "cinematic_short", {});
+const linksX = CO.continuityLinks(contPlan);
+has(linksX.get(2) === 1 && !linksX.has(3) && linksX.get(4) === 3 && !linksX.has(5), "a scene sharing a character with the one before carries on; a marked one does too; \"cuts away\" never does");
+has(!linksX.has(6) && !linksX.has(7), "an upload never waits, and nothing waits on an upload (it is already filmed)");
+has(CO.continuityLinks({ ...contPlan, cut: { continuity: false } }).size === 0, "continuity can be switched off for the whole video");
+has(CO.longestRun(contPlan) === 2, "only linked runs are made one after another — the rest at once");
+has(CO.withLastFrame(["c1", "c2", "c3"], "last").join() === "c1,c2,c3,last" && CO.withLastFrame(Array.from({ length: 9 }, (_, i) => `c${i}`), "last").length === 9 && CO.withLastFrame(Array.from({ length: 9 }, (_, i) => `c${i}`), "last")[8] === "last", "the character's pictures come first, the last frame after, never more than nine");
+has(CO.awaitedScene(CO.awaitProvider(4)) === 4 && CO.awaitedScene("runware:x") === null, "a waiting scene's row says which scene it waits for");
+has(CO.lastFrameArgs({ source: "s", out: "o" }).join(" ").includes("-sseof -0.25 -i s -frames:v 1"), "the last frame is read from the end of the clip");
+const splitParts = L.qaAndRepair(L.normalizePlan({ scenes: [{ duration: 12, visual: "long", motionPrompt: "a long walk" }] }, "cinematic_short", { length: "12s" })).plan.scenes;
+has(splitParts.length === 2 && splitParts[1].continues === true && CO.continuesFrom({ ...L.normalizePlan({}, "cinematic_short", {}), scenes: splitParts }, 2) === 1, "the parts of one long shot carry on from each other");
+const sr = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
+has(/status: "queued", provider: awaitProvider\(waitsFor\)/.test(sr) && /releaseWaiting\(writer/.test(sr), "a render holds a continuing scene back, and starts it at once when the scene before is already made");
+has(/if \(kind === "clip"\) await releaseWaiting/.test(readFileSync(join(root, "src/lib/video/results.ts"), "utf8")), "a landed clip — or a failed one — releases whoever waits on it");
+const cs = readFileSync(join(root, "src/lib/video/continue-scene.ts"), "utf8");
+has(/\.eq\("provider", row\.provider\)/.test(cs) && /withLastFrame\(own, lastFrame\)/.test(cs) && /lastFrame \?\? own\[0\]/.test(cs), "a waiting scene is claimed once, then filmed from the last frame (after the character's pictures, or as its first frame)");
+has(/"\/api\/video\/\[id\]\/render\/continue": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(readFileSync(join(root, "next.config.mjs"), "utf8")), "the continue route carries ffmpeg");
+has(/awaitedScene\(row\.provider\)/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a lost hand-off is recovered when the studio polls");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
