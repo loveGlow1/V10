@@ -38,6 +38,8 @@ import { encoderFor, frameSize, resolveCut, type ResolvedCut } from "./cut-setti
 import { finishArgs, joinArgs, musicMixArgs, sceneAudioFilter, sceneEncodeArgs, sceneVideoFilter, stillVideoFilter, type Words } from "./cut-filters";
 import { downloadTo, inspect, runFfmpeg } from "./media-files";
 import { signedUrl } from "./production";
+import { chargeCredits } from "@/lib/credits-server";
+import { cutCredits } from "./pricing";
 
 export { musicMixArgs } from "./cut-filters";
 
@@ -296,6 +298,14 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     }
 
     await finish({ status: "done", output_path: `storage:${path}`, error: null });
+    /* The cut is work: charged once per version, by its length. */
+    await chargeCredits(service, {
+      userId: video.user_id as string,
+      action: "generate",
+      cost: cutCredits(total),
+      description: `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
+      dedupeKey: `video-cut:${videoId}:${version}`,
+    });
     await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
     await announceFinal(service, { videoId, version, origin, scenes: segments.length });
   } catch (error) {

@@ -25,14 +25,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { type Aspect, type ClipEngine, canSpeak, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
-import { readiness, renderCost } from "@/lib/video/engines";
+import { cutCost, readiness, renderCost } from "@/lib/video/engines";
+import { creditsLabel } from "@/lib/video/pricing";
 import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
 import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
-import { castPrompt, castReferences, sceneCast } from "@/lib/video/cast";
+import { castPrompt, planReferences, sceneCast } from "@/lib/video/cast";
 import { castPictures } from "@/lib/video/characters";
 import { awaitProvider, continuityLinks } from "@/lib/video/continuity";
 import { releaseWaiting } from "@/lib/video/continuity-release";
@@ -69,6 +70,14 @@ export async function startRender(
   }
 
   const answers = (video.answers ?? {}) as Record<string, string>;
+  /* Nothing here is free: every path below checks it can be paid for first. */
+  const covers = async (needed: number) => {
+    const service = createSupabaseServiceClient();
+    const balance = service ? await currentBalance(service, userId) : null;
+    return !balance || balance.daily + balance.rollover + balance.monthly + balance.topUp >= needed;
+  };
+  const shortOf = (needed: number) =>
+    NextResponse.json({ error: `This needs ${creditsLabel(needed)}. Top up to make the cut.` }, { status: 402 });
   const { data: refs } = await supabase.from("video_assets").select("kind, storage_path").eq("video_id", id).neq("kind", "render").order("created_at");
   if (plan.pipeline === "clone" && !(refs ?? []).some((asset) => asset.kind === "person")) {
     return NextResponse.json({ error: "Upload a clear photo of yourself first — your presenter is made from it." }, { status: 400 });
@@ -111,6 +120,7 @@ export async function startRender(
     for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
+    if (jobs.length === 0 && !(await covers(cutCost(plan)))) return shortOf(cutCost(plan));
     const filed = await fileUploads(supabase, { videoId: id, userId, version, plan });
     if (jobs.length === 0) {
       const service = createSupabaseServiceClient();
@@ -129,6 +139,9 @@ export async function startRender(
   }
 
   /* The person's own clips, pictures and music: filed as they are, free. */
+  if (jobs.length === 0 && body.retryFailed !== true && body.onlyMissing !== true && !(await covers(renderCost(plan, process.env, answers.quality ?? null)))) {
+    return shortOf(renderCost(plan, process.env, answers.quality ?? null));
+  }
   const uploaded = body.retryFailed === true ? 0 : body.onlyMissing === true ? 0 : await fileUploads(supabase, { videoId: id, userId, version, plan });
   if (jobs.length === 0) {
     if (!uploaded) return NextResponse.json({ error: "There is nothing to render in this plan yet." }, { status: 400 });
@@ -147,7 +160,7 @@ export async function startRender(
      API until it is worth trying again (lib/video/credit.ts). */
   const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
   const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
-  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
+  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) + cutCost(plan) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -236,7 +249,11 @@ export async function startRender(
          the same pictures for every scene, so the face never drifts. When
          no reference engine takes it, it starts from their front picture. */
       const cast = scene ? sceneCast(scene, plan) : [];
-      const references = castReferences(cast, pictures);
+      /* Pictures shared fairly: everyone's front first, then extra angles,
+         and the prompt says which pictures are whose. A scene that will
+         wait for its last frame is held back below. */
+      const refPlan = planReferences(cast, pictures);
+      const references = refPlan.images;
       let frame: string | null = references[0] ?? firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
       let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip, references: references.length > 0 });
       /* No connected engine can film this scene from text at this shape:
@@ -259,7 +276,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {

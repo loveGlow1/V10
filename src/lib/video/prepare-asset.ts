@@ -19,7 +19,10 @@ import { join } from "node:path";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { chargeCredits } from "@/lib/credits-server";
+
 import { LIMITS, formatSeconds } from "./assets";
+import { prepareCredits } from "./pricing";
 import { downloadTo, inspect, posterArgs, runFfmpeg, workingCopyArgs } from "./media-files";
 
 export async function prepareAsset(service: SupabaseClient, assetId: string): Promise<void> {
@@ -27,7 +30,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
   const fail = (error: string) =>
     service.from("video_assets").update({ status: "failed", error: error.slice(0, 500), updated_at: new Date().toISOString() }).eq("id", assetId);
   try {
-    const { data: asset } = await service.from("video_assets").select("id, kind, storage_path, status").eq("id", assetId).maybeSingle();
+    const { data: asset } = await service.from("video_assets").select("id, kind, storage_path, status, user_id, name").eq("id", assetId).maybeSingle();
     if (!asset) return;
     const { data: signed } = await service.storage.from("video-assets").createSignedUrl(asset.storage_path as string, 60 * 60);
     if (!signed?.signedUrl) {
@@ -50,6 +53,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
         return;
       }
       await service.from("video_assets").update({ status: "ready", error: null, duration_s: round(found.seconds), has_audio: true, updated_at: now }).eq("id", assetId);
+      await charge(service, asset);
       return;
     }
 
@@ -62,6 +66,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
         .from("video_assets")
         .update({ status: "ready", error: null, width: found.width, height: found.height, poster_path: asset.storage_path, updated_at: now })
         .eq("id", assetId);
+      await charge(service, asset);
       return;
     }
 
@@ -113,6 +118,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
         updated_at: new Date().toISOString(),
       })
       .eq("id", assetId);
+    await charge(service, asset);
   } catch (error) {
     await fail(error instanceof Error ? `It could not be prepared: ${error.message}` : "It could not be prepared.");
   } finally {
@@ -121,3 +127,14 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
 }
 
 const round = (seconds: number) => Math.round(seconds * 1000) / 1000;
+
+/* A prepared upload is charged once, by its kind. A failed one never is. */
+async function charge(service: SupabaseClient, asset: { id: unknown; kind: unknown; user_id: unknown; name: unknown }) {
+  await chargeCredits(service, {
+    userId: String(asset.user_id),
+    action: "generate",
+    cost: prepareCredits(String(asset.kind)),
+    description: `Upload prepared: ${String(asset.name || asset.kind).slice(0, 80)}`,
+    dedupeKey: `video-prepare:${String(asset.id)}`,
+  });
+}

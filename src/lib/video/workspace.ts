@@ -250,7 +250,7 @@ h2{margin:26px 0 8px;font-size:15px}.scenes{display:grid;gap:8px;grid-template-c
     if(asked&&Date.now()-askedAt>180000)asked=null;
     var now=asked?asked.sound:soundNow();
     document.querySelectorAll('#sound button').forEach(function(b){b.classList.toggle('on',b.getAttribute('data-s')===now);b.disabled=Boolean(asked)});
-    $('soundnote').textContent=asked?'Making the new cut \u2014 about a minute. Free.':now==='none'?'Muted. The captions stay; turn the sound back on any time.':'Switch any time \u2014 free, and nothing is filmed again.';
+    $('soundnote').textContent=asked?'Making the new cut \u2014 about a minute. 1 credit per started minute of video.':now==='none'?'Muted. The captions stay; turn the sound back on any time.':'Switch any time \u2014 nothing is filmed again; the new cut is 1 credit per started minute.';
   }
   var RATIO={'9:16':'9 / 16','1:1':'1 / 1','16:9':'16 / 9','4:5':'4 / 5'};
   function media(n,engine){var r=(state.renders||[]).find(function(x){return x.scene===n&&x.engine===engine&&x.status==='done'&&x.url});return r?r.url:null}

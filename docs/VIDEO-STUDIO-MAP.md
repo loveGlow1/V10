@@ -193,3 +193,51 @@ ended (`lib/video/continuity.ts`).
 - **Speed:** only linked scenes are made one after another. Every other
   scene is still made at once, so a render takes as long as its longest run
   of linked scenes, which the Settings panel shows.
+
+## Many characters
+
+- **Limits:** a video can have up to 12 characters, and one scene up to 9
+  (the nine reference-picture slots, at least one each).
+- **Sharing the pictures** (`planReferences`): every character in the scene
+  gets their front picture first, then extra angles go round in turn. The
+  pictures stay grouped by character, and the prompt says which are whose
+  ("Reference images 1–3 show Ama: …").
+  - A tenth person is still described word for word.
+  - A continuing scene's last frame only takes a spare slot, never a
+    character's only picture.
+- **The script decides the cast** (QA in `plan.ts`):
+  - Anyone the script names in a scene (as a name, not an ordinary word) is
+    added to that scene.
+  - A line with several speakers ("AMA: … KOFI: …") becomes one shot per
+    speaker. Each shot keeps the full cast, is read in that speaker's voice,
+    and carries on from the one before.
+- **Live test:** a two-person scene (Ama and Kofi) on MiniMax H3, landscape,
+  kept both people exactly and never swapped them.
+
+## What everything costs (no free work)
+
+`lib/video/pricing.ts`. Every price is checked against the balance before
+the work starts, because `charge_credits` always lands, short or not. Each
+is charged once, when the work is delivered.
+
+| Work | Credits |
+|---|---|
+| The cut (every render, every saved edit, every setting change, every Sound switch) | 1 per started minute of the finished video |
+| "Edit my clips": uploads laid out as a timeline | 1 |
+| Preparing an upload | 0.5 per video clip, 0.1 per picture or sound file |
+| The AI's look-over of an edit | 0.5 × the agent's rate |
+| AI answers, plans, edits | 1 × the agent's rate (agent.ts) |
+| Generated clips, voices, lip sync, music, characters | as before (engines.ts) |
+
+## Smart suggestions
+
+With "Smart suggestions" on (the default, kept per device), the AI looks
+over each saved edit (`POST [id]/review`, `editor.ts reviewEdit`).
+
+- When all is well it stays quiet.
+- Otherwise it shows up to three short suggestions, each a ready change to
+  Apply or Dismiss.
+- A suggestion made against a timeline that has changed since is asked
+  again against the current one.
+- With too few credits the look-over is skipped, so nobody is asked to top
+  up for something they didn't ask for.

@@ -16,9 +16,10 @@ import type { ProductionPlan, Scene } from "./plan";
 
 export type PlanCharacter = { id: string; name: string; descriptor: string; voiceId?: string };
 
-/** At most this many characters in one video, and in one scene. */
-export const MAX_CAST = 4;
-export const MAX_SCENE_CAST = 3;
+/** At most this many characters in one video, and in one scene — a scene's
+    limit is the nine reference pictures, at least one each. */
+export const MAX_CAST = 12;
+export const MAX_SCENE_CAST = 9;
 /** Reference-to-video takes nine pictures. */
 export const MAX_REFERENCES = 9;
 
@@ -54,31 +55,126 @@ export function normalizeSceneCast(raw: unknown, cast: PlanCharacter[]): string[
 export const sceneCast = (scene: Pick<Scene, "characters">, plan: Pick<ProductionPlan, "characters">): PlanCharacter[] =>
   (scene.characters ?? []).map((id) => plan.characters?.find((c) => c.id === id)).filter((c): c is PlanCharacter => Boolean(c));
 
-/** The words that lock a scene's cast: every description verbatim, in picture order. Pure. */
-export function castLock(cast: PlanCharacter[]): string {
-  if (!cast.length) return "";
-  if (cast.length === 1) {
-    return `Character: ${cast[0].name}, ${cast[0].descriptor}. Keep the face, hair and outfit exactly as in the reference images.`;
+/**
+ * Which reference pictures go with a scene, and whose each one is. Every
+ * character gets their FRONT picture first — so up to nine people are each
+ * recognisable — then the remaining slots go round the cast, one extra
+ * angle each in turn. `reserve` keeps slots free (for a continuing scene's
+ * last frame) without ever taking a character's only picture. The pictures
+ * stay grouped by character, so the prompt can say which are whose. Pure.
+ */
+export type ReferencePlan = { images: string[]; slots: { id: string; from: number; to: number }[] };
+export function planReferences(cast: PlanCharacter[], pictures: Record<string, string[]>, options: { reserve?: number } = {}): ReferencePlan {
+  const withPictures = cast.filter((c) => (pictures[c.id] ?? []).length);
+  const room = Math.max(withPictures.length ? Math.min(withPictures.length, MAX_REFERENCES) : 0, MAX_REFERENCES - (options.reserve ?? 0));
+  const counts = new Map<string, number>();
+  let used = 0;
+  /* Fronts first, in scene order. */
+  for (const c of withPictures) {
+    if (used >= room) break;
+    counts.set(c.id, 1);
+    used += 1;
   }
-  const who = cast.map((c, i) => `${i === 0 ? "First" : i === 1 ? "Second" : "Third"} character (${i === 0 ? "the first" : i === 1 ? "the next" : "the last"} reference images): ${c.name}, ${c.descriptor}.`).join(" ");
-  return `${who} Keep each person's face, hair and outfit exactly as in their own reference images; never swap or blend them.`;
+  /* Then one more angle each, round and round. */
+  let added = true;
+  while (used < room && added) {
+    added = false;
+    for (const c of withPictures) {
+      const have = counts.get(c.id);
+      if (have === undefined || used >= room) continue;
+      if (have < (pictures[c.id] ?? []).length) {
+        counts.set(c.id, have + 1);
+        used += 1;
+        added = true;
+      }
+    }
+  }
+  const images: string[] = [];
+  const slots: ReferencePlan["slots"] = [];
+  for (const c of withPictures) {
+    const n = counts.get(c.id);
+    if (!n) continue;
+    slots.push({ id: c.id, from: images.length + 1, to: images.length + n });
+    images.push(...(pictures[c.id] ?? []).slice(0, n));
+  }
+  return { images, slots };
+}
+
+/** The words that lock a scene's cast: every description verbatim, tied to its pictures. Pure. */
+export function castLock(cast: PlanCharacter[], plan?: ReferencePlan): string {
+  if (!cast.length) return "";
+  const pictured = (c: PlanCharacter) => plan?.slots.find((slot) => slot.id === c.id);
+  const range = (slot: { from: number; to: number }) => (slot.from === slot.to ? `Reference image ${slot.from}` : `Reference images ${slot.from}–${slot.to}`);
+  if (cast.length === 1) {
+    const slot = pictured(cast[0]);
+    return `Character: ${cast[0].name}, ${cast[0].descriptor}. Keep the face, hair and outfit exactly as in ${slot ? range(slot).toLowerCase() : "the reference images"}.`;
+  }
+  const who = cast
+    .map((c) => {
+      const slot = pictured(c);
+      return slot ? `${range(slot)} ${slot.from === slot.to ? "shows" : "show"} ${c.name}: ${c.descriptor}.` : `${c.name} (no picture — follow these words exactly): ${c.descriptor}.`;
+    })
+    .join(" ");
+  return `${cast.length} people in this scene, each exactly as shown. ${who} Every person keeps their own face, hair, skin tone, build and outfit; never swap, merge, duplicate or blend them, and nobody else is a lookalike of them.`;
 }
 
 /** A scene's prompt with its cast locked in. Pure. */
-export function castPrompt(prompt: string, cast: PlanCharacter[]): string {
-  const lock = castLock(cast);
+export function castPrompt(prompt: string, cast: PlanCharacter[], plan?: ReferencePlan): string {
+  const lock = castLock(cast, plan);
   return lock ? `${prompt.trim()} ${lock}` : prompt;
 }
 
-/**
- * The pictures sent with a scene: each character's, front first, shared out
- * so every character gets a fair number and the whole stays within nine. Pure.
- */
+/** The pictures sent with a scene (planReferences, without the mapping). Pure. */
 export function castReferences(cast: PlanCharacter[], pictures: Record<string, string[]>): string[] {
-  const lists = cast.map((c) => pictures[c.id] ?? []).filter((list) => list.length);
-  if (!lists.length) return [];
-  const each = Math.max(1, Math.floor(MAX_REFERENCES / lists.length));
-  return lists.flatMap((list) => list.slice(0, each)).slice(0, MAX_REFERENCES);
+  return planReferences(cast, pictures).images;
+}
+
+/* ── The script decides who is on screen ──────────────────────────────── */
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The ways a script writes a character: full name, first name; capitalised (a name, not a word). */
+function nameForms(c: PlanCharacter): string[] {
+  const full = c.name.trim();
+  const first = full.split(/\s+/)[0];
+  return [...new Set([full, first].filter((n) => n.length >= 2))];
+}
+
+/** Characters a scene's script names — in its picture, its action, or as a speaker — in order of first mention. Pure. */
+export function mentionedCast(scene: Pick<Scene, "visual" | "motionPrompt" | "shot" | "voiceover" | "onScreenText">, cast: PlanCharacter[]): string[] {
+  const text = `${scene.shot} ${scene.visual} ${scene.motionPrompt} ${speakers(scene.voiceover).join(" ")}`;
+  const found: { id: string; at: number }[] = [];
+  for (const c of cast) {
+    let at = -1;
+    for (const form of nameForms(c)) {
+      /* Capitalised as a name ("Ama", "AMA"), on word edges. */
+      const match = new RegExp(`(^|[^\\p{L}])(${escape(form)}|${escape(form.toUpperCase())})(?=$|[^\\p{L}])`, "u").exec(text);
+      if (match && (at < 0 || match.index < at)) at = match.index;
+    }
+    if (at >= 0) found.push({ id: c.id, at });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.id);
+}
+
+/** The speakers of a line written as dialogue: "AMA: hi. KOFI: hello" → ["AMA", "KOFI"]. Pure. */
+export function speakers(voiceover: string): string[] {
+  return [...voiceover.matchAll(/(?:^|[.!?…"”]\s+|\n\s*)([A-Z][A-Za-z .'-]{0,24}):\s/g)].map((m) => m[1].trim());
+}
+
+/**
+ * A line with more than one speaker, as one part per speaker: "AMA: Hi.
+ * KOFI: Hello." → ["AMA: Hi.", "KOFI: Hello."]. One part when one speaks. Pure.
+ */
+export function splitDialogue(voiceover: string): string[] {
+  const marks = [...voiceover.matchAll(/(?:^|(?<=[.!?…"”])\s+|\n\s*)([A-Z][A-Za-z .'-]{0,24}):\s/g)];
+  if (marks.length < 2) return [voiceover];
+  const parts: string[] = [];
+  marks.forEach((m, i) => {
+    const start = m.index + (m[0].length - m[0].trimStart().length);
+    const end = i + 1 < marks.length ? marks[i + 1].index : voiceover.length;
+    const part = voiceover.slice(start, end).trim();
+    if (part) parts.push(part);
+  });
+  return parts.length ? parts : [voiceover];
 }
 
 /** Who speaks a line: "AMA: hello" names them; otherwise the scene's first character. Pure. */
