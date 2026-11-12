@@ -44,7 +44,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!body.plan || typeof body.plan !== "object") return NextResponse.json({ error: "Open the timeline first." }, { status: 400 });
   if (service) {
     const balance = await currentBalance(service, userId);
-    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < cost) return NextResponse.json({ error: "You're out of credits. Top up to ask the AI editor — everything else in the editor is free." }, { status: 402 });
+    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < cost) return NextResponse.json({ error: "You're out of credits. Top up to ask the AI editor." }, { status: 402 });
   }
 
   const uploads = await loadStudioAssets(supabase, id);

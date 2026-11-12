@@ -318,3 +318,69 @@ export async function decideEdit(input: {
     return { error: "The editor could not work that out just now." };
   }
 }
+
+/* ── Suggestions: the AI speaks only when it has something worth saying ── */
+
+export type Suggestion = { title: string; why: string; edit: Edit };
+
+const REVIEW_SYSTEM = `You are QuickStark's video editor, looking over an edit the person is making by hand. Most of the time it is fine and you say NOTHING. Speak only about something that would clearly make the video better or that is clearly wrong, for example:
+- a character named in a scene's script who is not on screen there, or two scenes that should carry on and do not;
+- a spoken line too long for its scene (about 2.5 words a second), or a scene with words but no voice in a narrated video;
+- music that will bury the voice, a missing end card or call to action on an ad, captions off on a vertical social video;
+- an upload that is never used, a scene that repeats another, an obviously wrong order.
+Never comment on taste for its own sake, never repeat a suggestion the person can see is already handled, and never suggest more than three things.
+
+Reply with ONLY raw JSON, no markdown:
+{"quiet": true}
+when all is well; otherwise
+{"quiet": false, "suggestions": [{"title": "short, plain (max 8 words)", "why": "one sentence, plain words", "edit": {"reply": "", "replan": false, "cut": {}, "scenes": [{"n": 1, "action": "keep|refilm|revoice|remove", "motionPrompt": "", "voiceover": "", "onScreenText": "", "duration": 5, "voiceId": "", "characters": []}], "order": [], "add": []}}]}
+Each edit uses the same fields and rules as an edit you would make when asked; include only what that one suggestion changes.`;
+
+/** Normalised suggestions: at most three, each a real edit. Pure. */
+export function normalizeReview(raw: unknown, plan: Pick<ProductionPlan, "scenes" | "characters">): Suggestion[] {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  if (r.quiet === true || !Array.isArray(r.suggestions)) return [];
+  const out: Suggestion[] = [];
+  for (const entry of r.suggestions.slice(0, 8)) {
+    if (out.length >= 3) break;
+    const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
+    const title = text(e.title, 80);
+    const why = text(e.why, 300);
+    if (!title || !why) continue;
+    const edit = normalizeEdit(e.edit, plan);
+    if (edit.replan) continue;
+    if (!edit.cut && !edit.scenes.length && !edit.order && !edit.add) continue;
+    out.push({ title, why, edit: { ...edit, reply: why } });
+  }
+  return out;
+}
+
+/** The AI's look over an edit. An empty list means all is well. Server-only. */
+export async function reviewEdit(input: {
+  plan: ProductionPlan;
+  made: { scene: number; clip: boolean; voice: boolean }[];
+  assets?: StudioAsset[];
+  model?: string;
+}): Promise<{ suggestions: Suggestion[]; outputTokens: number } | { error: string }> {
+  if (!process.env.ANTHROPIC_API_KEY) return { error: "The video editor is not configured on this server." };
+  try {
+    const message = await new Anthropic().messages.create({
+      model: input.model || DIRECTOR_MODEL,
+      max_tokens: 3000,
+      system: withPolicy(`${REVIEW_SYSTEM}\n\n${SYSTEM}`),
+      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nLook over this edit. Quiet unless something clearly needs saying.` }],
+    });
+    const raw = message.content
+      .filter((block): block is Anthropic.TextBlock => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .replace(/```json|```/g, "")
+      .trim();
+    const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+    return { suggestions: normalizeReview(parsed, input.plan), outputTokens: message.usage.output_tokens };
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("video review:", error);
+    return { error: "The review could not run just now." };
+  }
+}

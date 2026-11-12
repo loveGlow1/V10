@@ -213,3 +213,31 @@ ended (`lib/video/continuity.ts`).
     and carries on from the one before.
 - **Live test:** a two-person scene (Ama and Kofi) on MiniMax H3, landscape,
   kept both people exactly and never swapped them.
+
+## What everything costs (no free work)
+
+`lib/video/pricing.ts`. Every price is checked against the balance before
+the work starts, because `charge_credits` always lands, short or not. Each
+is charged once, when the work is delivered.
+
+| Work | Credits |
+|---|---|
+| The cut (every render, every saved edit, every setting change, every Sound switch) | 1 per started minute of the finished video |
+| "Edit my clips": uploads laid out as a timeline | 1 |
+| Preparing an upload | 0.5 per video clip, 0.1 per picture or sound file |
+| The AI's look-over of an edit | 0.5 × the agent's rate |
+| AI answers, plans, edits | 1 × the agent's rate (agent.ts) |
+| Generated clips, voices, lip sync, music, characters | as before (engines.ts) |
+
+## Smart suggestions
+
+With "Smart suggestions" on (the default, kept per device), the AI looks
+over each saved edit (`POST [id]/review`, `editor.ts reviewEdit`).
+
+- When all is well it stays quiet.
+- Otherwise it shows up to three short suggestions, each a ready change to
+  Apply or Dismiss.
+- A suggestion made against a timeline that has changed since is asked
+  again against the current one.
+- With too few credits the look-over is skipped, so nobody is asked to top
+  up for something they didn't ask for.

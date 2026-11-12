@@ -12,7 +12,10 @@ import { randomUUID } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { MAX_UPLOADS, extensionFor, uploadProblem } from "@/lib/video/assets";
+import { MAX_UPLOADS, assetKind, extensionFor, uploadProblem } from "@/lib/video/assets";
+import { currentBalance } from "@/lib/credits-server";
+import { createSupabaseServiceClient } from "@/lib/supabase-service";
+import { creditsLabel, prepareCredits } from "@/lib/video/pricing";
 
 import { videoSession } from "../../../shared";
 
@@ -34,6 +37,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!video) return NextResponse.json({ error: "No such video." }, { status: 404 });
   const { count } = await supabase.from("video_assets").select("id", { count: "exact", head: true }).eq("video_id", id).neq("kind", "render");
   if ((count ?? 0) >= MAX_UPLOADS) return NextResponse.json({ error: `A video can hold ${MAX_UPLOADS} uploads. Remove one first.` }, { status: 400 });
+
+  /* Preparing it is work: it must be covered before it is sent. */
+  const service = createSupabaseServiceClient();
+  const balance = service ? await currentBalance(service, userId) : null;
+  const price = prepareCredits(assetKind(mime));
+  if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < price) {
+    return NextResponse.json({ error: `Preparing this upload needs ${creditsLabel(price)}. Top up to upload.` }, { status: 402 });
+  }
 
   const path = `${userId}/${id}/uploads/${randomUUID()}.${extensionFor(mime, name)}`;
   const { data, error } = await supabase.storage.from("video-assets").createSignedUploadUrl(path);

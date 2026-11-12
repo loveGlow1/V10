@@ -23,6 +23,7 @@ import type { StudioAsset } from "@/lib/video/assets";
 import { stitchPlan } from "@/lib/video/timeline";
 import type { PlanCharacter } from "@/lib/video/cast";
 import { agentCost, videoAgentFor } from "@/lib/video/agent";
+import { STITCH_COST, creditsLabel } from "@/lib/video/pricing";
 
 /** A video's uploads as the planner sees them. */
 export async function loadStudioAssets(supabase: SupabaseClient, videoId: string): Promise<(StudioAsset & { storage_path: string; poster_path: string | null })[]> {
@@ -111,6 +112,7 @@ export async function planVideo(
   let issues;
   let note: string;
   let outputTokens = 0;
+  let stitched = false;
 
   const uploads = await loadStudioAssets(supabase, id);
   const cast = await loadCast(supabase, video as { user_id: string; character_ids?: string[] | null });
@@ -129,8 +131,14 @@ export async function planVideo(
     if (!uploads.some((asset) => asset.status !== "failed" && (asset.kind === "video" || asset.kind === "image" || asset.kind === "photo"))) {
       return NextResponse.json({ error: "Upload your clips first — they're stitched in the order you add them." }, { status: 400 });
     }
+    const purse = createSupabaseServiceClient();
+    const balance = purse ? await currentBalance(purse, userId) : null;
+    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < STITCH_COST) {
+      return NextResponse.json({ error: `Laying out your clips needs ${creditsLabel(STITCH_COST)}. Top up to continue.` }, { status: 402 });
+    }
     ({ plan, issues } = qaAndRepair(keepKnownCast(stitchPlan({ assets: uploads, answers, title: video.title as string }), cast)));
     note = "Your clips, stitched";
+    stitched = true;
   } else {
     /* Before any credit, on a first plan: a template's blanks planned as they
        are would be spoken as "[PRODUCT]". The person's answer is kept with the
@@ -191,6 +199,11 @@ export async function planVideo(
   const { error: saveError } = await supabase.from("video_versions").insert({ video_id: id, user_id: userId, version, plan, issues, note });
   if (saveError) return NextResponse.json({ error: "The plan was made but could not be saved. Try again." }, { status: 500 });
   await supabase.from("video_projects").update({ current_version: version, status: "planned", title: plan.title.slice(0, 160) }).eq("id", id);
+
+  if (stitched) {
+    const service = createSupabaseServiceClient();
+    if (service) await chargeCredits(service, { userId, action: "generate", cost: STITCH_COST, description: `Clips stitched: ${plan.title}`, dedupeKey: `video-stitch:${id}:${version}` });
+  }
 
   if (outputTokens) {
     const service = createSupabaseServiceClient();

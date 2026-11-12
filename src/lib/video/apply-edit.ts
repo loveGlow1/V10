@@ -19,7 +19,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { chargeCredits } from "@/lib/credits-server";
+import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
@@ -31,6 +31,8 @@ import { startRender } from "./start-render";
 import type { StudioAsset } from "./assets";
 import { loadStudioAssets } from "./plan-video";
 import { agentCost, videoAgentFor } from "./agent";
+import { cutCost } from "./engines";
+import { creditsLabel } from "./pricing";
 
 const EDIT_COST = 1;
 
@@ -115,7 +117,8 @@ async function commitEdit(input: Loaded & {
 /**
  * The studio's own timeline and settings, saved as the next version: every
  * clip and voice line that still fits carries over (carryByContent), only
- * what changed is made, and the cut is made again — free. Null when nothing
+ * what changed is made, and the cut is made again (charged by its length,
+ * pricing.ts). Null when nothing
  * has been made yet (the caller just saves the plan).
  */
 export async function saveTimeline(input: { writer: SupabaseClient; userId: string; videoId: string; next: ProductionPlan; origin: string }): Promise<EditResult | null> {
@@ -152,6 +155,14 @@ async function commitNext(input: Loaded & {
   const { writer, userId, videoId, origin, video, version, done, next, carry, refilm, revoice } = input;
   const edit = { reply: input.reply };
   if (!next.scenes.length) return { ok: false, message: "That would leave the video with no scenes, so I've left it as it is." };
+  /* Every new version is cut again, and the cut is charged: nothing is
+     saved unless the AI's answer (if any) and the cut can be paid for. */
+  const needed = input.charge + cutCost(next);
+  const purse = createSupabaseServiceClient();
+  const balance = purse ? await currentBalance(purse, userId) : null;
+  if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < needed) {
+    return { ok: false, message: `This change needs ${creditsLabel(needed)} (the new cut${input.charge ? " and the AI's answer" : ""}). Top up and try again — nothing was changed.` };
+  }
 
   /* 1. The new version. */
   const { data: newest } = await writer.from("video_versions").select("version").eq("video_id", videoId).order("version", { ascending: false }).limit(1).maybeSingle();

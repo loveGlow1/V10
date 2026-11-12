@@ -52,6 +52,7 @@ import { resolveCut } from "@/lib/video/cut-settings";
 import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset } from "@/lib/video/timeline";
+import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
 import { callableModels, isModelAvailable } from "@/app/dashboard/models";
@@ -110,6 +111,26 @@ export default function VideoEditor({ id }: { id: string }) {
     setAgentRaw(id);
     try {
       window.localStorage.setItem("qs-video-agent", id);
+    } catch {
+      /* Not remembered. */
+    }
+  };
+  /* Smart suggestions: after each save the AI looks the edit over and speaks
+     only when something is worth changing. Charged per look (pricing.ts). */
+  const [smart, setSmartRaw] = useState(true);
+  const [suggestions, setSuggestions] = useState<{ title: string; why: string; plan: ProductionPlan; refilm: number[]; base: string }[]>([]);
+  const [reviewed, setReviewed] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("qs-video-smart") === "off") setSmartRaw(false);
+    } catch {
+      /* On. */
+    }
+  }, []);
+  const setSmart = (on: boolean) => {
+    setSmartRaw(on);
+    try {
+      window.localStorage.setItem("qs-video-smart", on ? "on" : "off");
     } catch {
       /* Not remembered. */
     }
@@ -290,8 +311,36 @@ export default function VideoEditor({ id }: { id: string }) {
       return false;
     }
     setNote(body?.recut ? `${body.message ?? "Saved."}` : "Saved.");
+    const saved = draft;
     await load();
+    if (smart) void review(saved, true);
     return true;
+  }
+
+  /* The AI's look over the edit. Quiet unless something is worth saying. */
+  async function review(plan: ProductionPlan, automatic = false) {
+    if (!automatic) setBusy("assist");
+    const response = await fetch(`/api/video/${id}/review`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan, model: agent }) }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { quiet?: boolean; skipped?: string; suggestions?: { title: string; why: string; plan: ProductionPlan; refilm: number[] }[]; charged?: number } | null;
+    if (!automatic) setBusy(null);
+    if (!response?.ok || !body) return;
+    if (body.skipped === "credits") {
+      if (!automatic) setReviewed("Top up to have the AI look over your edit.");
+      return;
+    }
+    const base = JSON.stringify(plan);
+    setSuggestions((body.suggestions ?? []).map((sugg) => ({ ...sugg, base })));
+    setReviewed(body.quiet ? `Looked over — all good${body.charged ? ` · ${creditsLabel(body.charged)}` : ""}.` : body.charged ? `${creditsLabel(body.charged)} for the look-over.` : null);
+  }
+
+  async function applySuggestion(index: number) {
+    const sugg = suggestions[index];
+    if (!sugg || !draft) return;
+    setSuggestions((list) => list.filter((_, i) => i !== index));
+    /* Made against the timeline as it was: applied as it is when nothing
+       has changed since, otherwise asked again against what is there now. */
+    if (JSON.stringify(draft) === sugg.base) change(sugg.plan);
+    else await assistWith(sugg.why);
   }
 
   async function exportVideo() {
@@ -321,7 +370,10 @@ export default function VideoEditor({ id }: { id: string }) {
   }
 
   async function assist() {
-    const text = ask.trim();
+    await assistWith(ask.trim());
+  }
+
+  async function assistWith(text: string) {
     if (!text || !draft) return;
     setBusy("assist");
     setChat((c) => [...c, { who: "you", text }]);
@@ -432,7 +484,7 @@ export default function VideoEditor({ id }: { id: string }) {
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
         <button onClick={() => setShowSettings((s) => !s)} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> Settings</button>
         <button onClick={() => void save()} disabled={!dirty || busy !== null || rendering} className={chip}>
-          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
+          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${creditsLabel(cutCredits(total))}` : ""}
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
@@ -527,7 +579,7 @@ export default function VideoEditor({ id }: { id: string }) {
               ) : (
                 <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4 text-[12.5px] leading-relaxed text-muted">
                   <p className="text-[13.5px] font-medium text-ink">Edit by hand</p>
-                  <p className="mt-1">Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
+                  <p className="mt-1">Edit freely, then Save: each save makes the new cut ({creditsLabel(cutCredits(total))} at this length — 1 credit per started minute). Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
                   <button onClick={() => setSelection({ type: "music" })} className={`${chip} mt-3`}><Music className="h-3.5 w-3.5" /> Music and voice</button>
                 </section>
               )}
@@ -543,7 +595,30 @@ export default function VideoEditor({ id }: { id: string }) {
                     ))}
                   </select>
                 </div>
-                <p className="mt-0.5 text-[11.5px] text-muted">Pick any AI agent from your workspace. It sees your clips, characters, timeline and settings; its change lands on the timeline to keep or undo. From 1 credit an answer.</p>
+                <p className="mt-0.5 text-[11.5px] text-muted">Pick any AI agent from your workspace. It sees your clips, characters, timeline and settings; its change lands on the timeline to keep or undo. From 1 credit an answer. With smart suggestions on, it looks over each save and speaks only when something is worth changing.</p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-[12px] text-soft">
+                    <input type="checkbox" checked={smart} onChange={(e) => setSmart(e.target.checked)} />
+                    Smart suggestions after each save · {creditsLabel(REVIEW_COST)} a look
+                  </label>
+                  <button onClick={() => draft && void review(draft)} disabled={!draft || busy !== null} className="text-[11.5px] text-accent disabled:opacity-40">Look over my edit</button>
+                </div>
+                {reviewed && !suggestions.length && <p className="mt-1.5 text-[11.5px] text-muted">{reviewed}</p>}
+                {suggestions.length > 0 && (
+                  <ul className="mt-2 space-y-2">
+                    {suggestions.map((sugg, i) => (
+                      <li key={`${sugg.title}-${i}`} className="rounded-[12px] border border-accent/30 bg-accent/[0.05] p-2.5">
+                        <p className="text-[12.5px] font-medium text-ink">{sugg.title}</p>
+                        <p className="mt-0.5 text-[12px] leading-snug text-soft">{sugg.why}</p>
+                        {sugg.refilm.length > 0 && <p className="mt-0.5 text-[11px] text-muted">Films scene{sugg.refilm.length === 1 ? "" : "s"} {sugg.refilm.join(", ")} again on export.</p>}
+                        <div className="mt-1.5 flex gap-1.5">
+                          <button onClick={() => void applySuggestion(i)} className="flex h-7 items-center rounded-full bg-solid px-3 text-[11.5px] font-medium text-onSolid">Apply</button>
+                          <button onClick={() => setSuggestions((list) => list.filter((_, j) => j !== i))} className="flex h-7 items-center rounded-full px-3 text-[11.5px] text-muted hover:text-ink">Dismiss</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {chat.length > 0 && (
                   <ul className="mt-2 max-h-48 space-y-1.5 overflow-y-auto text-[12.5px]">
                     {chat.map((m, i) => (

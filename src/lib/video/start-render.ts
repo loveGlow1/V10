@@ -25,7 +25,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { type Aspect, type ClipEngine, canSpeak, providerOf, routeClip, tierFrom, voiceDirect } from "@/lib/video/clip-engines";
-import { readiness, renderCost } from "@/lib/video/engines";
+import { cutCost, readiness, renderCost } from "@/lib/video/engines";
+import { creditsLabel } from "@/lib/video/pricing";
 import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
@@ -69,6 +70,14 @@ export async function startRender(
   }
 
   const answers = (video.answers ?? {}) as Record<string, string>;
+  /* Nothing here is free: every path below checks it can be paid for first. */
+  const covers = async (needed: number) => {
+    const service = createSupabaseServiceClient();
+    const balance = service ? await currentBalance(service, userId) : null;
+    return !balance || balance.daily + balance.rollover + balance.monthly + balance.topUp >= needed;
+  };
+  const shortOf = (needed: number) =>
+    NextResponse.json({ error: `This needs ${creditsLabel(needed)}. Top up to make the cut.` }, { status: 402 });
   const { data: refs } = await supabase.from("video_assets").select("kind, storage_path").eq("video_id", id).neq("kind", "render").order("created_at");
   if (plan.pipeline === "clone" && !(refs ?? []).some((asset) => asset.kind === "person")) {
     return NextResponse.json({ error: "Upload a clear photo of yourself first — your presenter is made from it." }, { status: 400 });
@@ -111,6 +120,7 @@ export async function startRender(
     for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
+    if (jobs.length === 0 && !(await covers(cutCost(plan)))) return shortOf(cutCost(plan));
     const filed = await fileUploads(supabase, { videoId: id, userId, version, plan });
     if (jobs.length === 0) {
       const service = createSupabaseServiceClient();
@@ -129,6 +139,9 @@ export async function startRender(
   }
 
   /* The person's own clips, pictures and music: filed as they are, free. */
+  if (jobs.length === 0 && body.retryFailed !== true && body.onlyMissing !== true && !(await covers(renderCost(plan, process.env, answers.quality ?? null)))) {
+    return shortOf(renderCost(plan, process.env, answers.quality ?? null));
+  }
   const uploaded = body.retryFailed === true ? 0 : body.onlyMissing === true ? 0 : await fileUploads(supabase, { videoId: id, userId, version, plan });
   if (jobs.length === 0) {
     if (!uploaded) return NextResponse.json({ error: "There is nothing to render in this plan yet." }, { status: 400 });
@@ -147,7 +160,7 @@ export async function startRender(
      API until it is worth trying again (lib/video/credit.ts). */
   const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
   const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
-  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) : renderCost(plan, process.env, quality, skip);
+  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) + cutCost(plan) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);

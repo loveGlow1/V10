@@ -152,7 +152,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   }, [preparing, status, load]);
 
   /* The timeline and settings, saved: what was made is reused, and the cut
-     is made again — free (POST /timeline). */
+     is made again, charged by its length (POST /timeline). */
   async function saveDraft() {
     if (!draft) return;
     setBusy("save");
@@ -989,7 +989,7 @@ function DirectorChat(props: {
           </button>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11.5px] text-muted">A change uses 1 credit. Editing scenes yourself is free.</p>
+          <p className="text-[11.5px] text-muted">A change uses 1 credit. Saving your own scene edits makes a new cut: 1 credit per started minute of video.</p>
           {props.current !== null && (
             <button
               type="button"

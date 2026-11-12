@@ -26,6 +26,7 @@ import { type Aspect, type ClipEngine, anyClipEngine, clipCost, routeClip, tierF
 import type { PipelineId } from "./pipelines";
 import type { ProductionPlan } from "./plan";
 import { topUpPricePerCredit } from "@/app/dashboard/credits";
+import { cutCredits } from "./pricing";
 
 /* Credits per job, charged when its result arrives — never for a failure. */
 export const CLIP_COST = 4;
@@ -171,8 +172,13 @@ export function renderCost(plan: ProductionPlan, env: Env = process.env, quality
     if (avatar && spoken && line) total += productionJobCost(line, isClone(plan.pipeline) ? "avatar" : "lipsync", scene.duration, tier);
   }
   if (line && wantsMusic(plan)) total += productionJobCost(line, "music", totalSeconds(plan), tier);
-  if (line === "fal") total += COMPOSE_COST;
+  total += cutCost(plan, env);
   return total;
+}
+
+/** The final cut's price: fal's compose, or the cut made here by its length. */
+export function cutCost(plan: Pick<ProductionPlan, "scenes">, env: Env = process.env): number {
+  return productionEngine(env) === "fal" ? COMPOSE_COST : cutCredits(totalSeconds(plan));
 }
 
 const totalSeconds = (plan: Pick<ProductionPlan, "scenes">) => plan.scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);

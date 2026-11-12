@@ -98,7 +98,7 @@ export default function VideoSettings({
         <span className="flex items-center gap-1.5 text-[14px] font-medium text-ink"><SlidersHorizontal className="h-4 w-4" /> Video settings</span>
         <span className="text-[12px] text-muted">{LABELS.aspect[plan.aspect]} · {now.resolution} · {LABELS.transition[now.transition]}</span>
       </summary>
-      <p className="mt-1 text-[12px] text-muted">Changing these never films anything again — save, and the video is cut again for free.</p>
+      <p className="mt-1 text-[12px] text-muted">Changing these never films anything again — save, and the video is cut again (1 credit per started minute of video).</p>
 
       <div className="mt-3 space-y-4">
         <Group title="Picture">

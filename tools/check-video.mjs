@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -207,7 +207,7 @@ has(E.engineHealth("avatar", env) === "not-configured" && E.engineHealth("avatar
 has(E.readiness(clone, fal).ready === true, "a clone renders once the avatar engine is there");
 has(E.readiness(fixed, env).notes.some((n) => /FAL_KEY/.test(n)) && !E.readiness(fixed, fal).notes.some((n) => /lip sync needs/i.test(n)), "the studio says what FAL_KEY would add, and stops saying it once set");
 const spokenAvatar = L.normalizePlan({ music: "upbeat", scenes: [{ duration: 5, visual: "creator talks to camera", voiceover: "hi", motionPrompt: "x", engine: "avatar" }, { duration: 5, visual: "b-roll", motionPrompt: "y" }] }, "ugc_influencer", {});
-has(E.renderCost(spokenAvatar, env) === E.CLIP_COST * 2 + E.VOICE_COST, "without fal: clips and voice only");
+has(E.renderCost(spokenAvatar, env) === E.CLIP_COST * 2 + E.VOICE_COST + E.cutCost(spokenAvatar, env), "without fal: clips, voice and the cut made here");
 has(E.renderCost(spokenAvatar, fal) === E.CLIP_COST * 2 + E.VOICE_COST + E.LIPSYNC_COST + E.MUSIC_COST + E.COMPOSE_COST, "with fal: + lip sync, music and the final MP4");
 
 console.log("\nproduction (Runware)");
@@ -220,7 +220,7 @@ has(E.creditsForUsd(0.3) === Math.ceil((0.3 * 2.5) / E.usdPerCredit()) && E.cred
 has(E.runwareJobCredits("lipsync", 6) === E.creditsForUsd(0.0733 * 6) && E.runwareJobCredits("avatar", 6, "draft") === E.creditsForUsd(0.044 * 6), "lip sync and avatars are quoted by the second at Runware's list price");
 has(E.runwareJobCredits("music", 10) === E.creditsForUsd(0.0001 * 30), "music is quoted at ACE-Step's 30-second minimum");
 has(E.settleRunwareCredits(4, null) === 4 && E.settleRunwareCredits(4, 0.01) === 1 && E.settleRunwareCredits(4, 100) === Math.ceil(4 * 1.1), "settled at Runware's actual cost, never more than 10% over the quote");
-has(E.renderCost(spokenAvatar, rw) === C.ENGINES.runware.cost * 2 + E.VOICE_COST + E.runwareJobCredits("lipsync", 5) + E.runwareJobCredits("music", 10), "with Runware: + lip sync and music by the second; the cut made here is free");
+has(E.renderCost(spokenAvatar, rw) === C.ENGINES.runware.cost * 2 + E.VOICE_COST + E.runwareJobCredits("lipsync", 5) + E.runwareJobCredits("music", 10) + E.cutCost(spokenAvatar, rw), "with Runware: + lip sync and music by the second, and the cut by its length");
 has(E.productionTier("Economy") === "draft" && E.productionTier("Best") === "final" && E.productionTier(null) === "final", "the economy answer takes the draft lip sync and avatar models");
 const cloneSpoken = L.normalizePlan({ scenes: [{ duration: 5, visual: "presenter talks to camera", voiceover: "hello", motionPrompt: "x", engine: "avatar" }] }, "clone", {});
 const cloneJobs = R.jobsFor(cloneSpoken, {});
@@ -244,7 +244,7 @@ has(jobs.filter((j) => j.kind === "voice").length === fixed.scenes.filter((s) =>
 has(jobs.every((j) => j.kind !== "clip" || (j.duration >= 4 && j.duration <= R.MAX_CLIP_SECONDS)), "clips are 4–6s (the 180s run limit)");
 has(jobs.find((j) => j.kind === "voice")?.voiceId === "English_Trustworth_Man", "male voice when asked");
 has(R.jobsFor(L.normalizePlan({ scenes: [{ duration: 5, visual: "a", voiceover: "MAYA: We go now.", motionPrompt: "x" }] }, "cinematic_short", {}), {}).find((j) => j.kind === "voice")?.text === "We go now.", "dialogue speaker names are not spoken");
-has(R.jobCost(jobs) === E.renderCost(fixed), "the price shown is the price charged");
+has(R.jobCost(jobs) + E.cutCost(fixed) === E.renderCost(fixed), "the price shown is the price charged");
 const sig = R.signRender("vid", 2, "user", env);
 has(R.verifyRender("vid", 2, "user", sig, env), "a signature verifies for its own render");
 has(!R.verifyRender("vid", 3, "user", sig, env) && !R.verifyRender("other", 2, "user", sig, env) && !R.verifyRender("vid", 2, "someone", sig, env), "and for nothing else");
@@ -301,7 +301,7 @@ for (const engine of ["seedance", "kling", "minimax", "seedance-fal"]) {
 has(C.parseProvider("fal:xyz") === null && C.parseProvider("minimax:speech") === null && C.parseProvider("n8n:minimax") === null, "lip sync, music, compose and voice rows are never read as clips");
 has(E.engineHealth("video", mm) === "available" && E.engineHealth("voice", mm) === "available", "a MiniMax key alone renders clips and voices — no n8n needed");
 const vertical = { pipeline: "ugc_influencer", aspect: "9:16", music: "none", scenes: [{ n: 1, duration: 5, voiceover: "", engine: "video", visual: "", shot: "", onScreenText: "", motionPrompt: "x", sound: "" }] };
-has(E.renderCost(vertical, hf) === C.ENGINES.seedance.cost, "the price shown is the price of the engine that will make it");
+has(E.renderCost(vertical, hf) === C.ENGINES.seedance.cost + E.cutCost(vertical, hf), "the price shown is the price of the engine that will make it");
 
 const clipRoute = readFileSync(join(root, "src/app/api/video/[id]/render/clip/route.ts"), "utf8");
 has(/verifyFalToken\(id, version, `clip:\$\{scene\}`/.test(clipRoute), "a clip webhook carries our token for this video, version and scene");
@@ -357,7 +357,7 @@ has(/projectId: workspace\.id/.test(vstart) && /router\.push\(`\/dashboard\/proj
 has(/project\.intent === VIDEO_INTENT/.test(vbuild) && /startVideoTurn\(/.test(vbuild), "a video project's messages plan and render it, not build a page");
 has(/planVideo\(writer, userId, video\.id, first \? \{ fill, model: input\.model \} : \{ note: prompt, model: input\.model \}\)/.test(vws) && /startRender\(writer, userId, video\.id/.test(vws), "the first message plans it; every one after revises it; both render");
 const vplan = readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8");
-has(vplan.indexOf("unfilledPlaceholders(brief)") > 0 && vplan.indexOf("unfilledPlaceholders(brief)") < vplan.indexOf("currentBalance("), "a first plan with [BLANKS] left is stopped before any credit");
+has(vplan.indexOf("unfilledPlaceholders(brief)") > 0 && vplan.indexOf("unfilledPlaceholders(brief)") < vplan.lastIndexOf("currentBalance("), "a first plan with [BLANKS] left is stopped before any credit");
 has(/FILLED\}\\n\$\{fill\}/.test(vplan) && /first && prompt\.trim\(\) && prompt\.trim\(\) !== \(video\.brief/.test(vws), "a reply before the first plan fills the blanks, and is kept with the brief");
 has(/owner\?\.intent === VIDEO_INTENT/.test(vpreview) && /videoBoardHtml\(/.test(vpreview), "the preview iframe shows the video board");
 has(/verifyBoardToken\(id/.test(vboard) && /Access-Control-Allow-Origin/.test(vboard) && /\{ video: video \? \{ id: video\.id, status: video\.status, title: video\.title \} : null, latest, renders, final \}/.test(vboard), "the board reads its video's state with a token for that video only");
@@ -505,7 +505,7 @@ has(L.sourceSeconds({ assetId: id1, trimStart: 2, trimEnd: 8, speed: 2 }, 10) ==
 const mixed = L.normalizePlan({ scenes: [{ duration: 6, visual: "mine", voiceover: "Hello there", source: { assetId: id1 } }, { duration: 5, visual: "made", motionPrompt: "x" }] }, "commercial_ad", {});
 const mjobs = R.jobsFor(mixed, {});
 has(mjobs.filter((j) => j.kind === "clip").length === 1 && mjobs.some((j) => j.kind === "voice" && j.n === 1), "an uploaded scene films nothing, but its line is still voiced");
-has(E.renderCost(mixed, env) === E.CLIP_COST + E.VOICE_COST, "and costs nothing to film");
+has(E.renderCost(mixed, env) === E.CLIP_COST + E.VOICE_COST + E.cutCost(mixed, env), "and costs nothing to film — only its share of the cut");
 has(E.readiness(stitched, {}).ready === true, "a stitch of uploads needs no generation engine at all");
 const carried = ED.carryByContent(mixed, { ...mixed, scenes: [mixed.scenes[1], mixed.scenes[0]].map((s, i) => ({ ...s, n: i + 1 })) });
 has(carried.refilm.length === 0 && carried.revoice.length === 0 && carried.carry.length === 2, "a reordered timeline reuses every clip and line it already had");
@@ -691,6 +691,37 @@ has(CA.castVoice(ss[1], scripted.plan, "D") !== CA.castVoice(ss[0], scripted.pla
 has(scripted.issues.some((i) => /one shot per speaker/.test(i.issue)) && scripted.issues.some((i) => /in the script here/.test(i.issue)), "and the studio says what it did");
 const cs2 = readFileSync(join(root, "src/lib/video/continue-scene.ts"), "utf8");
 has(/planReferences\(cast, [^\n]*\{ reserve: lastFrame \? 1 : 0 \}\)/.test(cs2) && /castPrompt\([^\n]*refPlan\)/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")), "the render and continuation use the fair picture plan and say which pictures are whose");
+
+
+console.log("\nno free work");
+const PR = await import(join(dir, "pricing.js"));
+has(PR.cutCredits(10) === 1 && PR.cutCredits(60) === 1 && PR.cutCredits(61) === 2 && PR.cutCredits(0) === 1, "a cut is 1 credit per started minute, at least 1");
+has(PR.prepareCredits("video") === 0.5 && PR.prepareCredits("audio") === 0.1 && PR.STITCH_COST === 1, "preparing an upload and laying clips out are charged");
+has(PR.reviewCredits(1) === 0.5 && PR.reviewCredits(2.5) === 1.25 && PR.creditsLabel(0.5) === "0.5 credits" && PR.creditsLabel(1) === "1 credit", "an AI look-over is charged at the agent's rate");
+has(E.renderCost(stitched, {}) === E.cutCost(stitched, {}) && E.cutCost(stitched, {}) >= 1, "a stitch of uploads alone still pays for its cut");
+const cl = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+has(/cost: cutCredits\(total\)/.test(cl) && /dedupeKey: `video-cut:\$\{videoId\}:\$\{version\}`/.test(cl), "every cut made here is charged once per version, by its length");
+const ae = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+has(/const needed = input\.charge \+ cutCost\(next\)/.test(ae) && ae.indexOf("const needed") < ae.indexOf("const { error: saveError }"), "a saved edit or a Sound switch is refused before anything is saved when the new cut cannot be paid for");
+const srx = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
+has(/jobCost\(jobs\) \+ cutCost\(plan\)/.test(srx) && /return shortOf\(cutCost\(plan\)\)/.test(srx), "re-renders and edits with nothing to film still check the cut can be paid for");
+has(/STITCH_COST/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /video-stitch:/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "laying out clips is checked and charged");
+has(/prepareCredits\(assetKind\(mime\)\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")) && /video-prepare:/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "an upload is checked before it is sent and charged once it is prepared");
+const videoUi = ["src/app/dashboard/components/video/VideoSettings.tsx", "src/app/dashboard/components/video/VideoEditor.tsx", "src/app/dashboard/video/[id]/page.tsx", "src/app/api/video/[id]/assist/route.ts"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
+has(!/for free|is free\b|— free|\. Free\./.test(videoUi) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
+
+console.log("\nthe AI speaks only when it helps");
+has(ED.normalizeReview({ quiet: true }, castPlan).length === 0 && ED.normalizeReview({ quiet: false, suggestions: [] }, castPlan).length === 0, "all is well: the AI stays quiet");
+const sug = ED.normalizeReview({ quiet: false, suggestions: [
+  { title: "Put Kofi in scene 3", why: "The script names him there but he is not on screen.", edit: { scenes: [{ n: 3, action: "keep", characters: [kofiId] }] } },
+  { title: "No-op", why: "Nothing", edit: {} },
+  { title: "Start over", why: "x", edit: { replan: true, scenes: [] } },
+  { title: "4", why: "a", edit: { cut: { captions: true } } },
+  { title: "5", why: "b", edit: { cut: { captions: true } } },
+] }, castPlan);
+has(sug.length === 3 && sug[0].edit.scenes[0].characters[0] === kofiId && sug[0].edit.reply === sug[0].why, "a suggestion is a real, small edit — empty ones and \"start over\" are dropped, at most three");
+const rv = readFileSync(join(root, "src/app/api/video/[id]/review/route.ts"), "utf8");
+has(/skipped: "credits"/.test(rv) && rv.indexOf("currentBalance(") < rv.indexOf("reviewEdit(") && /chargeCredits\(service/.test(rv), "a look-over is checked before it runs, stays quiet without credit, and is charged when it runs");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
