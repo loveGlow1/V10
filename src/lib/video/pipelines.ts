@@ -178,7 +178,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     stages: ["Story idea", "Story development", "Characters", "World design", "Shot list", "Scenes", "Dialogue", "Sound design", "Music", "Colour finishing", "Final film"],
     questions: [
       { id: "genre", label: "Genre", options: ["Drama", "Sci-fi", "Thriller", "Fantasy", "Comedy", "Brand film"], initial: "Drama" },
-      { id: "length", label: "Length", options: ["30s", "60s", "2 min"], initial: "60s" },
+      { id: "length", label: "Length", options: ["30s", "60s", "2 min", "5 min", "10 min", "30 min", "60 min"], initial: "60s" },
       ASPECT_WIDE,
       { id: "look", label: "Look", options: ["Naturalistic", "Moody & dark", "Warm golden", "Neon", "Black & white"], initial: "Naturalistic" },
     ],
@@ -245,7 +245,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     stages: ["Concept", "Simplify", "Script", "Storyboard", "Visuals", "Voice", "Captions", "Render"],
     questions: [
       { id: "style", label: "Style", options: ["Animated", "Presenter-led", "Screen walkthrough"], initial: "Animated" },
-      { id: "length", label: "Length", options: ["30s", "60s", "90s", "2 min"], initial: "60s" },
+      { id: "length", label: "Length", options: ["30s", "60s", "90s", "2 min", "5 min", "10 min"], initial: "60s" },
       ASPECT_WIDE,
       VOICE,
     ],

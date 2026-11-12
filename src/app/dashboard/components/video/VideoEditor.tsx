@@ -51,7 +51,7 @@ import { formatSeconds } from "@/lib/video/assets";
 import { resolveCut } from "@/lib/video/cut-settings";
 import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
-import { sceneFromAsset } from "@/lib/video/timeline";
+import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
@@ -689,6 +689,9 @@ export default function VideoEditor({ id }: { id: string }) {
             musicAssetId={cut?.music.source === "upload" ? cut.music.assetId : null}
             onAdd={(asset) => change((p) => ({ ...p, scenes: [...p.scenes, sceneFromAsset(asset, p.scenes.length + 1)] }))}
             onUseMusic={(asset) => change((p) => ({ ...p, cut: { ...(p.cut ?? {}), music: asset ? { source: "upload", assetId: asset.id } : { source: "none" } } }))}
+            references={new Set(draft.referenceClips ?? [])}
+            onReference={(asset) => change((p) => toggleReference(p, asset.id))}
+            onContinue={(asset) => change((p) => withContinuation(p, asset))}
             onChanged={() => load(true)}
           />
         </>

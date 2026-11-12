@@ -241,3 +241,17 @@ over each saved edit (`POST [id]/review`, `editor.ts reviewEdit`).
   again against the current one.
 - With too few credits the look-over is skipped, so nobody is asked to top
   up for something they didn't ask for.
+
+## Long films (up to 60 minutes), references and continuations
+
+- **Length.** Cinematic films offer 5, 10, 30 and 60 minutes; explainers up to 10. A plan holds up to 600 scenes (`MAX_PLAN_SCENES`).
+- **Planning** (`director.ts directFilm`). A film over 3 minutes is outlined first (chapters of about 4 minutes, with the locks, voice and music), then every chapter's scenes are written at once, each told the whole outline and how the chapters beside it end and begin. Each call is charged (`agentCost(PLAN_COST) × calls`).
+- **Filming.** Scenes are sent 8 at a time. Scenes linked only by a shared character restart every `MAX_AUTO_RUN` (6), so a long film is never made one clip after another; a scene marked `continues: true` always carries on.
+- **The cut** (`chapters.ts`, `compose-local.ts`). Up to 150 s is cut in one run, as before. Longer:
+  - the film is split into chapters of about 2 minutes, never inside a linked run;
+  - every chapter is cut at once, each in its own `/render/compose?part=k` run, with its stretch of the (looped) music and one loudness, and stored as `part-NNN.mp4`;
+  - the last part to finish starts `?part=join`, which joins the parts by copying (no re-encode) and streams one MP4 straight into storage (`stream-upload.ts`, resumable upload in 6 MB pieces), so it never needs the server's disk;
+  - if the single file cannot be stored, the compose row says `parts:<count>:<base>`, and the studio plays the parts straight through, each downloadable.
+- **Uploads.** Clips up to an hour (still 400 MB). Over 3 minutes, a clip gets no working copy and the cut reads only the part it uses, where it is stored. Each clip gets three reference frames (`analysis.frames`).
+- **Use as look** (`plan.referenceClips`, `look.ts`). Every generated scene is sent the marked clips' frames after the characters' own pictures, with a prompt line to match their setting, light, colour and people. The director sees those clips' frames first.
+- **Continue it** (`timeline.withContinuation`, `continuity.ts`). A generated scene after an upload with `continues: true` starts on the upload's frame at its trim end (a picture is its own frame). Also available to the AI editor (`continueFrom`, `look`).

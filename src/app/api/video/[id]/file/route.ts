@@ -9,6 +9,7 @@
  * serves byte ranges, which a phone's player needs), made only after the
  * caller's own session has read the video — RLS returns only their videos. */
 
+import { partPath, readPartsOutput } from "@/lib/video/chapters";
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -42,6 +43,16 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (output.startsWith("https://")) return NextResponse.redirect(output, 302);
 
   const download = url.searchParams.get("download") === "1";
+  /* A long film kept as its parts: ?part=k, the first by default. */
+  const kept = readPartsOutput(output);
+  if (kept) {
+    const k = Math.min(kept.count, Math.max(1, Number(url.searchParams.get("part")) || 1));
+    const { data } = await supabase.storage
+      .from("video-assets")
+      .createSignedUrl(partPath(kept.base, k), 60 * 60, download ? { download: fileName(video.title as string, `-part-${k}`) } : undefined);
+    if (!data?.signedUrl) return new Response("Not found", { status: 404 });
+    return NextResponse.redirect(data.signedUrl, { status: 302, headers: { "Cache-Control": "private, no-store" } });
+  }
   const format = url.searchParams.get("format");
   const kind = isExportKind(format) ? format : null;
   const path = output.replace(/^storage:/, "");

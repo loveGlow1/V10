@@ -5,11 +5,12 @@
  * Drop files or pick them; each goes straight to storage with its own
  * progress bar (lib/video/upload-client.ts), then shows as a chip — its
  * kind, length, size and whether it is still being prepared — with a remove
- * button. A clip or picture can be added to the video's timeline; a sound
- * file can be the music. Nothing else on the page changes. */
+ * button. A clip or picture can be added to the video's timeline, marked as
+ * the look every generated scene matches, or continued — a new scene that
+ * starts where it ends; a sound file can be the music. */
 
 import { useRef, useState } from "react";
-import { Check, Film, Image as ImageIcon, Loader2, Music, Plus, Upload, X } from "lucide-react";
+import { Check, FastForward, Film, Image as ImageIcon, Loader2, Music, Palette, Plus, Upload, X } from "lucide-react";
 
 import { ACCEPT_ATTRIBUTE, formatSeconds, type StudioAsset } from "@/lib/video/assets";
 import { uploadStudioFile } from "@/lib/video/upload-client";
@@ -28,6 +29,9 @@ export default function MediaPanel({
   musicAssetId,
   onAdd,
   onUseMusic,
+  references,
+  onReference,
+  onContinue,
   onChanged,
   children,
 }: {
@@ -43,6 +47,11 @@ export default function MediaPanel({
   /** Adds a clip or picture to the end of the timeline; absent before there is one. */
   onAdd?: (asset: PanelAsset) => void;
   onUseMusic?: (asset: PanelAsset | null) => void;
+  /** Uploads marked as the look every generated scene matches. */
+  references?: Set<string>;
+  onReference?: (asset: PanelAsset) => void;
+  /** Adds a generated scene that starts where this clip ends. */
+  onContinue?: (asset: PanelAsset) => void;
   onChanged: () => Promise<unknown> | void;
   children?: React.ReactNode;
 }) {
@@ -179,6 +188,26 @@ export default function MediaPanel({
                     className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08]"
                   >
                     {used ? <Check className="h-3 w-3 text-emerald-400" /> : <Plus className="h-3 w-3" />} {used ? "In video" : "Add"}
+                  </button>
+                )}
+                {visual && onReference && asset.status !== "failed" && (
+                  <button
+                    type="button"
+                    onClick={() => onReference(asset)}
+                    title="Every generated scene matches this clip's setting, light, colour and people"
+                    className={`flex h-7 items-center gap-1 rounded-full border px-2 text-[11.5px] ${references?.has(asset.id) ? "border-emerald-400/40 text-emerald-400" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
+                  >
+                    {references?.has(asset.id) ? <Check className="h-3 w-3" /> : <Palette className="h-3 w-3" />} {references?.has(asset.id) ? "The look" : "Use as look"}
+                  </button>
+                )}
+                {visual && onContinue && asset.status !== "failed" && (
+                  <button
+                    type="button"
+                    onClick={() => onContinue(asset)}
+                    title="Add a new scene that starts exactly where this ends"
+                    className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08]"
+                  >
+                    <FastForward className="h-3 w-3" /> Continue it
                   </button>
                 )}
                 {asset.kind === "audio" && onUseMusic && asset.status !== "failed" && (

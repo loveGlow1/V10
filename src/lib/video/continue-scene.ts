@@ -21,10 +21,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { castPrompt, planReferences, sceneCast } from "./cast";
 import { castPictures } from "./characters";
 import { type Aspect, type ClipEngine, providerOf, routeClip, tierFrom } from "./clip-engines";
-import { CONTINUE_FRAME_NOTE, CONTINUE_NOTE, awaitedScene, lastFrameArgs, withLastFrame } from "./continuity";
+import { CONTINUE_FRAME_NOTE, CONTINUE_NOTE, awaitedScene, frameAtArgs, lastFrameArgs, uploadEnd, withLastFrame } from "./continuity";
 import { frameFor } from "./frames";
+import { LOOK_NOTE, lookFrames } from "./look";
 import { downloadTo, runFfmpeg } from "./media-files";
-import type { ProductionPlan } from "./plan";
+import type { ProductionPlan, SceneSource } from "./plan";
 import { signedUrl } from "./production";
 import { clipWebhookUrl, submitClip } from "./providers";
 import { clipPrompt } from "./render";
@@ -43,6 +44,37 @@ async function lastFrameOf(service: SupabaseClient, clipUrl: string, path: strin
     const { error } = await service.storage.from("video-assets").upload(path, await readFile(frame), { contentType: "image/jpeg", upsert: true });
     if (error) return null;
     return await signedUrl(service, `storage:${path}`);
+  } catch {
+    return null;
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** The frame an uploaded scene ends on, stored at `path`. A link to it, or null. */
+async function uploadFrame(service: SupabaseClient, source: SceneSource, path: string): Promise<string | null> {
+  const { data: asset } = await service.from("video_assets").select("kind, storage_path, working_path, duration_s").eq("id", source.assetId).maybeSingle();
+  if (!asset) return null;
+  /* A picture is its own last frame. */
+  if (asset.kind !== "video") return await signedUrl(service, `storage:${asset.storage_path as string}`);
+  const url = await signedUrl(service, `storage:${(asset.working_path ?? asset.storage_path) as string}`);
+  if (!url) return null;
+  const dir = `/tmp/qs-upload-frame-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  try {
+    await mkdir(dir, { recursive: true });
+    const frame = join(dir, "end.jpg");
+    const at = uploadEnd(source, asset.duration_s === null ? null : Number(asset.duration_s));
+    /* Read where it is stored: only the end of the clip is fetched. */
+    try {
+      await runFfmpeg(frameAtArgs({ source: url, out: frame, at }), 60_000);
+    } catch {
+      const clip = join(dir, "clip.mp4");
+      if (!(await downloadTo(url, clip, 120_000))) return null;
+      await runFfmpeg(frameAtArgs({ source: clip, out: frame, at }), 60_000);
+    }
+    if ((await stat(frame)).size < 1000) return null;
+    const { error } = await service.storage.from("video-assets").upload(path, await readFile(frame), { contentType: "image/jpeg", upsert: true });
+    return error ? null : await signedUrl(service, `storage:${path}`);
   } catch {
     return null;
   } finally {
@@ -80,20 +112,30 @@ export async function continueScene(service: SupabaseClient, input: { videoId: s
     }
     const userId = video.user_id as string;
 
-    /* 2. Where the scene before ended. */
-    const { data: before } = await service.from("video_renders").select("status, output_path").eq("video_id", videoId).eq("version", version).eq("scene", waitedFor).eq("engine", "video").maybeSingle();
-    const beforeUrl = before?.status === "done" ? await signedUrl(service, before.output_path as string | null) : null;
-    const lastFrame = beforeUrl ? await lastFrameOf(service, beforeUrl, `${userId}/${videoId}/v${version}/last-${waitedFor}.jpg`) : null;
+    /* 2. Where the scene before ended: its clip's last frame — or, when it is
+       the person's own clip, the frame where it was trimmed to end; their
+       picture is itself the frame. */
+    const beforeScene = plan.scenes.find((s) => s.n === waitedFor);
+    let lastFrame: string | null = null;
+    if (beforeScene?.source) {
+      lastFrame = await uploadFrame(service, beforeScene.source, `${userId}/${videoId}/v${version}/last-${waitedFor}.jpg`);
+    } else {
+      const { data: before } = await service.from("video_renders").select("status, output_path").eq("video_id", videoId).eq("version", version).eq("scene", waitedFor).eq("engine", "video").maybeSingle();
+      const beforeUrl = before?.status === "done" ? await signedUrl(service, before.output_path as string | null) : null;
+      lastFrame = beforeUrl ? await lastFrameOf(service, beforeUrl, `${userId}/${videoId}/v${version}/last-${waitedFor}.jpg`) : null;
+    }
 
     /* 3. Filmed from it. */
     const cast = sceneCast(scene, plan);
     /* The last frame takes a spare slot only — never a character's only picture. */
-    const refPlan = planReferences(cast, cast.length ? await castPictures(service, userId, cast.map((c) => c.id)) : {}, { reserve: lastFrame ? 1 : 0 });
-    const own = refPlan.images;
+    const look = await lookFrames(service, plan);
+    const refPlan = planReferences(cast, cast.length ? await castPictures(service, userId, cast.map((c) => c.id)) : {}, { reserve: (lastFrame ? 1 : 0) + Math.min(look.length, 3) });
+    /* The characters' pictures, then the look of the person's footage (look.ts). */
+    const own = [...refPlan.images, ...look].slice(0, lastFrame ? 8 : 9);
     const references = own.length ? withLastFrame(own, lastFrame) : [];
     const frame = lastFrame ?? own[0] ?? (await frameFor(service, { userId, videoId, version, plan, scene }));
     const note = lastFrame ? (references.length ? CONTINUE_NOTE : CONTINUE_FRAME_NOTE) : "";
-    const prompt = `${castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan)}${note ? ` ${note}` : ""}`;
+    const prompt = `${castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan)}${look.length && references.length ? ` ${LOOK_NOTE}` : ""}${note ? ` ${note}` : ""}`;
     const answers = (video.answers ?? {}) as Record<string, string>;
     const chain: ClipEngine[] = routeClip({
       pipeline: plan.pipeline,

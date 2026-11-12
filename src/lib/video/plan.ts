@@ -118,6 +118,8 @@ export type ProductionPlan = {
   cut?: Cut;
   /** The cast: characters that must look the same in every scene (cast.ts). */
   characters?: PlanCharacter[];
+  /** Uploaded clips (and pictures) whose look, setting and people every generated scene matches: their frames go with each scene as references. */
+  referenceClips?: string[];
 };
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
@@ -219,7 +221,7 @@ export function routeScene(pipeline: PipelineId, asked: unknown, scene: Pick<Sce
 /** Reads what the model wrote into a plan, whatever it left out. Never throws. */
 export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Record<string, string>): ProductionPlan {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const rawScenes = Array.isArray(r.scenes) ? r.scenes.slice(0, 24) : [];
+  const rawScenes = Array.isArray(r.scenes) ? r.scenes.slice(0, MAX_PLAN_SCENES) : [];
   const cast = normalizeCast(r.characters);
   const scenes: Scene[] = rawScenes.map((entry, index) => {
     const s = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
@@ -271,11 +273,21 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
     cta: text(r.cta, 300),
     ...(normalizeCut(r.cut) ? { cut: normalizeCut(r.cut) } : {}),
     ...(cast.length ? { characters: cast } : {}),
+    ...(referenceClipsOf(r.referenceClips).length ? { referenceClips: referenceClipsOf(r.referenceClips) } : {}),
   };
 }
 
+/** At most four upload ids, each once. Pure. */
+export function referenceClipsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)))].slice(0, 4);
+}
+
+/** The most scenes a plan holds: an hour of short clips. */
+export const MAX_PLAN_SCENES = 600;
+
 /** The longest one uploaded scene may run (seconds). */
-export const MAX_SOURCE_SECONDS = 600;
+export const MAX_SOURCE_SECONDS = 3600;
 
 /** A scene's upload as written by a person or a model, or undefined. Pure. */
 export function normalizeSource(raw: unknown): SceneSource | undefined {
@@ -316,7 +328,7 @@ export function normalizeCut(raw: unknown): Cut | undefined {
   const end = text(r.endCard, 80);
   if (end) cut.endCard = end;
   if (Array.isArray(r.muted)) {
-    const muted = r.muted.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 24);
+    const muted = r.muted.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, MAX_PLAN_SCENES);
     if (muted.length) cut.muted = [...new Set(muted)];
   }
   Object.assign(cut, normalizeSettings(r));

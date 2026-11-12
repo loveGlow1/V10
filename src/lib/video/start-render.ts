@@ -36,6 +36,7 @@ import { fileUploads } from "@/lib/video/uploads-render";
 import { castPrompt, planReferences, sceneCast } from "@/lib/video/cast";
 import { castPictures } from "@/lib/video/characters";
 import { awaitProvider, continuityLinks } from "@/lib/video/continuity";
+import { LOOK_NOTE, lookFrames } from "@/lib/video/look";
 import { releaseWaiting } from "@/lib/video/continuity-release";
 import type { ProductionPlan } from "@/lib/video/plan";
 import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
@@ -100,7 +101,7 @@ export async function startRender(
        it takes the new pieces. */
     const falFailed = (existing ?? []).filter((r) => r.status === "failed" && ["avatar", "music"].includes(r.engine));
     if (jobs.length === 0 && falFailed.length === 0) return NextResponse.json({ error: "Nothing failed — there is nothing to retry." }, { status: 400 });
-    for (const row of [...falFailed, ...(existing ?? []).filter((r) => r.engine === "compose")]) {
+    for (const row of [...falFailed, ...(existing ?? []).filter((r) => r.engine === "compose" || r.engine === "part")]) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
     if (jobs.length === 0) {
@@ -117,7 +118,7 @@ export async function startRender(
     /* An edit: what carried over is already here; make the rest. */
     const have = new Set((existing ?? []).filter((r) => r.status !== "failed").map((r) => `${r.engine}:${r.scene}`));
     jobs = jobs.filter((job) => !have.has(`${engineOf(job.kind)}:${job.n}`) && !(job.kind === "clip" && have.has(`avatar:${job.n}`)));
-    for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose")) {
+    for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose" || r.engine === "part")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
     if (jobs.length === 0 && !(await covers(cutCost(plan)))) return shortOf(cutCost(plan));
@@ -198,6 +199,8 @@ export async function startRender(
       ? await ensureKeyframe(writer, { userId, videoId: id, version, plan })
       : null;
 
+  /* The look of the person's footage, when they marked a clip as the reference. */
+  const look = writer ? await lookFrames(writer, plan) : [];
   const sent: { job: RenderJob; ok: boolean; error?: string }[] = [];
   /* Scenes that carry on from the one before wait for its last frame
      (continuity.ts); every other scene is filmed at once. */
@@ -211,8 +214,12 @@ export async function startRender(
      the MiniMax usage credit — is first, and a paid engine is only reached
      when n8n refuses the job; a clip n8n later FAILS is handed on by the
      callback (results.ts retryClip). */
-  await Promise.all(
-    jobs.map(async (job) => {
+  /* A few at a time: a film can have hundreds of scenes, and the engines
+     limit how many requests arrive at once. */
+  await inBatches(
+    jobs,
+    8,
+    async (job) => {
       if (job.kind === "voice") {
         if (voiceDirect(process.env, tier, n8nPaused)) {
           voices.push(job);
@@ -252,9 +259,10 @@ export async function startRender(
       /* Pictures shared fairly: everyone's front first, then extra angles,
          and the prompt says which pictures are whose. A scene that will
          wait for its last frame is held back below. */
-      const refPlan = planReferences(cast, pictures);
-      const references = refPlan.images;
-      let frame: string | null = references[0] ?? firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
+      const refPlan = planReferences(cast, pictures, { reserve: look.length ? Math.min(look.length, 3) : 0 });
+      /* The characters' own pictures first, then the look of the person's footage (look.ts). */
+      const references = scene && !scene.source ? [...refPlan.images, ...look].slice(0, 9) : refPlan.images;
+      let frame: string | null = refPlan.images[0] ?? firstFrameUrl ?? (scene?.engine === "avatar" ? keyframe : null);
       let chain = routeClip({ pipeline: plan.pipeline, aspect: plan.aspect as Aspect, fromFrame: Boolean(frame), tier, skip, references: references.length > 0 });
       /* No connected engine can film this scene from text at this shape:
          make a still of it and animate that (frames.ts). */
@@ -276,7 +284,7 @@ export async function startRender(
         }
         const result = await submitClip(
           engine,
-          { prompt: scene ? castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan) : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
+          { prompt: scene ? `${castPrompt(clipPrompt(scene.motionPrompt || scene.visual), cast, refPlan)}${look.length && references.length > refPlan.images.length ? ` ${LOOK_NOTE}` : ""}` : job.prompt, seconds: scene?.duration ?? job.duration, aspect: plan.aspect as Aspect, imageUrl: frame, references, key: `${id}:${version}:${job.n}:${engine}` },
           clipWebhookUrl(origin, id, version, job.n, engine),
         );
         if (result.ok) {
@@ -294,7 +302,7 @@ export async function startRender(
       }
       await fail(job, reason);
       sent.push({ job, ok: false, error: reason });
-    }),
+    },
   );
 
   /* Voice lines straight from MiniMax, after the answer: each takes a few
@@ -331,4 +339,18 @@ export async function startRender(
   await supabase.from("video_projects").update({ status: accepted ? "rendering" : "failed" }).eq("id", id);
   if (!accepted) return NextResponse.json({ error: sent[0]?.error ?? "The render could not be started." }, { status: 502 });
   return NextResponse.json({ queued: accepted, failed: sent.length - accepted, cost, readiness: ready });
+}
+
+/** Runs `work` over every item, at most `size` at once. */
+async function inBatches<T>(items: readonly T[], size: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (next < items.length) {
+        const item = items[next];
+        next += 1;
+        await work(item);
+      }
+    }),
+  );
 }

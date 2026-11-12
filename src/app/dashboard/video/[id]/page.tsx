@@ -19,7 +19,7 @@ import SaveFileButton from "@/components/SaveFileButton";
 import { formatSeconds } from "@/lib/video/assets";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
-import { sceneFromAsset } from "@/lib/video/timeline";
+import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 
 import CharactersPanel from "../../components/video/CharactersPanel";
 import MediaPanel, { type PanelAsset } from "../../components/video/MediaPanel";
@@ -38,6 +38,8 @@ type Loaded = {
   renders: RenderRow[];
   cost: number;
   final: string | null;
+  /** A long film kept as its parts, in order (lib/video/chapters.ts). */
+  parts?: string[];
 };
 
 const STEPS = ["Type", "Questions", "Plan", "Scenes", "Generate", "QA", "Preview", "Export"];
@@ -305,6 +307,9 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         musicAssetId={shown?.cut?.music?.source === "upload" ? shown.cut.music.assetId : null}
         onAdd={shown ? addAsset : undefined}
         onUseMusic={shown ? (asset) => setDraft((current) => (current ? { ...current, cut: { ...(current.cut ?? {}), music: asset ? { source: "upload", assetId: asset.id } : { source: "none" } } } : current)) : undefined}
+        references={new Set(shown?.referenceClips ?? [])}
+        onReference={shown ? (asset) => setDraft((current) => (current ? toggleReference(current, asset.id) : current)) : undefined}
+        onContinue={shown ? (asset) => setDraft((current) => (current ? withContinuation(current, asset) : current)) : undefined}
         onChanged={() => load(true)}
       >
         {!data.latest && pipeline.needsReference && (
@@ -363,7 +368,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
             {/* Step 7: preview */}
             {data.final || data.renders.some((r) => (r.engine === "video" || r.engine === "avatar") && r.status === "done" && r.url) ? (
-              <FinalCut plan={data.latest?.plan ?? shown} renders={data.renders} final={data.final} title={shown.title} />
+              <FinalCut plan={data.latest?.plan ?? shown} renders={data.renders} final={data.final} parts={data.parts ?? []} title={shown.title} />
             ) : (
               <Animatic plan={shown} />
             )}
@@ -635,6 +640,7 @@ function RenderProgress({ renders }: { renders: RenderRow[] }) {
   const done = renders.filter((r) => r.status === "done").length;
   const music = renders.find((r) => r.engine === "music");
   const compose = renders.find((r) => r.engine === "compose");
+  const parts = renders.filter((r) => r.engine === "part");
   return (
     <div className="mt-3">
       <p className="text-[12px] text-muted">{done} of {renders.length} jobs done</p>
@@ -661,6 +667,12 @@ function RenderProgress({ renders }: { renders: RenderRow[] }) {
             Music {mark(music)}
           </li>
         )}
+        {parts.length > 0 && compose?.status !== "done" && (
+          <li className="flex items-center gap-2 text-[12px] text-soft">
+            Cutting the film in {parts.length} parts — {parts.filter((p) => p.status === "done").length} done
+            {parts.some((p) => p.status === "failed") && <X className="h-3.5 w-3.5 text-warn" />}
+          </li>
+        )}
         {compose && (
           <li className="flex items-center gap-2 text-[12px] text-soft">
             Final MP4 {mark(compose)}
@@ -676,7 +688,8 @@ function RenderProgress({ renders }: { renders: RenderRow[] }) {
    voice line and its on-screen text and caption over it. Assembled in the
    player rather than into one file: the clips and voice are real, the join is
    here. Each clip can be downloaded on its own. */
-function FinalCut({ plan, renders, final, title }: { plan: ProductionPlan; renders: RenderRow[]; final: string | null; title: string }) {
+function FinalCut({ plan, renders, final, parts, title }: { plan: ProductionPlan; renders: RenderRow[]; final: string | null; parts: string[]; title: string }) {
+  if (parts.length > 1) return <FilmInParts parts={parts} plan={plan} title={title} />;
   if (final) return <FinishedVideo url={final} plan={plan} renders={renders} title={title} />;
   return <SceneByScene plan={plan} renders={renders} />;
 }
@@ -723,6 +736,54 @@ function FinishedVideo({ url, plan, renders, title }: { url: string; plan: Produ
       <p className="mt-1.5 text-[11.5px] text-muted">
         {withMusic ? "The MP4 carries the voice; music plays here and downloads as its own track. " : ""}Captions are not burned in — add them on the platform, or use the script.
       </p>
+    </section>
+  );
+}
+
+/* A long film kept as its parts: played straight through, one part after
+   another, and each part saved on its own. */
+function FilmInParts({ parts, plan, title }: { parts: string[]; plan: ProductionPlan; title: string }) {
+  const [at, setAt] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const ratio = plan.aspect === "9:16" ? "9 / 16" : plan.aspect === "1:1" ? "1 / 1" : plan.aspect === "4:5" ? "4 / 5" : "16 / 9";
+  useEffect(() => {
+    if (playing) void videoRef.current?.play().catch(() => setPlaying(false));
+  }, [at, playing]);
+  return (
+    <section className="rounded-[16px] border border-line/[0.08] bg-panel p-3">
+      <div className="mx-auto overflow-hidden rounded-[10px] bg-black" style={{ aspectRatio: ratio, maxHeight: 460 }}>
+        <video
+          ref={videoRef}
+          key={parts[at]}
+          src={parts[at]}
+          controls
+          playsInline
+          className="h-full w-full object-contain"
+          onPlay={() => setPlaying(true)}
+          onPause={(e) => !e.currentTarget.ended && setPlaying(false)}
+          onEnded={() => (at + 1 < parts.length ? setAt(at + 1) : setPlaying(false))}
+        />
+      </div>
+      <p className="mt-2 text-[12.5px] text-soft">Part {at + 1} of {parts.length} — plays straight on into the next.</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {parts.map((url, i) => (
+          <button
+            key={url}
+            type="button"
+            onClick={() => setAt(i)}
+            className={`h-7 rounded-full border px-2.5 text-[12px] ${i === at ? "border-accent text-ink" : "border-line/[0.1] text-muted hover:text-ink"}`}
+          >
+            {i + 1}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <SaveFileButton url={parts[at]} name={`${slug(title)}-part-${at + 1}.mp4`} type="video/mp4" className="flex h-9 items-center gap-1.5 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
+          Download part {at + 1}
+        </SaveFileButton>
+      </div>
+      <p className="mt-1.5 text-[11.5px] text-muted">This film is long, so it is kept in parts that join seamlessly. Each part downloads as its own MP4.</p>
     </section>
   );
 }
