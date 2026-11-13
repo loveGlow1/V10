@@ -249,8 +249,11 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
     }
     if (e?.onScreenText !== undefined) scene.onScreenText = withBrand(e.onScreenText);
     if (e?.duration) scene.duration = e.duration;
-    if (e?.characters && JSON.stringify(e.characters) !== JSON.stringify(scene.characters ?? []) && !scene.source) {
-      scene.characters = e.characters.length ? e.characters : undefined;
+    /* A cast is locked: an empty list (the model echoing the template) never
+       takes a character out of a scene — that re-filmed the scene with a
+       stranger's face. Only naming characters changes who is in it. */
+    if (e?.characters?.length && JSON.stringify(e.characters) !== JSON.stringify(scene.characters ?? []) && !scene.source) {
+      scene.characters = e.characters;
       clip = false;
     }
     /* The person's own clip: trimmed, sped up or slowed, its sound up or down — nothing is filmed. */
@@ -415,7 +418,10 @@ What you can do, cheapest first:
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
 Rules:
-- Touch only what the request needs. Unmentioned scenes are "keep" (you may omit them).
+- Touch only what the request needs, and only where it asks. Unmentioned scenes are "keep" — omit them.
+- Words on screen, captions, the end card, sound, music, voice, order, timing, trims, filters and the shape are NEVER a reason to refilm: deleting or changing on-screen text is onScreenText on that scene alone, and every clip is reused as it is.
+- refilm only a scene whose picture the person asked to change, or whose clip is missing — never "to be safe", never every scene.
+- Characters are locked: never drop, swap or re-describe a character's face, body, hair or clothes. A refilmed scene keeps its characters and the creator lock word for word, so the same person appears.
 - If a clip is "missing", re-filming it is how to fix it.
 - A spoken line must fit its scene: about 2.5 words per second, scenes are at most ${MAX_CLIP_SECONDS} seconds.
 - QuickStark's own name is always written "QuickStark.Ai".

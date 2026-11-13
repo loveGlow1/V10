@@ -13,11 +13,12 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, Loader2, Paperclip, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, History, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
 import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
 import { uploadStudioFile } from "@/lib/video/upload-client";
+import type { VideoMessage } from "@/app/api/video/[id]/messages/route";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
@@ -94,7 +95,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   }, [id]);
 
   const plan = useCallback(
-    async (payload: Record<string, unknown> = {}, kind: "plan" | "save" = "plan") => {
+    async (payload: Record<string, unknown> = {}, kind: "plan" | "save" = "plan"): Promise<{ ok: boolean; error?: string; version?: number | null; message?: string }> => {
       setBusy(kind);
       setError(null);
       /* The AI agent picked in the editor (or the workspace) plans too. */
@@ -109,13 +110,17 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model, ...payload }),
       }).catch(() => null);
-      const body = (await response?.json().catch(() => null)) as { error?: string } | null;
-      if (!response?.ok) setError(body?.error ?? "The plan could not be made. Try again.");
-      else {
-        setNote("");
-        await load();
+      const body = (await response?.json().catch(() => null)) as { error?: string; message?: string; edited?: boolean } | null;
+      if (!response?.ok) {
+        const message = body?.error ?? "The plan could not be made. Try again.";
+        setError(message);
+        setBusy(null);
+        return { ok: false, error: message };
       }
+      setNote("");
+      const loaded = await load();
       setBusy(null);
+      return { ok: true, version: loaded?.latest?.version ?? null, message: body?.edited ? body.message : undefined };
     },
     [id, load],
   );
@@ -419,7 +424,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             busy={busy}
             note={note}
             setNote={setNote}
-            onAsk={(text) => void plan({ note: text })}
+            onAsk={(text) => plan({ note: text })}
             onRender={() => void render()}
             canRender={!dirty && status !== "rendering"}
             cost={data.cost}
@@ -945,6 +950,19 @@ const QUICK = [
   { label: "Different creator", note: "Use a different creator — a different look and voice — and keep them identical in every shot." },
 ];
 
+/* The sessions of a video's chat, newest first, each named by its first request. Pure. */
+function sessionList(messages: VideoMessage[], upTo: number): { session: number; title: string; when: string }[] {
+  const out: { session: number; title: string; when: string }[] = [];
+  for (let k = upTo; k >= 1; k -= 1) {
+    const own = messages.filter((m) => m.session === k);
+    const first = own.find((m) => m.role === "user") ?? own[0];
+    const title = first ? first.text.split("\n")[0].slice(0, 70) : k === 1 ? "First session" : "New session";
+    const when = first ? new Date(first.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    out.push({ session: k, title, when });
+  }
+  return out;
+}
+
 /* The Director's chat: every version as a turn of the conversation, the
    render's outcome said plainly, and a box to ask for the next change. */
 function DirectorChat(props: {
@@ -958,7 +976,7 @@ function DirectorChat(props: {
   busy: string | null;
   note: string;
   setNote: (value: string) => void;
-  onAsk: (text: string) => void;
+  onAsk: (text: string) => Promise<{ ok: boolean; error?: string; version?: number | null; message?: string }>;
   onRender: () => void;
   canRender: boolean;
   cost: number;
@@ -988,19 +1006,78 @@ function DirectorChat(props: {
     setUploading(null);
     props.onUploaded();
   };
+  /* The conversation, kept message by message in sessions (video_messages):
+     what was asked drops into the chat and is stored the moment it is sent,
+     and the Director's answer — a new version or why not — follows it. */
+  const [messages, setMessages] = useState<VideoMessage[]>([]);
+  const [session, setSession] = useState<number | null>(null);
+  const [showSessions, setShowSessions] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void fetch(`/api/video/${props.videoId}/messages`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { messages?: VideoMessage[] } | null) => {
+        if (alive && body?.messages) setMessages(body.messages);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [props.videoId]);
+  const latestSession = messages.reduce((max, m) => Math.max(max, m.session), 1);
+  const active = session ?? latestSession;
+  const sessions = sessionList(messages, Math.max(latestSession, active));
+  const shown = messages.filter((m) => m.session === active);
+  /* Versions made before anything was kept here belong to the first session. */
+  const firstKept = messages[0]?.created_at ?? null;
+  const earlier = active === 1 ? [...versions].reverse().filter((v) => !firstKept || v.created_at < firstKept) : [];
+
+  const keep = async (message: Omit<VideoMessage, "id" | "created_at">) => {
+    const local: VideoMessage = { ...message, id: `local-${Math.random().toString(36).slice(2)}`, created_at: new Date().toISOString() };
+    setMessages((list) => [...list, local]);
+    const response = await fetch(`/api/video/${props.videoId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message),
+    }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as { message?: VideoMessage } | null;
+    if (body?.message) setMessages((list) => list.map((m) => (m.id === local.id ? body.message! : m)));
+  };
+
+  const ask = async (text: string) => {
+    if (busy !== null) return;
+    const number = active;
+    setSession(number);
+    void keep({ session: number, role: "user", text, version: null, failed: false });
+    const result = await onAsk(text);
+    await keep(
+      result.ok
+        ? { session: number, role: "director", text: result.message ?? (result.version ? `Done — here's version ${result.version}.` : "Done."), version: result.version ?? null, failed: false }
+        : { session: number, role: "director", text: result.error ?? "That change could not be made. Nothing was charged — try again.", version: null, failed: true },
+    );
+  };
+
   const end = useRef<HTMLDivElement>(null);
-  const turns = [...versions].reverse();
   const failure = props.status !== "rendering" ? renderFailure(props.renders) : null;
   const rendered = props.renders.some((render) => render.status === "done" && render.url);
   useEffect(() => {
     end.current?.scrollIntoView({ block: "nearest" });
-  }, [versions.length, busy, failure]);
+  }, [versions.length, busy, failure, shown.length]);
 
   const send = () => {
     const text = note.trim();
     if ((!text && !attached.length) || busy !== null || uploading) return;
     const files = attached.length ? `\n\nUse the files I attached for this: ${attached.map((a) => a.handle).join(", ")}.` : "";
-    onAsk(`${text || "Use the files I attached."}${files}`);
+    /* Out of the box and into the chat at once. */
+    setNote("");
+    setAttached([]);
+    void ask(`${text || "Use the files I attached."}${files}`);
+  };
+
+  const newSession = () => {
+    setSession(Math.max(latestSession, active) + 1);
+    setShowSessions(false);
+    setNote("");
     setAttached([]);
   };
 
@@ -1012,15 +1089,40 @@ function DirectorChat(props: {
       <header className="flex items-center gap-2 border-b border-line/[0.06] px-4 py-3">
         <Sparkles className="h-4 w-4 text-accent" />
         <h2 className="text-[14px] font-medium text-ink">Director</h2>
-        <span className="ml-auto text-[11.5px] text-muted">Each change is a new version</span>
+        <div className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={() => setShowSessions((v) => !v)} aria-expanded={showSessions} title="Earlier sessions" className="flex h-7 items-center gap-1 rounded-full px-2 text-[11.5px] text-soft hover:bg-layer/[0.08] hover:text-ink">
+            <History className="h-3.5 w-3.5" /> Sessions
+          </button>
+          <button type="button" onClick={newSession} disabled={busy !== null || shown.length === 0 && active > latestSession} title="Start a new session — a fresh conversation; this one stays in Sessions" className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08] disabled:opacity-40">
+            <Plus className="h-3.5 w-3.5" /> New session
+          </button>
+        </div>
       </header>
+      {showSessions && (
+        <nav aria-label="Sessions" className="max-h-56 overflow-y-auto border-b border-line/[0.06] px-2 py-2">
+          {sessions.map((item) => (
+            <button
+              key={item.session}
+              type="button"
+              onClick={() => {
+                setSession(item.session);
+                setShowSessions(false);
+              }}
+              className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-layer/[0.06] ${item.session === active ? "bg-layer/[0.08] text-ink" : "text-soft"}`}
+            >
+              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              <span className="shrink-0 text-[11px] text-muted">{item.when}</span>
+            </button>
+          ))}
+        </nav>
+      )}
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
-        {turns.map((turn) => {
+        {earlier.map((turn) => {
           const said = spoken(turn.note);
           return (
-            <div key={turn.version} className="space-y-2">
-              {said && <p className="ml-8 rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{said}</p>}
+            <div key={`v${turn.version}`} className="space-y-2">
+              {said && <p className="ml-8 whitespace-pre-wrap rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{said}</p>}
               <p className="mr-6 text-soft">
                 {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
                 {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
@@ -1029,6 +1131,19 @@ function DirectorChat(props: {
             </div>
           );
         })}
+        {active > 1 && shown.length === 0 && (
+          <p className="text-soft">New session. {current ? `Version ${current} is the current one — ` : ""}ask me for anything to change.</p>
+        )}
+        {shown.map((message) =>
+          message.role === "user" ? (
+            <p key={message.id} className="ml-8 whitespace-pre-wrap rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{message.text}</p>
+          ) : (
+            <p key={message.id} className={message.failed ? "mr-6 rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft" : "mr-6 text-soft"}>
+              {message.text}
+              {!message.failed && message.version === current && ` · ${props.scenes} scenes, ${props.seconds}s.`}
+            </p>
+          ),
+        )}
         {props.status === "rendering" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering the clips — they arrive one by one, usually within a few minutes.</p>
         )}
@@ -1046,7 +1161,7 @@ function DirectorChat(props: {
             <button
               key={quick.label}
               type="button"
-              onClick={() => onAsk(quick.note)}
+              onClick={() => void ask(quick.note)}
               disabled={busy !== null}
               className="h-7 rounded-full border border-line/[0.1] px-2.5 text-[12px] text-soft hover:text-ink disabled:opacity-40"
             >

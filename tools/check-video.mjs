@@ -343,7 +343,7 @@ has(/\.eq\("provider", "n8n:minimax"\)[\s\S]{0,60}\.eq\("status", "running"\)/.t
 
 /* The studio is a workspace: the Director's chat edits the video in words. */
 const studioPage = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/<DirectorChat/.test(studioPage) && /onAsk=\{\(text\) => void plan\(\{ note: text \}\)\}/.test(studioPage), "the studio has the Director's chat, and a message there makes a new version");
+has(/<DirectorChat/.test(studioPage) && /onAsk=\{\(text\) => plan\(\{ note: text \}\)\}/.test(studioPage), "the studio has the Director's chat, and a message there makes a new version");
 has(/Change only scene \$\{scene\.n\}, keep every other scene exactly as it is/.test(studioPage), "a scene can be changed on its own");
 has(/payment required\|402/.test(studioPage) && /out of credit, so no clips were made and nothing was charged/.test(studioPage), "a render that made nothing says why, in words");
 
@@ -880,6 +880,29 @@ const playSrc = readFileSync(join(root, "src/app/dashboard/components/video/Vide
 has(/if \(stalled\.current\) \{/.test(playSrc) && /v\.readyState >= 3 && !v\.seeking\) stalled\.current = false/.test(playSrc), "the clock waits while a clip loads and goes on as soon as it can play");
 has(/!video\.seeking && video\.readyState >= 1 && Math\.abs\(video\.currentTime - expected\) > \(playing \? 0\.75 : 0\.12\)/.test(playSrc), "a clip is not re-seeked while it is loading or catching up");
 has(/video\.poster = seg\.posterUrl/.test(playSrc) && /ref=\{nextRef\} preload="auto"/.test(playSrc), "its still shows instead of black, and the next clip loads ahead");
+
+
+console.log("\nthe sound never clips or clicks");
+const limitedMix = CF.sceneAudioFilter({ seconds: 5, ownSound: true, hasVoice: true });
+has(/volume=1\.000,adelay/.test(limitedMix) && limitedMix.endsWith(`${CF.LIMITER}[a]`) && /alimiter=limit=0\.89/.test(CF.LIMITER), "a voice line goes in as it is (not boosted 1.5x) and a limiter keeps every scene under full scale");
+has(CF.sceneAudioFilter({ seconds: 5, ownSound: true, hasVoice: false }).endsWith(`${CF.LIMITER}[a]`), "a scene with no voice is limited too");
+const cutJoin = CF.joinArgs({ segments: [{ path: "a", seconds: 4 }, { path: "b", seconds: 5 }], transition: "cut", duration: 0.5, listPath: "l", out: "o", encoder: { preset: "veryfast", crf: 21 } }).args.join(" ");
+has(/-c:v copy -c:a aac/.test(cutJoin) && !/-c copy/.test(cutJoin), "scenes joined by a cut copy the picture but encode the sound once more — no click at every join");
+has(/go && voice\.paused/.test(playSrc) && /!go && !music\.paused/.test(playSrc), "in the editor, voice and music wait while a clip loads instead of running ahead and jumping back");
+
+
+console.log("\nthe studio's Director edits only what was asked, and keeps the cast");
+const planRoute = readFileSync(join(root, "src/app/api/video/[id]/plan/route.ts"), "utf8");
+has(/editVideo\(\{ writer, userId, videoId: id, instruction: note/.test(planRoute) && planRoute.indexOf("editVideo(") < planRoute.indexOf("return planVideo("), "a change asked in the studio on a made video is an edit — every other clip reused — not a new plan rendered from scratch");
+const edSrc = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
+has(/e\?\.characters\?\.length && JSON\.stringify/.test(edSrc), "an empty character list never takes the cast out of a scene (no re-film with a new face)");
+has(/NEVER a reason to refilm/.test(edSrc) && /Characters are locked/.test(edSrc), "the editor is told text and sound never re-film, and characters are locked");
+const chatPage = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+const msgRoute = readFileSync(join(root, "src/app/api/video/[id]/messages/route.ts"), "utf8");
+has(/setNote\(""\);\s*setAttached\(\[\]\);\s*void ask\(/.test(chatPage) && /role: "user", text/.test(chatPage) && /from\("video_messages"\)/.test(msgRoute), "a message leaves the box at once, drops into the chat and is stored");
+has(/New session/.test(chatPage) && /sessionList\(messages/.test(chatPage), "a new session starts a fresh conversation; earlier ones are listed");
+const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video_messages.sql"), "utf8");
+has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
