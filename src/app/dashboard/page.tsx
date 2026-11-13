@@ -52,7 +52,7 @@ import {
 } from "@/lib/builder/targets";
 import { ACCEPT, MAX_ATTACHMENTS } from "@/lib/project-attachments";
 import { ACCEPT_ATTRIBUTE as VIDEO_ACCEPT, MAX_UPLOADS as VIDEO_MAX_UPLOADS } from "@/lib/video/assets";
-import { PIPELINES, answersFor, type PipelineId } from "@/lib/video/pipelines";
+import { PIPELINES, answersFor, isPipelineId, type PipelineId } from "@/lib/video/pipelines";
 import VideoTypeGrid from "./components/video/VideoTypeGrid";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -238,6 +238,20 @@ export default function DashboardPage() {
     else setGithubNotice(GITHUB_RETURNED[returned ?? ""] ?? null);
     url.searchParams.delete("github");
     url.searchParams.delete("import");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  /* ?create=video (the Videos page's New video) opens on the Video tab,
+     and ?type=<pipeline> picks the kind too — e.g. full_movie. */
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("create") !== "video") return;
+    setActiveCategory("video");
+    pickedType.current = true;
+    const type = url.searchParams.get("type");
+    if (isPipelineId(type)) pickVideoType(type);
+    url.searchParams.delete("create");
+    url.searchParams.delete("type");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, []);
 

@@ -791,5 +791,14 @@ has(/!locked\.has\("video"\)\) splitHere\(\)/.test(ed), "a locked track is safe 
 const mp = readFileSync(join(root, "src/app/dashboard/components/video/MediaPanel.tsx"), "utf8");
 has(/\["made", "Made here"\]/.test(mp) && /setData\(ASSET_DRAG/.test(mp), "media by kind (with what was made here), each tile dragged onto the timeline");
 
+console.log("\nfinding videos");
+const side = readFileSync(join(root, "src/app/dashboard/components/Sidebar.tsx"), "utf8");
+has(/router\.push\("\/dashboard\/video"\)/.test(side) && /<span className="text-sm font-medium">Videos<\/span>/.test(side), "Videos has its own place in the sidebar");
+const vp = readFileSync(join(root, "src/app/dashboard/video/page.tsx"), "utf8");
+has(/\/dashboard\/video\/\$\{row\.id\}\/edit/.test(vp) && /create=video/.test(vp) && /type=full_movie/.test(vp), "the Videos page opens any video's editor and starts a new video or a full movie");
+const pp = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+has(/project\?\.intent === "video" && videoId/.test(pp) && /\/dashboard\/video\/\$\{videoId\}\/edit/.test(pp), "a video's workspace has an Editor button in its toolbar");
+has(/searchParams\.get\("create"\) !== "video"/.test(readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8")), "Home opens on the Video tab when asked");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

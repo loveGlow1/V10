@@ -14,14 +14,17 @@ import { VIDEO_INTENT } from "@/lib/video/workspace";
 
 import { videoSession } from "./shared";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await videoSession();
   if ("error" in session) return session.error;
-  const { data, error } = await session.supabase
+  /* ?project=<id>: the video behind a workspace project (its Editor button). */
+  const project = new URL(request.url).searchParams.get("project");
+  let query = session.supabase
     .from("video_projects")
     .select("id, title, pipeline, status, current_version, updated_at, project_id")
-    .order("updated_at", { ascending: false })
-    .limit(50);
+    .order("updated_at", { ascending: false });
+  if (project && /^[0-9a-f-]{36}$/i.test(project)) query = query.eq("project_id", project);
+  const { data, error } = await query.limit(project ? 1 : 200);
   if (error) return NextResponse.json({ error: "Could not read your videos." }, { status: 500 });
   return NextResponse.json({ videos: data ?? [] });
 }
