@@ -1,5 +1,6 @@
 "use client";
 
+import { isMediaIntent } from "@/lib/media-intent";
 import { useProjectDownload } from "@/components/DownloadDialog";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -189,6 +190,9 @@ export default function PreviewPanel({
   const [integrationsCategory, setIntegrationsCategory] = useState<IntegrationCategory>("All");
   const [shared, setShared] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  /* Publish puts a website online. A video or a flier has nothing to publish
+     (it is downloaded and shared), so the control is not shown for them. */
+  const publishable = !isMediaIntent(project?.intent);
   const [shareOpen, setShareOpen] = useState(false);
   /* Running the app, for a build that is a project rather than a page.
    *
@@ -1466,7 +1470,7 @@ export default function PreviewPanel({
 
           {/* Edits stay here until they are published; said for as long as
               the live site differs from this preview. */}
-          {changesPending && publishState !== "deploying" ? (
+          {publishable && changesPending && publishState !== "deploying" ? (
             <div className="flex shrink-0 items-center gap-2 border-b border-line/[0.06] bg-layer/[0.03] px-3 py-1.5 text-[11.5px] text-muted">
               <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
               <span className="min-w-0 flex-1">Preview: changes not live yet</span>
@@ -2041,6 +2045,8 @@ export default function PreviewPanel({
              *
              * One shell rather than two pills: they are one object about one
              * thing, and the rounded ends belong to the pair. */}
+            {/* Publishing is for websites: a video or a flier is downloaded and shared, never put online as an app. */}
+            {publishable && (<>
             {publishState === "deploying" || publishState === "failed" ? (
               <button
                 onClick={() => setPublishOpen(true)}
@@ -2110,6 +2116,7 @@ export default function PreviewPanel({
                 Publish
               </button>
             )}
+            </>)}
             <Popover
               open={publishOpen}
               onClose={closePublish}
@@ -2321,6 +2328,7 @@ export default function PreviewPanel({
             <span className="hidden lg:inline">Share</span>
           </button>
 
+          {publishable && (
           <button
             onClick={() => (publishOpen ? closePublish() : setPublishOpen(true))}
             aria-expanded={publishOpen}
@@ -2348,6 +2356,7 @@ export default function PreviewPanel({
               <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#2F6BFF] ring-2 ring-canvas" />
             ) : null}
           </button>
+          )}
 
           {/* The way out of this half. The conversation takes the whole
               workspace and a button on the edge brings the pane back — see

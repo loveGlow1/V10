@@ -1013,6 +1013,14 @@ function DirectorChat(props: {
   /* Files attached to this message: uploaded into the video's media, and
      named in the message so the director knows they are for this change. */
   const fileInput = useRef<HTMLInputElement>(null);
+  /* Grows with what is typed, up to a third of a phone screen, then scrolls. */
+  const composer = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const box = composer.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, 240)}px`;
+  }, [note]);
   const [attached, setAttached] = useState<{ name: string; handle: string }[]>([]);
   const [uploading, setUploading] = useState<string | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -1324,57 +1332,69 @@ function DirectorChat(props: {
             {attachError && <span role="alert" className="text-[11.5px] text-danger">{attachError}</span>}
           </div>
         )}
-        <div {...fileDrop.zone} className="relative flex items-end gap-2 rounded-2xl border border-line/[0.1] bg-layer/[0.03] p-2 focus-within:border-line/[0.25]">
+        {/* The composer, laid out like the workspace's own: the words get the
+            full width on top and grow with what is typed, the paperclip and
+            send (or stop) sit underneath, and the type is 16px so a phone
+            never zooms in on it. */}
+        <div
+          {...fileDrop.zone}
+          className="relative flex w-full flex-col rounded-[22px] border-[1.5px] border-line/[0.11] bg-sunken p-3 transition-colors focus-within:border-line/[0.22]"
+        >
           <DropHint show={fileDrop.dragging} />
           <input ref={fileInput} type="file" multiple accept={ACCEPT_ATTRIBUTE} className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            disabled={busy !== null || Boolean(uploading)}
-            aria-label="Attach pictures, clips, sound or documents"
-            title="Attach pictures, clips, sound or documents (PDF, TXT, MD) — they go into this video's media and the Director uses them"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-soft hover:bg-layer/[0.08] hover:text-ink disabled:opacity-40"
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
           <textarea
+            ref={composer}
             rows={2}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             onPaste={fileDrop.onPaste}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              // Enter sends, Shift+Enter breaks the line — as in the workspace.
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
                 send();
               }
             }}
+            aria-label="Ask the Director for a change"
             placeholder="Ask for a change — e.g. make her sound more excited"
-            className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-1 text-[13.5px] text-ink outline-none placeholder:text-muted"
+            className="max-h-60 min-h-[52px] w-full resize-none bg-transparent px-1 text-base leading-relaxed text-ink outline-none placeholder:text-faint sm:text-[14.5px]"
           />
-          {busy === "plan" ? (
-            /* Working: a stop sign inside a turning ring — pressing it stops
-               the change for real (nothing saved, nothing charged). */
+          <div className="mt-2 flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={props.onStop}
-              aria-label="Stop"
-              title="Stop — nothing is changed or charged"
-              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-layer/[0.16] text-ink transition hover:bg-layer/[0.24] active:scale-[0.97]"
+              onClick={() => fileInput.current?.click()}
+              disabled={busy !== null || Boolean(uploading)}
+              aria-label="Attach pictures, clips, sound or documents"
+              title="Attach pictures, clips, sound or documents (PDF, TXT, MD) — or paste a screenshot, or drop files here"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition hover:bg-layer/[0.1] active:scale-[0.97] disabled:opacity-40"
             >
-              <span aria-hidden className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-accent" />
-              <span aria-hidden className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+              <Paperclip className="h-4 w-4" />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={send}
-              disabled={busy !== null || Boolean(uploading) || (!note.trim() && !attached.length)}
-              aria-label="Send"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-solid text-onSolid disabled:opacity-40"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
-          )}
+            {busy === "plan" ? (
+              /* Working: a stop sign inside a turning ring — pressing it stops
+                 the change for real (nothing saved, nothing charged). */
+              <button
+                type="button"
+                onClick={props.onStop}
+                aria-label="Stop"
+                title="Stop — nothing is changed or charged"
+                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-layer/[0.16] text-ink transition hover:bg-layer/[0.24] active:scale-[0.97]"
+              >
+                <span aria-hidden className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-accent" />
+                <span aria-hidden className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={send}
+                disabled={busy !== null || Boolean(uploading) || (!note.trim() && !attached.length)}
+                aria-label="Send"
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition active:scale-[0.97] disabled:cursor-not-allowed ${note.trim() || attached.length ? "bg-solid/[0.88] text-onSolid hover:bg-solid" : "bg-layer/[0.1] text-ink/40"}`}
+              >
+                <ArrowUp className="h-4 w-4 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-[11.5px] text-muted">A change uses 1 credit. Saving your own scene edits makes a new cut: 1 credit per started minute of video.</p>
@@ -1407,7 +1427,7 @@ function SceneAsk({ n, disabled, onAsk }: { n: number; disabled: boolean; onAsk:
   }
   return (
     <form
-      className="mt-2 flex gap-2"
+      className="mt-2 flex flex-wrap gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         if (!text.trim()) return;
@@ -1421,7 +1441,7 @@ function SceneAsk({ n, disabled, onAsk }: { n: number; disabled: boolean; onAsk:
         value={text}
         onChange={(event) => setText(event.target.value)}
         placeholder={`What should change in scene ${n}?`}
-        className="h-9 flex-1 rounded-lg border border-line/[0.1] bg-transparent px-2.5 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line/[0.25]"
+        className="h-10 min-w-[12rem] flex-1 rounded-xl border border-line/[0.1] bg-sunken px-3 text-base text-ink outline-none placeholder:text-faint focus:border-line/[0.25] sm:h-9 sm:text-[13px]"
       />
       <button type="submit" disabled={disabled || !text.trim()} className="h-9 rounded-full bg-solid px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40">
         Change

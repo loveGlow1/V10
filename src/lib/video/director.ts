@@ -52,6 +52,7 @@ RULES FOR EVERY VIDEO:
 - Anything else that must look the same in more than one scene (product, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
 - When the video names QuickStark itself, the name is always "QuickStark.Ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
+- A brand's name or logo is NEVER drawn by the video engines: no motionPrompt or visual mentions a logo, wordmark, the brand's name as text, or any lettering (they letter in random colours and places). The name on screen comes only from the cut: "cut":{"brandMark":{"text":"<name>","position":"top-left","when":"start"}} — always pure white, in one corner (top-left unless asked otherwise) — plus the endCard. Do not repeat the name in onScreenText.
 - Never depict or imitate a real, identifiable person or brand the user did not supply. No unsafe, hateful or sexual content.
 - Write in the language the answers ask for (default English).
 
@@ -127,10 +128,10 @@ async function directFilm(input: DirectorInput, target: number): Promise<Directe
   const shared = [
     attachmentManifest(input.assets ?? []),
     castManifest(input.characters ?? []),
-    `IDEA:\n${input.brief.slice(0, 6000)}`,
+    `IDEA:\n${input.brief.slice(0, 30000)}`,
     Object.entries(input.answers).map(([key, value]) => `${key}: ${value}`).join("\n") && `CHOICES:\n${Object.entries(input.answers).map(([key, value]) => `${key}: ${value}`).join("\n")}`,
     input.previous ? `CURRENT FILM (revise it, keep what works): ${input.previous.title} — ${input.previous.concept}\nScenes so far: ${input.previous.scenes.length}` : "",
-    input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 2000)}` : "",
+    input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 20000)}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -204,13 +205,13 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
   const text = [
     attachmentManifest(input.assets ?? []),
     castManifest(input.characters ?? []),
-    `IDEA:\n${input.brief.slice(0, 6000)}`,
+    `IDEA:\n${input.brief.slice(0, 30000)}`,
     answers && `CHOICES:\n${answers}`,
     input.images?.length ? `REFERENCE IMAGES: ${Math.min(input.images.length, MAX_CONTEXT_PICTURES)} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
     /* The whole plan: cut at 12,000 characters it lost every scene after the
        first few, and a revision quietly dropped them. */
     input.previous ? `CURRENT PLAN (revise it, keep what works, keep every scene the change does not touch):\n${JSON.stringify(input.previous).slice(0, 120_000)}` : "",
-    input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 2000)}` : "",
+    input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 20000)}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");

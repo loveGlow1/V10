@@ -158,9 +158,12 @@ function keyOf(ctx: Cutting, scene: ProductionPlan["scenes"][number]): string {
    in, fade out, the end card) only in theirs — so changing them re-cuts one
    part, not the film. */
 function cutForPart(ctx: Cutting, first: boolean, last: boolean): Record<string, unknown> {
-  const { muted: _muted, endCard, fadeIn, fadeOut, ...rest } = ctx.cut;
+  const { muted: _muted, endCard, fadeIn, fadeOut, brandMark, ...rest } = ctx.cut;
   void _muted;
-  return { ...rest, ...(first ? { fadeIn } : {}), ...(last ? { fadeOut, endCard: endCard ?? "" } : {}) };
+  /* The brand mark belongs to every part when it is on all the way through,
+     otherwise only to the part that opens or closes the film. */
+  const mark = brandMark && (brandMark.when === "all" || (brandMark.when === "start" && first) || (brandMark.when === "end" && last)) ? { brandMark } : {};
+  return { ...rest, ...mark, ...(first ? { fadeIn } : {}), ...(last ? { fadeOut, endCard: endCard ?? "" } : {}) };
 }
 
 /* The music the parts are scored with, as one key; null when there is none. */
@@ -288,9 +291,11 @@ async function cutScenes(ctx: Cutting, scenes: ProductionPlan["scenes"], name: s
       if (titleCard) texts.title = wrap(scene.onScreenText, width, true);
       if (headlineText) texts.headline = wrap(headlineText, width, false);
       if (spoken) texts.caption = wrap(spoken, width, false);
+      const mark = cut.brandMark;
+      if (mark && (mark.when === "all" || (mark.when === "start" && scene.n === first) || (mark.when === "end" && scene.n === last))) texts.brand = mark.text;
       for (const [kind, value] of Object.entries(texts)) await writeFile(join(dir, `${kind}-${scene.n}.txt`), value);
       const words: Words | null = fontPath
-        ? { fontPath, dir, n: scene.n, title: texts.title, headline: texts.headline, caption: texts.caption, captionPosition: cut.captionPosition, captionSize: cut.captionSize, captionStyle: cut.captionStyle }
+        ? { fontPath, dir, n: scene.n, title: texts.title, headline: texts.headline, caption: texts.caption, captionPosition: cut.captionPosition, captionSize: cut.captionSize, captionStyle: cut.captionStyle, brand: texts.brand, brandPosition: mark?.position }
         : null;
       const edges = { dip: cut.transition === "dip", fadeIn: cut.fadeIn && scene.n === first, fadeOut: cut.fadeOut && scene.n === last };
 

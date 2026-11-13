@@ -39,7 +39,7 @@ export const MAX_STILL_SCENES = 300;
 
 /** Whether a message comes with a picture to match against the scenes. Pure. */
 export function wantsStills(instruction: string): boolean {
-  return /screenshot|screen shot|attached|this (scene|shot|frame|image|picture|part|one)|in (the|this) (image|picture|photo|screenshot)|look at (this|the) (image|picture)|\bimage\b|\bpicture\b|\bphoto\b|@[\w-]+\.(png|jpe?g|webp|heic)/i.test(instruction);
+  return /screenshot|screen shot|attached|this (scene|shot|frame|image|picture|part|one)|in (the|this) (image|picture|photo|screenshot)|look at (this|the) (image|picture)|\bimage\b|\bpicture\b|\bphoto\b|\blogo\b|quick ?stark|brand (name|mark)|colou?r of the (name|text|logo)|@[\w-]+\.(png|jpe?g|webp|heic)/i.test(instruction);
 }
 
 /** Where in a clip its still is taken (seconds). Pure. */

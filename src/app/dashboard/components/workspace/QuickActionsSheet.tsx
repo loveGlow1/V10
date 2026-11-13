@@ -32,7 +32,8 @@ export default function QuickActionsSheet({
   open: boolean;
   project: Project | null;
   onClose: () => void;
-  onDeploy: () => void;
+  /** Absent for a video or a flier: only a website is published. */
+  onDeploy?: () => void;
   onPreview: () => void;
   onManage: () => void;
   /** The in-browser editor or VS Code in a Codespace — see VSCodeDialog. */
@@ -143,7 +144,8 @@ export default function QuickActionsSheet({
               </dl>
             ) : (
               <div className="space-y-3 px-4 pt-5">
-                <div className="grid grid-cols-2 gap-3">
+                <div className={`grid gap-3 ${onDeploy ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {onDeploy && (
                   <button
                     onClick={run(onDeploy)}
                     className="flex h-[130px] flex-col justify-between rounded-[18px] bg-gradient-to-tr from-[#1f7bff] via-[#45b8f5] to-[#7ef6f0] p-4 text-left text-[#0b1830] shadow-[0_10px_30px_rgba(31,123,255,0.25)] transition-transform active:scale-[0.98]"
@@ -151,6 +153,7 @@ export default function QuickActionsSheet({
                     <UploadCloud className="h-8 w-8" strokeWidth={2.25} />
                     <span className="text-[17px] font-semibold leading-tight">{live ? "Update Your App" : "Deploy Your App"}</span>
                   </button>
+                  )}
                   <button
                     onClick={run(onPreview)}
                     className="flex h-[130px] flex-col justify-between rounded-[18px] bg-white p-4 text-left text-[#111113] transition-transform active:scale-[0.98]"

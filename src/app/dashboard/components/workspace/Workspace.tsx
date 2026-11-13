@@ -1,5 +1,6 @@
 "use client";
 
+import { isMediaIntent } from "@/lib/media-intent";
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -286,7 +287,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
         open={quickActionsOpen}
         project={project}
         onClose={() => setQuickActionsOpen(false)}
-        onDeploy={requestPublish}
+        onDeploy={isMediaIntent(project?.intent) ? undefined : requestPublish}
         onPreview={() => setPreviewSheetOpen(true)}
         onManage={() => openManage("settings")}
         onOpenCode={() => setCodeOpen(true)}
@@ -367,7 +368,7 @@ export default function Workspace({ projectId }: { projectId: string }) {
               initialTarget={initialTarget}
               initialStack={initialStack}
               onBuildSettled={refreshCredits}
-              onPublish={requestPublish}
+              onPublish={isMediaIntent(project?.intent) ? undefined : requestPublish}
             />
           </div>
           {/* Put away from md up only: a phone's `view` already decides which
