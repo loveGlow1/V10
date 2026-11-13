@@ -912,6 +912,12 @@ for (const [file, call] of [["src/app/dashboard/video/[id]/page.tsx", "void atta
   const src = readFileSync(join(root, file), "utf8");
   has(src.includes(`useFileDrop((files) => ${call}`) && /\{\.\.\.fileDrop\.zone\}/.test(src) && /onPaste=\{fileDrop\.onPaste\}/.test(src) && /<DropHint show=\{fileDrop\.dragging\}/.test(src), `${file.split("/").slice(-2).join("/")}: drop or paste a screenshot into the composer`);
 }
+const stillsSrc = readFileSync(join(root, "src/lib/video/scene-stills.ts"), "utf8");
+const applySrc = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+const nextCfg = readFileSync(join(root, "next.config.mjs"), "utf8");
+has(/wantsStills\(input\.instruction\)/.test(applySrc) && /stills \}\);/.test(applySrc) && /\.\.\.\(input\.stills \?\? \[\]\)/.test(edSrc), "a picture sent with a change: the editor sees a still of every made scene and finds the one it shows");
+has(/tile=5x4/.test(stillsSrc) && /SINGLE_STILLS = 24/.test(stillsSrc) && /Say in reply which scene you matched/.test(stillsSrc), "short videos get one labelled still per scene, long films contact sheets; the editor says which scene it matched");
+has(/"\/api\/video\/\[id\]\/plan": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(nextCfg) && /"\/api\/build": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(nextCfg), "the routes that edit carry ffmpeg for the stills");
 has(/aria-expanded=\{showSessions\}/.test(chatPage) && /qs-director-sessions/.test(chatPage) && /"Today" : days === 1 \? "Yesterday"/.test(chatPage), "the sessions are a list grouped by day that folds away, and stays folded or open next time");
 const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video_messages.sql"), "utf8");
 has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");

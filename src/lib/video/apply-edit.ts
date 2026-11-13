@@ -32,6 +32,7 @@ import { startRender } from "./start-render";
 import type { StudioAsset } from "./assets";
 import { loadStudioAssets } from "./plan-video";
 import { contextFiles } from "./context-files";
+import { sceneStills, wantsStills } from "./scene-stills";
 import { agentCost, videoAgentFor } from "./agent";
 import { cutCost, wantsMusic } from "./engines";
 import { creditsLabel } from "./pricing";
@@ -95,7 +96,17 @@ export async function editVideo(input: {
   const uploads = await loadStudioAssets(input.writer, input.videoId);
   const agent = await videoAgentFor(input.writer, input.userId, input.model);
   const context = await contextFiles(input.writer, uploads, plan.referenceClips ?? []);
-  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context });
+  /* A picture sent with the message ("change this"): the editor sees every
+     made scene too, and finds the one the picture shows. */
+  const stills = wantsStills(input.instruction)
+    ? await sceneStills(input.writer, {
+        videoId: input.videoId,
+        plan,
+        done,
+        posters: new Map(uploads.filter((u) => u.poster_path).map((u) => [u.id, u.poster_path as string])),
+      })
+    : [];
+  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context, stills });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
   if (decided.edit.replan) return null;

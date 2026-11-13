@@ -35,6 +35,10 @@ const nextConfig = {
     "/api/video/[id]/render/compose": ["./node_modules/ffmpeg-static/ffmpeg"],
     "/api/video/[id]/assets/prepare": ["./node_modules/ffmpeg-static/ffmpeg"],
     "/api/video/[id]/render/continue": ["./node_modules/ffmpeg-static/ffmpeg"],
+    /* A still of every made scene, so the AI editor can match a screenshot
+       to its scene (src/lib/video/scene-stills.ts). */
+    "/api/video/[id]/plan": ["./node_modules/ffmpeg-static/ffmpeg"],
+    "/api/build": ["./node_modules/ffmpeg-static/ffmpeg"],
   },
   /* The code editor runs a real terminal — Node.js in the tab, through the
      WebContainer API — which needs the page to be cross-origin isolated. Only
