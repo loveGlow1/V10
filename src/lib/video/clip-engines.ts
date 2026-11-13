@@ -136,7 +136,7 @@ export function isClipEngine(value: unknown): value is ClipEngine {
 }
 
 /* People on camera, and motion that has to feel filmed. */
-const FOOTAGE: PipelineId[] = ["ugc_influencer", "commercial_ad", "cinematic_short", "trailer", "social_video", "clone"];
+const FOOTAGE: PipelineId[] = ["ugc_influencer", "commercial_ad", "cinematic_short", "full_movie", "trailer", "social_video", "clone"];
 /* Starting from a photograph the person gave. */
 const FROM_FRAME: PipelineId[] = ["photo_to_video", "product_showcase"];
 

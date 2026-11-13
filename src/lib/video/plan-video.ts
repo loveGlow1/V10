@@ -202,7 +202,7 @@ export async function planVideo(
     calls = directed.calls ?? 1;
     /* The look the person chose stays chosen when the plan is made again. */
     const keptLook = (current?.plan as ProductionPlan | undefined)?.referenceClips;
-    if (keptLook?.length) plan = { ...plan, referenceClips: keptLook };
+    if (keptLook?.length) plan = { ...plan, referenceClips: [...new Set([...keptLook, ...(plan.referenceClips ?? [])])].slice(0, 4) };
     plan = keepKnownCast(keepKnownSources(plan, uploads), cast);
     note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 300) : video.current_version ? "Planned again" : "First plan";
   }

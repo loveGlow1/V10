@@ -255,3 +255,13 @@ over each saved edit (`POST [id]/review`, `editor.ts reviewEdit`).
 - **Uploads.** Clips up to an hour (still 400 MB). Over 3 minutes, a clip gets no working copy and the cut reads only the part it uses, where it is stored. Each clip gets three reference frames (`analysis.frames`).
 - **Use as look** (`plan.referenceClips`, `look.ts`). Every generated scene is sent the marked clips' frames after the characters' own pictures, with a prompt line to match their setting, light, colour and people. The director sees those clips' frames first.
 - **Continue it** (`timeline.withContinuation`, `continuity.ts`). A generated scene after an upload with `continues: true` starts on the upload's frame at its trim end (a picture is its own frame). Also available to the AI editor (`continueFrom`, `look`).
+
+## The editor's layout (`/dashboard/video/[id]/edit`)
+
+![The editor on a desktop](images/video-editor-desktop.png)
+
+- **Library (left, `EditorLibrary.tsx`):** Media (a grid by kind — All, Video, Audio, Pictures, Made here — each tile showing its length and `@name`; drag it onto the timeline or double-click to add it at the end), Scenes (in order: jump, reorder, take out, put back), Text (the selected clip's words, the end card, caption style), Transitions (a tile per transition, length, fade in/out), Filters (a look for the selected clip — `scene.color` — or the whole video), Cast, Settings.
+- **Preview (centre):** plays the timeline as it stands, with each clip's filter and words; timecode in hours:minutes:seconds:frames.
+- **Right:** the selected clip or sound (Edit), or the AI editor, in two tabs.
+- **Timeline (bottom, full width):** Video, Filter, Text, Voice and Music tracks. Each has a lock (the keyboard respects it too); Video, Voice and Music have a mute. Clips show as filmstrips; ones still to be made are striped; diamonds between clips open Transitions; trims snap to the playhead and other clips (Snap); media dropped from the library lands where it is dropped.
+- **Phone:** preview, timeline, library, inspector, one under another.

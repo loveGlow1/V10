@@ -8,7 +8,7 @@
 import { PIPELINES, type Engine, type PipelineId } from "./pipelines";
 import { isVoiceId } from "./voices";
 import { MAX_SCENE_CAST, mentionedCast, normalizeCast, normalizeSceneCast, splitDialogue, type PlanCharacter } from "./cast";
-import { normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
+import { COLORS, normalizeSettings, type CaptionPosition, type CaptionSize, type CaptionStyle, type ColorGrade, type Fit, type FrameRate, type MusicSource, type Quality, type Resolution, type StillMotion, type Transition } from "./cut-settings";
 
 /* A scene made from the person's own upload instead of being generated: a
    clip (trimmed, sped up or slowed, at its own level) or a picture held on
@@ -52,6 +52,8 @@ export type Scene = {
   characters?: string[];
   /** Carries straight on from the scene before: filmed from its last frame (continuity.ts). False keeps it apart. */
   continues?: boolean;
+  /** This clip's own filter, over the video's (cut.color). */
+  color?: ColorGrade;
 };
 
 /* How the final cut is put together — what a person changes by asking
@@ -245,6 +247,7 @@ export function normalizePlan(raw: unknown, pipeline: PipelineId, answers: Recor
       ...(isVoiceId(s.voiceId) ? { voiceId: s.voiceId } : {}),
       ...(voiceAsset ? { voiceAsset } : {}),
       ...(typeof s.continues === "boolean" ? { continues: s.continues } : {}),
+      ...((COLORS as readonly string[]).includes(String(s.color)) ? { color: s.color as ColorGrade } : {}),
       ...(() => {
         const ids = normalizeSceneCast(s.characters, cast);
         return ids.length ? { characters: ids } : {};

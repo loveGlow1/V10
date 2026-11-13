@@ -139,6 +139,8 @@ export type Segment = {
   label: string;
   text: string;
   caption: string;
+  /** This clip's own filter, when it has one. */
+  color?: ProductionPlan["scenes"][number]["color"];
 };
 
 /** What the preview plays, in order, from the plan, the uploads and what has been made. Pure. */
@@ -166,6 +168,7 @@ export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], rende
       label: asset?.name || scene.shot || scene.visual.slice(0, 40) || `Scene ${scene.n}`,
       text: scene.onScreenText,
       caption: scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim(),
+      ...(scene.color ? { color: scene.color } : {}),
     };
     at += seconds;
     return segment;

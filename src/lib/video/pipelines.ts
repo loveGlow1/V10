@@ -60,6 +60,7 @@ export const PIPELINE_IDS = [
   "social_video",
   "explainer",
   "trailer",
+  "full_movie",
   "clip_edit",
   "photo_to_video",
 ] as const;
@@ -298,6 +299,30 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     defaultEngine: "video",
     engines: ["video"],
     needsReference: "photo",
+  },
+  full_movie: {
+    id: "full_movie",
+    label: "Full Movie",
+    blurb: "Nollywood-style feature films, up to an hour",
+    template: "Create a 30-minute Nollywood feature film titled \"[TITLE]\" — a [GENRE] (for example a family drama) set in [CITY AND PLACES] (for example Lagos — Lekki, Ikoyi and a busy Oshodi market), landscape 16:9, cinematic and true to Nigerian life.\nReferences (upload up to 9 photos, clips or songs, then call them by @name): @[PHOTO OF MAIN CHARACTER] is [MAIN CHARACTER NAME], @[PHOTO OF SECOND CHARACTER] is [SECOND CHARACTER NAME], @[CLIP OF THE CITY OR LOCATION] sets the look of the city, @[SONG] is the soundtrack.\nStory: [THE STORY IN A FEW SENTENCES] — who wants what, what stands in the way, and how it ends.\nCast: [EACH MAIN CHARACTER] — name, age, look and wardrobe (for example Chief Adewale, 60, grey beard, white agbada and fila; Ngozi, 28, ankara gown and gele).\nActs:\n• Act 1 (0–8 min): Lagos at sunrise — danfo traffic, the family home and the office; who everyone is and what they want\n• Act 2 (8–20 min): The conflict grows — a secret, a betrayal, a family meeting in the parlour; the stakes rise\n• Act 3 (20–27 min): The confrontation — the truth comes out at [KEY PLACE] (for example a wedding party, a hotel lobby or a church)\n• Act 4 (27–30 min): The resolution and the final image; title card \"[TITLE]\" and end credits\nDialogue in the language chosen below, with real Nigerian expressions; every line is spoken by a named character.\nVisual style: warm golden-hour light, rich ankara colours, handheld in the market and steady dolly moves in homes and offices, shallow depth of field; a highlife and Afrobeats score with talking-drum accents.\nKeep every face, outfit, house and car identical in every scene, and every place real to Nigeria — generator hum, danfo buses, okada, suya smoke, compound gates, church and mosque.\nAvoid stereotypes and poverty clichés, wrong accents, foreign-looking streets, warped faces, and any words in the picture except the title card and credits.",
+    icon: "Popcorn",
+    stages: ["Story", "Cast", "Locations", "Acts", "Scenes", "Dialogue", "Score", "Filming", "Chapters", "Stitching", "Final film"],
+    questions: [
+      { id: "genre", label: "Genre", options: ["Family drama", "Romance", "Comedy", "Thriller", "Epic / historical", "Faith", "Crime"], initial: "Family drama" },
+      { id: "length", label: "Length", options: ["5 min", "10 min", "30 min", "60 min"], initial: "30 min" },
+      { id: "language", label: "Dialogue", options: ["English & Pidgin", "English", "Nigerian Pidgin", "Yoruba", "Igbo", "Hausa"], initial: "English & Pidgin" },
+      ASPECT_WIDE,
+      { id: "look", label: "Look", options: ["Warm golden", "Naturalistic", "Moody & dark", "Bright & glossy"], initial: "Warm golden" },
+    ],
+    director: [
+      "This is a feature-length film in the Nollywood tradition: tell it in acts, as sequences of scenes in clear locations, with real emotional stakes, a turning point and a satisfying ending. Open on a title card with the film's title and end on a credits card.",
+      "Every recurring person has a Nigerian name, age, look and wardrobe (agbada, kaftan, ankara, gele, iro and buba, suits, school uniforms) defined in `locks.characters` or CHARACTERS, and is identical in every scene.",
+      "Places are specific and real to Nigeria — Lagos, Abuja, Port Harcourt, Ibadan, Enugu, Kano or a village compound — with their texture: danfo buses, okada, generators, compound gates, markets, churches and mosques, parlours with family photos. Never a foreign-looking street.",
+      "Dialogue goes in `voiceover` as \"NAME: line\" in the language chosen in CHOICES (Pidgin written as it is spoken); a back-and-forth is consecutive shots, one speaker each. Give music and sound per scene in `sound` (highlife, Afrobeats, talking drum, street sound).",
+      "Respect the culture: no stereotypes or poverty clichés; elders are addressed properly; humour comes from character, not mockery.",
+    ],
+    defaultEngine: "video",
+    engines: ["video", "image"],
   },
   clip_edit: {
     id: "clip_edit",

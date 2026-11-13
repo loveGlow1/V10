@@ -45,8 +45,8 @@ let failed = 0, passed = 0;
 const has = (cond, t, d) => { if (cond) { passed++; console.log(`ok    ${t}`); } else { failed++; console.log(`FAIL  ${t}${d ? `\n        ${d}` : ""}`); } };
 
 console.log("pipelines");
-has(P.PIPELINE_IDS.length === 11, "eleven pipelines");
-has(P.GRID.length === 10 && !P.GRID.includes("photo_to_video") && P.GRID.includes("clip_edit"), "ten on the grid (Edit my clips among them), Photo → Video on its own row");
+has(P.PIPELINE_IDS.length === 12, "twelve pipelines");
+has(P.GRID.length === 11 && !P.GRID.includes("photo_to_video") && P.GRID.includes("clip_edit") && P.GRID.includes("full_movie"), "eleven on the grid (Edit my clips and Full Movie among them), Photo → Video on its own row");
 for (const id of P.PIPELINE_IDS) {
   const p = P.PIPELINES[id];
   has(p.id === id && p.stages.length >= 4 && p.questions.length >= 2 && p.director.length >= 1 && p.engines.includes(p.defaultEngine), `${id}: stages, questions, director rules, engines`);
@@ -55,7 +55,7 @@ for (const id of P.PIPELINE_IDS) {
 for (const id of P.PIPELINE_IDS) {
   const p = P.PIPELINES[id];
   const seconds = L.secondsFrom(P.answersFor(p, {}).length);
-  has(/\[[A-Z]/.test(p.template) && p.template.includes(`${seconds}-second`), `${id}: a template with [PLACEHOLDERS], timed to its default ${seconds}s`);
+  has(/\[[A-Z]/.test(p.template) && (p.template.includes(`${seconds}-second`) || (seconds >= 300 && p.template.includes(`${seconds / 60}-minute`))), `${id}: a template with [PLACEHOLDERS], timed to its default ${seconds}s`);
 }
 has(P.PIPELINES.clone.needsConsent === true && P.PIPELINE_IDS.filter((id) => P.PIPELINES[id].needsConsent).length === 1, "only the clone asks for likeness consent");
 has(P.PIPELINES.product_showcase.director.some((r) => /LOCKED/.test(r)), "product showcase locks the product");
@@ -764,6 +764,32 @@ has(/partsOutput\(parts\.length, base\)/.test(filmCut), "if the single file cann
 has(/remote = Boolean\(upload && !still && Number\(upload\.duration_s\) > WORKING_COPY_SECONDS\)/.test(filmCut), "a long upload is read where it is stored, not copied onto the server");
 const filmRender = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
 has(/inBatches\(\s*jobs,\s*8/.test(filmRender) && /lookFrames\(writer, plan\)/.test(filmRender), "hundreds of scenes are sent a few at a time, each with the look of the person's footage");
+
+console.log("\nfull movies");
+const fm = P.PIPELINES.full_movie;
+has(fm.label === "Full Movie" && fm.questions.find((q) => q.id === "length").initial === "30 min" && fm.questions.find((q) => q.id === "length").options.includes("60 min"), "a Full Movie card: 30 minutes by default, up to an hour");
+has(/Nollywood/.test(fm.template) && /@\[PHOTO OF MAIN CHARACTER\]/.test(fm.template) && /up to 9 photos, clips or songs/.test(fm.template) && /Act 4 \(27–30 min\)/.test(fm.template), "its sample is a Nigerian feature: references by @name, cast, four acts timed to 30 minutes");
+has(fm.questions.find((q) => q.id === "language").options.includes("Nigerian Pidgin") && fm.questions.find((q) => q.id === "language").options.includes("Yoruba"), "dialogue in English, Pidgin, Yoruba, Igbo or Hausa");
+has(fm.director.some((r) => /danfo/.test(r)) && fm.director.some((r) => /stereotypes/.test(r)), "the director keeps it real to Nigeria and respectful");
+has(L.unfilledPlaceholders(fm.template).length >= 8, "the sample's blanks are asked for before planning");
+has(A.handleFor("Lagos Street 2.MOV") === "@lagos-street-2" && [...A.handles([{ id: "a", name: "clip.mp4" }, { id: "b", name: "clip.mp4" }]).values()].join() === "@clip,@clip-2", "every upload has an @name, numbered when two share one");
+has(/ref: "@/.test(A.attachmentManifest([{ id: "x", kind: "video", name: "Lagos.mp4", status: "ready", durationS: 5 }])), "the director sees each upload's @name");
+has(/referenceClips/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && L.normalizePlan({ referenceClips: [vidAsset.id], scenes: [{ duration: 3, visual: "a" }] }, "full_movie", {}).referenceClips?.length === 1, "an @photo or @clip that sets the look becomes the film's look");
+
+console.log("\nthe editor's layout");
+const colored = L.normalizePlan({ scenes: [{ duration: 3, visual: "a", color: "mono" }, { duration: 3, visual: "b", color: "neon-pink" }] }, "cinematic_short", {});
+has(colored.scenes[0].color === "mono" && colored.scenes[1].color === undefined, "a clip keeps its own filter; an unknown one is dropped");
+has(ET.segmentsFor(colored, [], [])[0].color === "mono", "the preview knows a clip's own filter");
+has(Object.keys(CS.COLOR_CSS).sort().join() === [...CS.COLORS].sort().join(), "every filter has a preview look");
+has(/color: scene\.color \?\? cut\.color/.test(readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8")), "the export applies a clip's own filter over the video's");
+const ed = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+const lib = readFileSync(join(root, "src/app/dashboard/components/video/EditorLibrary.tsx"), "utf8");
+has(["Media", "Scenes", "Text", "Transitions", "Filters", "Cast", "Settings"].every((t) => lib.includes(`label: "${t}"`)), "the library has Media, Scenes, Text, Transitions, Filters, Cast and Settings");
+has(/lg:grid-cols-\[360px_minmax\(0,1fr\)_340px\]/.test(ed) && /lg:col-span-3/.test(ed), "library, preview and inspector side by side, the timeline full width under them");
+has(/ASSET_DRAG/.test(ed) && /onDropAsset/.test(ed) && /Magnet/.test(ed) && /Diamond/.test(ed) && /\{header\("music"/.test(ed), "the timeline takes media dragged in, snaps, marks transitions, and has track headers");
+has(/!locked\.has\("video"\)\) splitHere\(\)/.test(ed), "a locked track is safe from the keyboard too");
+const mp = readFileSync(join(root, "src/app/dashboard/components/video/MediaPanel.tsx"), "utf8");
+has(/\["made", "Made here"\]/.test(mp) && /setData\(ASSET_DRAG/.test(mp), "media by kind (with what was made here), each tile dragged onto the timeline");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

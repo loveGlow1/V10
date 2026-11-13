@@ -120,19 +120,40 @@ export const isTimelineMedia = (asset: Pick<StudioAsset, "kind">) => ["video", "
  * The ATTACHMENTS block, word for word, before the person's own message.
  * Authoritative: with "video x0" nobody may claim to see a video. Pure.
  */
+/** How a prompt names an upload: "@" and its file name, tidied — "Lagos Street 2.MOV" → "@lagos-street-2". Pure. */
+export function handleFor(name: string): string {
+  const base = name.replace(/\.[a-z0-9]{2,5}$/i, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return `@${base || "upload"}`;
+}
+
+/** Every upload's handle, numbered when two files share a name. Pure. */
+export function handles(assets: Pick<StudioAsset, "id" | "name">[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const used = new Map<string, number>();
+  for (const asset of assets) {
+    const base = handleFor(asset.name);
+    const count = (used.get(base) ?? 0) + 1;
+    used.set(base, count);
+    out.set(asset.id, count === 1 ? base : `${base}-${count}`);
+  }
+  return out;
+}
+
 export function attachmentManifest(assets: StudioAsset[]): string {
   const usable = assets.filter((a) => a.status !== "failed" && a.kind !== "render");
   const videos = usable.filter((a) => a.kind === "video");
   const audios = usable.filter((a) => a.kind === "audio");
   const images = usable.filter((a) => a.kind !== "video" && a.kind !== "audio");
+  const named = handles(usable);
   const entry = (a: StudioAsset) =>
-    `{assetId: "${a.id}", name: "${a.name.replace(/"/g, "'").slice(0, 60)}"${a.durationS ? `, durationS: ${Math.round(a.durationS * 10) / 10}` : ""}${a.width && a.height ? `, ${a.width}x${a.height}` : ""}${a.kind === "video" && a.hasAudio === false ? ", silent" : ""}${a.kind !== "video" && a.kind !== "audio" && a.kind !== "image" ? `, role: ${a.kind}` : ""}}`;
+    `{assetId: "${a.id}", ref: "${named.get(a.id)}", name: "${a.name.replace(/"/g, "'").slice(0, 60)}"${a.durationS ? `, durationS: ${Math.round(a.durationS * 10) / 10}` : ""}${a.width && a.height ? `, ${a.width}x${a.height}` : ""}${a.kind === "video" && a.hasAudio === false ? ", silent" : ""}${a.kind !== "video" && a.kind !== "audio" && a.kind !== "image" ? `, role: ${a.kind}` : ""}}`;
   return [
     "ATTACHMENTS (authoritative, do not infer from the text):",
     `- video x${videos.length}: [${videos.map(entry).join(", ")}]`,
     `- audio x${audios.length}: [${audios.map(entry).join(", ")}]`,
     `- image x${images.length}: [${images.map(entry).join(", ")}]`,
     ...(videos.length === 0 ? ["If video x0, the user has NOT attached a video. Never claim to see one."] : []),
+    ...(usable.length ? ["In the IDEA, an @name is the upload whose ref matches it (ignore case and spacing; the closest ref when it is not exact)."] : []),
   ].join("\n");
 }
 
