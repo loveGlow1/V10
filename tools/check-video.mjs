@@ -906,6 +906,12 @@ const llmSrc = readFileSync(join(root, "src/lib/ai/llm.ts"), "utf8");
 has(/AbortSignal\.any\(\[stop, limit\]\)/.test(llmSrc) && /withStop\(request\.signal/.test(planRoute), "Stop aborts the request, and every model call it makes stops with it");
 has(/if \(stopped\(\)\) return NextResponse\.json\(\{ error: "Stopped/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /if \(stopped\(\)\) return \{ ok: false, message: "Stopped/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")), "a stopped change saves and charges nothing");
 has(/aria-label="Stop"/.test(chatPage) && /animate-spin rounded-full border-2/.test(chatPage) && /signal: controller\.signal/.test(chatPage), "while it works, the send button is a stop sign in a turning ring");
+const dropSrc = readFileSync(join(root, "src/lib/use-file-drop.tsx"), "utf8");
+has(/item\.kind === "file"/.test(dropSrc) && /Screenshot \$\{stamp\}/.test(dropSrc) && /carriesFiles/.test(dropSrc), "a pasted screenshot or dropped file is taken (and named), text still pastes as text");
+for (const [file, call] of [["src/app/dashboard/video/[id]/page.tsx", "void attach(files)"], ["src/app/dashboard/components/workspace/ChatPanel.tsx", "void attachFiles(files)"], ["src/app/dashboard/page.tsx", "addFiles(files)"]]) {
+  const src = readFileSync(join(root, file), "utf8");
+  has(src.includes(`useFileDrop((files) => ${call}`) && /\{\.\.\.fileDrop\.zone\}/.test(src) && /onPaste=\{fileDrop\.onPaste\}/.test(src) && /<DropHint show=\{fileDrop\.dragging\}/.test(src), `${file.split("/").slice(-2).join("/")}: drop or paste a screenshot into the composer`);
+}
 has(/aria-expanded=\{showSessions\}/.test(chatPage) && /qs-director-sessions/.test(chatPage) && /"Today" : days === 1 \? "Yesterday"/.test(chatPage), "the sessions are a list grouped by day that folds away, and stays folded or open next time");
 const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video_messages.sql"), "utf8");
 has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");

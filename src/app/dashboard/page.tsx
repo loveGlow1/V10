@@ -1,5 +1,6 @@
 "use client";
 
+import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import Link from "next/link";
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import TopNav from "./components/TopNav";
@@ -355,6 +356,8 @@ export default function DashboardPage() {
   useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
   const popoverRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /* A screenshot pasted, or files dropped on the box, attach like the paperclip. */
+  const fileDrop = useFileDrop((files) => addFiles(files));
 
   /* Picking a video type writes its brief into the composer, with the first
      [PLACEHOLDER] selected so typing replaces it. Never over somebody's own
@@ -698,12 +701,14 @@ export default function DashboardPage() {
             <div aria-hidden className="qs-edge-glow rounded-[26px] md:rounded-[14px]" />
 
             {/* Inner Graphite Glass Box matching #26252A */}
-            <div className="qs-composer relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
+            <div {...fileDrop.zone} className="qs-composer relative z-30 flex min-h-[154px] w-full flex-col justify-between overflow-hidden rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 sm:p-[18px] md:min-h-[159px] md:rounded-[14px] md:border-[3px] md:border-line/[0.1] md:bg-panel md:bg-clip-border">
+              <DropHint show={fileDrop.dragging} />
               {/* The prompt is drawn over the box rather than as a placeholder
                   attribute, so it keeps the box's own type. It sits behind the caret and ignores the pointer, so typing and
                   clicking still land in the textarea. */}
               <div className="relative">
                 <textarea
+                  onPaste={fileDrop.onPaste}
                   ref={composerRef}
                   onFocus={() => {
                     setComposerFocused(true);

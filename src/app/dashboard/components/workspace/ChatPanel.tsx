@@ -1,5 +1,6 @@
 "use client";
 
+import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -526,6 +527,8 @@ export default function ChatPanel({
   useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /* A screenshot pasted, or files dropped on the box, attach like the paperclip. */
+  const fileDrop = useFileDrop((files) => void attachFiles(files));
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const nextId = useRef(0);
 
@@ -2757,9 +2760,11 @@ export default function ChatPanel({
           </div>
           <div aria-hidden className="qs-edge-glow rounded-[26px]" />
 
-          <div className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
+          <div {...fileDrop.zone} className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
+            <DropHint show={fileDrop.dragging} />
             <div className="relative">
               <textarea
+                onPaste={fileDrop.onPaste}
                 ref={draftRef}
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}

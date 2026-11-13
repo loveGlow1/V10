@@ -18,6 +18,7 @@ import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, M
 import SaveFileButton from "@/components/SaveFileButton";
 import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
 import { uploadStudioFile } from "@/lib/video/upload-client";
+import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import type { VideoMessage } from "@/app/api/video/[id]/messages/route";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
@@ -1030,6 +1031,8 @@ function DirectorChat(props: {
     setUploading(null);
     props.onUploaded();
   };
+  /* A screenshot pasted, or files dropped on the box, attach like the paperclip. */
+  const fileDrop = useFileDrop((files) => void attach(files), { disabled: busy !== null });
   /* The conversation, kept message by message in sessions (video_messages):
      what was asked drops into the chat and is stored the moment it is sent,
      and the Director's answer — a new version or why not — follows it. */
@@ -1321,7 +1324,8 @@ function DirectorChat(props: {
             {attachError && <span role="alert" className="text-[11.5px] text-danger">{attachError}</span>}
           </div>
         )}
-        <div className="flex items-end gap-2 rounded-2xl border border-line/[0.1] bg-layer/[0.03] p-2 focus-within:border-line/[0.25]">
+        <div {...fileDrop.zone} className="relative flex items-end gap-2 rounded-2xl border border-line/[0.1] bg-layer/[0.03] p-2 focus-within:border-line/[0.25]">
+          <DropHint show={fileDrop.dragging} />
           <input ref={fileInput} type="file" multiple accept={ACCEPT_ATTRIBUTE} className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
           <button
             type="button"
@@ -1337,6 +1341,7 @@ function DirectorChat(props: {
             rows={2}
             value={note}
             onChange={(event) => setNote(event.target.value)}
+            onPaste={fileDrop.onPaste}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
