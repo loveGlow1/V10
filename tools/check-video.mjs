@@ -150,6 +150,18 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(R.jobsFor(audioOnly.plan, {}).every((j) => j.kind === "clip"), "a cut of the clips' own sound orders no voice lines");
   const refilm = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 3, action: "refilm", motionPrompt: "closer shot, brunette woman, cream sweater" }, { n: 2, action: "revoice", voiceover: "A brand new line." }] }, made));
   has(refilm.refilm.join() === "3" && refilm.revoice.join() === "2" && refilm.carry.filter((c) => c.clip).length === 3 && refilm.plan.scenes[2].motionPrompt.startsWith("closer"), "re-filming scene 3 and re-voicing scene 2 reuses every other clip and line");
+  const reread = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 2, action: "revoice" }] }, made));
+  has(reread.revoice.join() === "2" && reread.plan.scenes[1].voiceover === made.scenes[1].voiceover && reread.refilm.length === 0, "\"read it again\": a revoice with no new words records the same line afresh");
+  const sameLine = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 1, action: "revoice", voiceover: made.scenes[0].voiceover }] }, made));
+  has(sameLine.revoice.join() === "1", "a revoice with the same words is recorded again, not skipped");
+  const older = { ...made, scenes: made.scenes.map((sc, i) => (i === 1 ? { ...sc, voiceover: "The old line she said.", onScreenText: "Day 1" } : sc)) };
+  const hist = ED.historyBrief(made, [{ version: 3, note: "first cut", plan: older }]);
+  has(/VERSION 3 \("first cut"\)/.test(hist) && /scene 2 spoken: The old line she said\./.test(hist) && /scene 2 on screen: Day 1/.test(hist) && ED.historyBrief(made, [{ version: 2, plan: made }]) === "", "the editor sees what earlier versions said, so the previous voice-over comes back word for word");
+  has(ED.readEditJson('Sure! ```json\n{"reply":"ok","scenes":[{"n":1,"action":"keep"},],}\n``` hope that helps {x}').reply === "ok" && ED.readEditJson('{"reply":"a } brace in text","scenes":[]} trailing {"other":1}').reply === "a } brace in text" && ED.readEditJson("no json here") === null, "the editor's answer is read even with chatter, fences, trailing commas or braces in its text");
+  const editSrc = readFileSync(join(process.cwd(), "src/lib/video/editor.ts"), "utf8");
+  has(/for \(let attempt = 0; attempt < 3; attempt \+= 1\)/.test(editSrc) && /YOUR LAST ANSWER WAS CUT OFF/.test(editSrc) && /THE PERSON ASKS:\\n\$\{input\.instruction\}`/.test(editSrc), "the editor tries up to three times, is told what was wrong, and reads the whole request");
+  const applyNoop = readFileSync(join(process.cwd(), "src/lib/video/apply-edit.ts"), "utf8");
+  has(/YOUR LAST ANSWER CHANGED NOTHING/.test(applyNoop) && /nothing was changed or charged/.test(applyNoop) && /\.limit\(12\)/.test(applyNoop), "an answer that changes nothing is asked again, and never charged as a change");
   const removed = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 2, action: "remove" }], order: [4, 1, 3] }, made));
   has(removed.plan.scenes.map((s) => s.n).join() === "1,2,3" && removed.carry.map((c) => `${c.from}>${c.to}`).join() === "4>1,1>2,3>3" && removed.refilm.length === 0, "removing and reordering scenes renumbers them and carries each clip with its scene");
   const junk = ED.normalizeEdit({ replan: "yes", scenes: [{ n: 9, action: "remove" }, { n: 1, action: "refilm" }, { n: 2, action: "explode" }], order: [1, 1] }, made);
@@ -852,8 +864,8 @@ const ctxUploads = [
   { id: "d1", kind: "document", status: "ready", storage_path: "s.pdf" },
 ];
 const ctxPics = CTX.picturePaths(ctxUploads, ["v1"]);
-has(ctxPics.length === 9 && ctxPics[0] === "v.jpg" && !ctxPics.includes("a.mp3") && !ctxPics.includes("s.pdf"), "up to nine pictures, the look first (a clip by its frame), never a sound file or a document");
-has(CTX.documentsOf(ctxUploads).length === 1 && CTX.documentsOf(Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, kind: "document", storage_path: `d${i}.txt` }))).length === 5, "up to five documents are read");
+has(ctxPics.length === Math.min(CTX.MAX_CONTEXT_PICTURES, ctxUploads.filter((u) => u.kind !== "audio" && u.kind !== "document").length) && CTX.MAX_CONTEXT_PICTURES >= 20 && ctxPics[0] === "v.jpg" && !ctxPics.includes("a.mp3") && !ctxPics.includes("s.pdf"), "up to twenty pictures, the look first (a clip by its frame), never a sound file or a document");
+has(CTX.documentsOf(ctxUploads).length === 1 && CTX.documentsOf(Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, kind: "document", storage_path: `d${i}.txt` }))).length === 8 && CTX.MAX_CONTEXT_DOCUMENTS >= 10, "up to ten documents are read");
 const ctxFileSrc = readFileSync(join(root, "src/lib/video/context-files.ts"), "utf8");
 has(/mediaType: "application\/pdf"/.test(ctxFileSrc) && /slice\(0, MAX_DOCUMENT_CHARS\)/.test(ctxFileSrc), "a PDF is handed over whole; a text file as its text");
 const ctxDirSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
@@ -915,7 +927,7 @@ for (const [file, call] of [["src/app/dashboard/video/[id]/page.tsx", "void atta
 const stillsSrc = readFileSync(join(root, "src/lib/video/scene-stills.ts"), "utf8");
 const applySrc = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
 const nextCfg = readFileSync(join(root, "next.config.mjs"), "utf8");
-has(/wantsStills\(input\.instruction\)/.test(applySrc) && /stills \}\);/.test(applySrc) && /\.\.\.\(input\.stills \?\? \[\]\)/.test(edSrc), "a picture sent with a change: the editor sees a still of every made scene and finds the one it shows");
+has(/wantsStills\(input\.instruction\)/.test(applySrc) && /\.\.\.context, stills, history, nudge \}/.test(applySrc) && /\.\.\.\(input\.stills \?\? \[\]\)/.test(edSrc), "a picture sent with a change: the editor sees a still of every made scene and finds the one it shows");
 has(/tile=5x4/.test(stillsSrc) && /SINGLE_STILLS = 24/.test(stillsSrc) && /Say in reply which scene you matched/.test(stillsSrc), "short videos get one labelled still per scene, long films contact sheets; the editor says which scene it matched");
 has(/"\/api\/video\/\[id\]\/plan": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(nextCfg) && /"\/api\/build": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(nextCfg), "the routes that edit carry ffmpeg for the stills");
 has(/aria-expanded=\{showSessions\}/.test(chatPage) && /qs-director-sessions/.test(chatPage) && /"Today" : days === 1 \? "Yesterday"/.test(chatPage), "the sessions are a list grouped by day that folds away, and stays folded or open next time");
@@ -923,6 +935,25 @@ const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video
 has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");
 has(/export async function DELETE/.test(msgRoute) && /\.delete\(\)\.eq\("video_id", id\)\.eq\("session", number\)/.test(msgRoute) && /video_messages_owner_delete/.test(msgSql), "a session can be deleted, owner-only");
 has(/setConfirming\(item\.session\)/.test(chatPage) && /removeSession\(item\.session\)/.test(chatPage) && /if \(!response\?\.ok\) setMessages\(before\)/.test(chatPage), "deleting asks once on the row, and comes back if the server says no");
+
+console.log("\nthe brand's name: white, one corner, drawn by the cut");
+const bm = L.normalizeCut({ brandMark: { text: "quickstark", position: "left" } });
+has(bm.brandMark.text === "QuickStark.Ai" && bm.brandMark.position === "top-left" && bm.brandMark.when === "start" && L.normalizeBrandMark(null) === null && L.normalizeCut({ brandMark: { position: "bottom right", when: "all" } }).brandMark.position === "bottom-right", "a brand mark is read as written: \"left\" is the top-left, the opening by default, null takes it away");
+const bmFilter = CF.wordsFilter({ fontPath: "f.ttf", dir: "d", n: 1, brand: "QuickStark.Ai", brandPosition: "top-left" }, 720, 1280).join(",");
+has(/textfile=d\/brand-1\.txt:fontcolor=white:fontsize=\d+:x=\d+:y=\d+:shadowcolor/.test(bmFilter), "it is drawn pure white in its corner, with a soft shadow, never in a model's colours");
+const bmClip = R.clipPrompt("A runner at dawn on a Lagos bridge. The QuickStark logo glows in green on a billboard. Golden light, slow push-in.");
+has(!/quick ?stark|logo/i.test(bmClip.split("No subtitles")[0]) && /Lagos bridge/.test(bmClip) && /Golden light/.test(bmClip) && /logos, brand names, wordmarks/.test(R.NO_LETTERING), "a clip prompt never asks the video model to draw the brand or a logo");
+const bmEd = L.normalizePlan({ cut: { brandMark: { text: "QuickStark.Ai", position: "top-left" } }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", {});
+const bmGone = ED.applyEdit(bmEd, ED.normalizeEdit({ cut: { brandMark: null } }, bmEd));
+const bmMoved = ED.applyEdit(bmEd, ED.normalizeEdit({ cut: { brandMark: { position: "bottom-left" } } }, bmEd));
+has(!bmGone.plan.cut?.brandMark && bmMoved.plan.cut.brandMark.position === "bottom-left" && bmMoved.refilm.length === 0 && bmGone.refilm.length === 0, "the editor moves or removes the brand mark without re-filming anything");
+const bmDir = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
+has(/NEVER drawn by the video engines/.test(bmDir) && /use brandMark \(white is the only colour/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the Director and the editor are both told: the brand is the white brand mark, nowhere else");
+
+console.log("\nthe video composers work like the workspace's");
+const compSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+has(/box\.style\.height = `\$\{Math\.min\(box\.scrollHeight, 240\)\}px`/.test(compSrc) && /text-base leading-relaxed/.test(compSrc) && /!event\.nativeEvent\.isComposing/.test(compSrc), "the Director box grows with what is typed, is 16px on a phone, and Enter sends (Shift+Enter breaks the line)");
+has(/flex flex-wrap gap-2/.test(compSrc) && /text-base text-ink outline-none placeholder:text-faint focus:border-line\/\[0\.25\] sm:h-9 sm:text-\[13px\]/.test(compSrc), "the per-scene ask wraps on a phone and never zooms it in");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

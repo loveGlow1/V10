@@ -1,11 +1,11 @@
 /* What the director and the AI editor are shown from a video's uploads,
  * beside the ATTACHMENTS list (assets.ts):
  *
- *   pictures    up to nine — the person's pictures as they are, and a frame
+ *   pictures    up to twenty — the person's pictures as they are, and a frame
  *               from each clip; the ones marked as the look first
  *   documents   a script, a brand guide, a brief: a PDF is handed over whole
  *               (every model in the picker reads PDFs), a text or Markdown
- *               file as its text — up to five, read in full
+ *               file as its text — up to ten, read in full
  *
  * Server-only. Never throws: a file that cannot be read is left out. */
 
@@ -16,11 +16,11 @@ import type { LlmPart } from "@/lib/ai/llm";
 import { handles } from "./assets";
 
 /** The most pictures a model is shown with a request. */
-export const MAX_CONTEXT_PICTURES = 9;
+export const MAX_CONTEXT_PICTURES = 20;
 /** The most documents read with a request. */
-export const MAX_CONTEXT_DOCUMENTS = 5;
+export const MAX_CONTEXT_DOCUMENTS = 10;
 /** The longest a text document is read (characters); PDFs are capped by size at upload (10 MB). */
-export const MAX_DOCUMENT_CHARS = 60_000;
+export const MAX_DOCUMENT_CHARS = 200_000;
 
 type Upload = { id: string; kind: string; name?: string | null; status?: string | null; storage_path: string; poster_path?: string | null; mime?: string | null };
 

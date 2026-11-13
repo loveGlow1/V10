@@ -106,12 +106,47 @@ export async function editVideo(input: {
         posters: new Map(uploads.filter((u) => u.poster_path).map((u) => [u.id, u.poster_path as string])),
       })
     : [];
-  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context, stills });
+  /* Earlier versions, so "the previous voice-over" can be brought back word for word. */
+  const { data: earlier } = await input.writer
+    .from("video_versions")
+    .select("version, note, plan")
+    .eq("video_id", input.videoId)
+    .neq("version", loaded.version)
+    .order("version", { ascending: false })
+    .limit(12);
+  const history = (earlier ?? []).map((row) => ({ version: row.version as number, note: row.note as string | null, plan: row.plan as ProductionPlan }));
+  const ask = (nudge?: string) => decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context, stills, history, nudge });
+  let decided = await ask();
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
   if (decided.edit.replan) return null;
+  /* An answer that changes nothing, though a change was asked for: asked
+     once more, plainly. Still nothing — said so, and nothing is charged. */
+  if (changesNothing(plan, decided.edit, uploads)) {
+    const again = await ask(
+      "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a change. Make the edit they asked for now — on the scene(s) it concerns — using the fields above. Only if it truly cannot be done, keep the scenes unchanged and say why in reply.",
+    );
+    if (!("error" in again) && !again.edit.replan) decided = again;
+    if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
+    if ("error" in decided || changesNothing(plan, decided.edit, uploads)) {
+      const reply = "error" in decided ? "" : decided.edit.reply;
+      return {
+        ok: true,
+        message:
+          reply && reply !== "Done."
+            ? `${reply} (Nothing in the video changed, and nothing was charged.)`
+            : "I couldn't find what to change for that. Tell me which scene (or send a screenshot of it) and what it should be — nothing was changed or charged.",
+      };
+    }
+  }
   const result = await commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: agentCost(EDIT_COST, agent), outputTokens: decided.outputTokens });
   return agent.declined ? { ...result, message: `${result.message} (Made with ${agent.name} — ${agent.declined}.)` } : result;
+}
+
+/* Whether an edit would leave the video exactly as it is. */
+function changesNothing(plan: ProductionPlan, edit: Edit, uploads: StudioAsset[]): boolean {
+  const { plan: next, refilm, revoice } = applyEdit(plan, edit, uploads);
+  return !refilm.length && !revoice.length && JSON.stringify(next) === JSON.stringify(plan);
 }
 
 /* An edit, made real as the next version. */

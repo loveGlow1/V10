@@ -97,6 +97,7 @@ export type ResolvedCut = {
   captionStyle: CaptionStyle;
   stillMotion: StillMotion;
   endCard?: string;
+  brandMark?: Cut["brandMark"];
   muted: Set<number>;
 };
 
@@ -174,6 +175,7 @@ export function resolveCut(plan: Pick<ProductionPlan, "scenes" | "cut" | "aspect
     captionStyle: cut.captionStyle ?? "box",
     stillMotion: cut.stillMotion ?? "zoom-in",
     endCard: cut.endCard,
+    brandMark: cut.brandMark,
     muted: new Set(cut.muted ?? []),
   };
 }

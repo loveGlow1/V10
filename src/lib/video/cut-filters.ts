@@ -68,6 +68,9 @@ export type Words = {
   captionPosition?: CaptionPosition;
   captionSize?: CaptionSize;
   captionStyle?: CaptionStyle;
+  /** The brand's name in one corner, white (Cut.brandMark). */
+  brand?: string | null;
+  brandPosition?: "top-left" | "bottom-left" | "top-right" | "bottom-right";
 };
 
 /** drawtext for a scene's words, in the caption style asked for. Pure. */
@@ -95,6 +98,15 @@ export function wordsFilter(words: Words, width: number, height: number): string
           ? `fontcolor=0xFFE14D:borderw=${Math.max(2, Math.round(size * 0.1))}:bordercolor=black`
           : `fontcolor=white:box=1:boxcolor=black@0.72:boxborderw=${Math.round(small * 0.024)}`;
     parts.push(`drawtext=fontfile=${words.fontPath}:textfile=${file("caption")}:${style}:fontsize=${size}:x=(w-text_w)/2:y=${y}:line_spacing=10`);
+  }
+  if (words.brand) {
+    /* Pure white, small, in its corner, with a soft shadow so it reads on
+       any picture — never coloured, never moved. */
+    const pad = Math.round(small * 0.05);
+    const pos = words.brandPosition ?? "top-left";
+    const x = pos.endsWith("left") ? `${pad}` : `w-text_w-${pad}`;
+    const y = pos.startsWith("top") ? `${pad}` : `h-text_h-${pad}`;
+    parts.push(`drawtext=fontfile=${words.fontPath}:textfile=${file("brand")}:fontcolor=white:fontsize=${Math.round(small * 0.042)}:x=${x}:y=${y}:shadowcolor=black@0.45:shadowx=2:shadowy=2`);
   }
   return parts;
 }

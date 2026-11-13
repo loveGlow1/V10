@@ -21,7 +21,7 @@
  *
  * The model call is server-only; everything else here is pure. */
 
-import { complete, providerFor, providerReady, type LlmPart } from "@/lib/ai/llm";
+import { complete, providerFor, providerReady, stopped, type LlmPart } from "@/lib/ai/llm";
 import { DOCUMENTS_NOTE, MAX_CONTEXT_PICTURES } from "./context-files";
 
 import { withPolicy } from "@/lib/safety/policy";
@@ -31,7 +31,7 @@ import { attachmentManifest, type StudioAsset } from "./assets";
 import { sceneFromAsset } from "./timeline";
 import { VOICES, isVoiceId } from "./voices";
 import { castManifest, normalizeSceneCast } from "./cast";
-import { MAX_CLIP_SECONDS, normalizeCut, referenceClipsOf, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
+import { MAX_CLIP_SECONDS, normalizeBrandMark, normalizeCut, referenceClipsOf, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
 import { ASPECTS, COLORS, type ColorGrade } from "./cut-settings";
 
 export type SceneEdit = {
@@ -93,21 +93,19 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const numbers = new Set(plan.scenes.map((scene) => scene.n));
   const scenes: SceneEdit[] = [];
-  for (const entry of Array.isArray(r.scenes) ? r.scenes.slice(0, 300) : []) {
+  for (const entry of Array.isArray(r.scenes) ? r.scenes.slice(0, 2000) : []) {
     const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
     const n = Number(e.n);
     const action = ACTIONS.find((a) => a === e.action);
     if (!numbers.has(n) || !action || scenes.some((s) => s.n === n)) continue;
     const edit: SceneEdit = { n, action };
-    const prompt = text(e.motionPrompt, 1600);
-    const line = text(e.voiceover, 600);
+    const prompt = text(e.motionPrompt, 4000);
+    const line = text(e.voiceover, 4000);
     if (action === "refilm" && prompt) edit.motionPrompt = prompt;
     if (action === "refilm" && !prompt) continue;
-    if (action === "revoice") {
-      if (!line) continue;
-      edit.voiceover = line;
-    }
-    if (typeof e.onScreenText === "string") edit.onScreenText = text(e.onScreenText, 200);
+    /* revoice with no new words is "read it again": the same line, recorded afresh. */
+    if (action === "revoice" && line) edit.voiceover = line;
+    if (typeof e.onScreenText === "string") edit.onScreenText = text(e.onScreenText, 1000);
     if (isVoiceId(e.voiceId)) edit.voiceId = e.voiceId;
     if (Array.isArray(e.characters)) edit.characters = normalizeSceneCast(e.characters, castOf);
     const duration = Math.round(Number(e.duration));
@@ -139,24 +137,26 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     if (new Set(seen).size === seen.length && seen.length > 0) order = seen;
   }
   const cut = normalizeCut(r.cut);
+  /* "No logo": an explicit null takes the brand mark away. */
+  const noMark = r.cut && typeof r.cut === "object" && normalizeBrandMark((r.cut as Record<string, unknown>).brandMark) === null;
   const add = (Array.isArray(r.add) ? r.add : [])
-    .slice(0, 12)
+    .slice(0, 500)
     .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
     .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId))
     .map((entry) => ({ assetId: String(entry.assetId).toLowerCase(), ...(numbers.has(Number(entry.after)) ? { after: Number(entry.after) } : {}) }));
   const continueFrom = (Array.isArray(r.continueFrom) ? r.continueFrom : [])
-    .slice(0, 6)
+    .slice(0, 100)
     .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {}))
-    .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId) && text(entry.prompt, 1600))
+    .filter((entry) => typeof entry.assetId === "string" && /^[0-9a-f-]{36}$/i.test(entry.assetId) && text(entry.prompt, 4000))
     .map((entry) => {
       const seconds = Math.round(Number(entry.seconds));
-      return { assetId: String(entry.assetId).toLowerCase(), prompt: text(entry.prompt, 1600), ...(seconds >= 2 && seconds <= MAX_CLIP_SECONDS ? { seconds } : {}) };
+      return { assetId: String(entry.assetId).toLowerCase(), prompt: text(entry.prompt, 4000), ...(seconds >= 2 && seconds <= MAX_CLIP_SECONDS ? { seconds } : {}) };
     });
   const look = Array.isArray(r.look) ? referenceClipsOf(r.look.map((id) => (typeof id === "string" ? id.toLowerCase() : id))) : undefined;
   return {
-    reply: text(r.reply, 500) || "Done.",
+    reply: text(r.reply, 2000) || "Done.",
     replan: r.replan === true,
-    ...(cut ? { cut } : {}),
+    ...(cut || noMark ? { cut: { ...(cut ?? {}), ...(noMark ? { brandMark: undefined } : {}) } } : {}),
     scenes,
     ...(order ? { order } : {}),
     ...(add.length ? { add } : {}),
@@ -164,7 +164,7 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     ...(look ? { look } : {}),
     ...((ASPECTS as readonly string[]).includes(String(r.aspect)) ? { aspect: r.aspect as ProductionPlan["aspect"] } : {}),
     ...(text(r.title, 160) ? { title: text(r.title, 160) } : {}),
-    ...(text(r.music, 300) ? { music: text(r.music, 300) } : {}),
+    ...(text(r.music, 1000) ? { music: text(r.music, 1000) } : {}),
   };
 }
 
@@ -227,8 +227,9 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
     ordered = [...ordered.slice(0, at + 1), next, ...ordered.slice(at + 1)];
   }
 
-  const merged = { ...(plan.cut ?? {}), ...(edit.cut ?? {}) };
-  const cut = normalizeCut(merged.endCard ? { ...merged, endCard: withBrand(merged.endCard) } : merged);
+  const merged: Record<string, unknown> = { ...(plan.cut ?? {}), ...(edit.cut ?? {}) };
+  if (edit.cut && "brandMark" in edit.cut && edit.cut.brandMark === undefined) delete merged.brandMark;
+  const cut = normalizeCut(merged.endCard ? { ...merged, endCard: withBrand(String(merged.endCard)) } : merged);
   const noVoice = cut?.audio === "original" || cut?.audio === "none";
   const carry: Carry[] = [];
   const refilm: number[] = [];
@@ -243,9 +244,10 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
       scene.motionPrompt = e.motionPrompt;
       clip = false;
     }
-    if (e?.action === "revoice" && e.voiceover) {
-      scene.voiceover = withBrand(e.voiceover);
-      voice = scene.voiceover === old.voiceover;
+    /* A new line, or the same one read again: either way it is recorded afresh. */
+    if (e?.action === "revoice" && (e.voiceover || old.voiceover.trim())) {
+      if (e.voiceover) scene.voiceover = withBrand(e.voiceover);
+      voice = false;
     }
     if (e?.onScreenText !== undefined) scene.onScreenText = withBrand(e.onScreenText);
     if (e?.duration) scene.duration = e.duration;
@@ -368,7 +370,7 @@ export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: b
       ...(scene.characters?.length ? [`  on screen: ${scene.characters.map((id) => plan.characters?.find((c) => c.id === id)?.name ?? id).join(", ")}`] : []),
       `  spoken: ${scene.voiceover || "—"}`,
       `  on screen: ${scene.onScreenText || "—"}`,
-      ...(scene.source ? [] : [`  clip prompt: ${scene.motionPrompt.slice(0, 500)}`]),
+      ...(scene.source ? [] : [`  clip prompt: ${scene.motionPrompt}`]),
     ].join("\n");
   });
   return [
@@ -376,10 +378,80 @@ export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: b
     `FORMAT: ${plan.aspect}`,
     `MUSIC: ${plan.cut?.music?.source === "upload" ? "the person's own file" : plan.cut?.music?.source === "none" ? "none" : plan.music || "none"}`,
     `LOOK FROM: ${(plan.referenceClips ?? []).join(", ") || "—"}`,
-    `LOCKS: ${JSON.stringify(plan.locks).slice(0, 1500)}`,
+    `LOCKS: ${JSON.stringify(plan.locks)}`,
     `CUT NOW: ${JSON.stringify(plan.cut ?? {})}`,
     ...lines,
   ].join("\n");
+}
+
+/**
+ * What earlier versions said that the video no longer does: each version's
+ * spoken lines, words on screen and music where they differ from now, newest
+ * first — so "the previous voice-over", "put back what she said before" or
+ * "the old title" can be brought back word for word. Pure.
+ */
+export function historyBrief(current: ProductionPlan, history: { version: number; note?: string | null; plan: ProductionPlan }[], maxChars = 60_000): string {
+  const now = new Map(current.scenes.map((scene, i) => [i, scene]));
+  const blocks: string[] = [];
+  let size = 0;
+  for (const entry of history) {
+    const lines: string[] = [];
+    entry.plan.scenes?.forEach((scene, i) => {
+      const same = now.get(i);
+      if ((scene.voiceover ?? "") !== (same?.voiceover ?? "")) lines.push(`  scene ${i + 1} spoken: ${scene.voiceover || "—"}`);
+      if ((scene.onScreenText ?? "") !== (same?.onScreenText ?? "")) lines.push(`  scene ${i + 1} on screen: ${scene.onScreenText || "—"}`);
+    });
+    if ((entry.plan.music ?? "") !== (current.music ?? "") && entry.plan.music) lines.push(`  music: ${entry.plan.music}`);
+    if ((entry.plan.title ?? "") !== (current.title ?? "")) lines.push(`  title: ${entry.plan.title}`);
+    if ((entry.plan.scenes?.length ?? 0) !== current.scenes.length) lines.push(`  had ${entry.plan.scenes?.length ?? 0} scenes (now ${current.scenes.length})`);
+    if (!lines.length) continue;
+    const block = `VERSION ${entry.version}${entry.note ? ` ("${entry.note.slice(0, 120)}")` : ""}:\n${lines.join("\n")}`;
+    if (size + block.length > maxChars) break;
+    blocks.push(block);
+    size += block.length;
+  }
+  return blocks.length
+    ? `EARLIER VERSIONS — what they had that differs from now, newest first. When the person asks for "the previous / old / earlier" voice-over, words or music, copy it from here exactly (revoice with that line, or set onScreenText):\n${blocks.join("\n")}`
+    : "";
+}
+
+/** The JSON object in a model's answer, forgiving fences, chatter and trailing commas. Null when there is none. Pure. */
+export function readEditJson(text: string): unknown {
+  const raw = text.replace(/```(?:json)?/g, "").trim();
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  /* The first complete object: braces counted outside strings. */
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let end = -1;
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  const body = raw.slice(start, end > 0 ? end + 1 : raw.lastIndexOf("}") + 1);
+  for (const candidate of [body, body.replace(/,\s*([}\]])/g, "$1")]) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      /* Next. */
+    }
+  }
+  return null;
 }
 
 const SYSTEM = `You are QuickStark's video editor. A video has already been planned and filmed. The person asks for a change; you decide the SMALLEST set of edits that delivers it, the way a skilled human editor would — never re-filming what was right.
@@ -399,8 +471,10 @@ What you can do, cheapest first:
    - music: {"source": "generate" | "none"} (an uploaded file is chosen in the studio).
    - captionPosition "bottom"|"middle"|"top", captionSize "small"|"medium"|"large", captionStyle "box"|"outline"|"highlight".
    - stillMotion for pictures: "zoom-in" | "zoom-out" | "pan" | "none".
+   - brandMark: {"text":"QuickStark.Ai","position":"top-left" | "bottom-left" | "top-right" | "bottom-right","when":"start" | "all" | "end"} — the brand's name drawn by the cut itself: ALWAYS pure white, small, in that one corner, identical wherever it shows. null removes it. Free, nothing re-filmed.
+     Whenever the person talks about the brand name or logo on screen — its colour, where it sits, how often it shows — use brandMark (white is the only colour; "left" = top-left unless they say bottom). Then make sure it appears ONLY there: clear the brand from every scene's onScreenText and from endCard if it is repeated there, and never put it in a clip prompt. If a clip itself shows the name in another colour (the video model drew it), refilm only that scene with the name and any lettering taken out of its prompt.
 2. Per-scene words on screen (onScreenText) — costs nothing.
-3. revoice — a new spoken line for a scene (cheap). Give the full new line.
+3. revoice — a scene's spoken line recorded again (cheap). Give the full new line; or leave voiceover empty to have the SAME line read again ("read it again", "redo the voice-over", "say it with more feeling" with voiceId or the same words). To bring back an earlier line ("the previous voice-over"), copy it word for word from EARLIER VERSIONS.
 4. refilm — a new clip for a scene (expensive). Give the COMPLETE new clip prompt: subject, setting, lighting, lens/shot, camera move, motion, mood, aspect ratio — keep every lock (creator, product, style) word for word so it matches the other scenes.
 5. remove — drop a scene. order — old scene numbers in a new order.
    add — put the person's uploads (from ATTACHMENTS, by assetId) into the video: [{"assetId":"...","after":2}] (after a scene number, or at the end without "after"). Free.
@@ -418,6 +492,7 @@ What you can do, cheapest first:
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
 Rules:
+- Do whatever a person could do by hand in the editor, on as many scenes as the request covers — every scene if they say "all". Never refuse an edit because it is long or touches many scenes.
 - Touch only what the request needs, and only where it asks. Unmentioned scenes are "keep" — omit them.
 - Words on screen, captions, the end card, sound, music, voice, order, timing, trims, filters and the shape are NEVER a reason to refilm: deleting or changing on-screen text is onScreenText on that scene alone, and every clip is reused as it is.
 - refilm only a scene whose picture the person asked to change, or whose clip is missing — never "to be safe", never every scene.
@@ -446,24 +521,52 @@ export async function decideEdit(input: {
   documents?: LlmPart[];
   /** A still of every made scene, to match a screenshot to its scene (scene-stills.ts). */
   stills?: LlmPart[];
+  /** Earlier versions, newest first, for "the previous voice-over" (historyBrief). */
+  history?: { version: number; note?: string | null; plan: ProductionPlan }[];
+  /** Said to the model on a second try: what was wrong with the first answer. */
+  nudge?: string;
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
-  try {
-    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [
-      ...(input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url })),
-      ...(input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : []),
-      ...(input.stills ?? []),
-      { type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 16000);
-    const raw = message.text
-      .replace(/```json|```/g, "")
-      .trim();
-    const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    return { edit: normalizeEdit(parsed, input.plan), outputTokens: message.outputTokens };
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error("video editor:", error);
-    return { error: "The editor could not work that out just now." };
+  const context: LlmPart[] = [
+    ...(input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url })),
+    ...(input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : []),
+    ...(input.stills ?? []),
+  ];
+  const brief = [
+    attachmentManifest(input.assets ?? []),
+    castManifest(input.plan.characters ?? []),
+    editorBrief(input.plan, input.made),
+    historyBrief(input.plan, input.history ?? []),
+    `THE PERSON ASKS:\n${input.instruction}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  /* Up to three tries: a model that wanders off JSON, runs out of room or
+     trips on the network gets told what went wrong and asked again. */
+  let outputTokens = 0;
+  let nudge = input.nudge ?? "";
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [...context, { type: "text", text: nudge ? `${brief}\n\n${nudge}` : brief }], 32000);
+      outputTokens += message.outputTokens;
+      const parsed = readEditJson(message.text);
+      if (parsed && typeof parsed === "object") return { edit: normalizeEdit(parsed, input.plan), outputTokens };
+      nudge =
+        message.stop === "max_tokens"
+          ? "YOUR LAST ANSWER WAS CUT OFF. List only the scenes you change — leave every other scene out — and answer with the JSON object alone."
+          : "YOUR LAST ANSWER WAS NOT VALID JSON. Answer with the JSON object alone: no words before or after it, no comments, no trailing commas.";
+    } catch (error) {
+      lastError = error;
+      if (stopped()) break;
+      // eslint-disable-next-line no-console
+      console.error("video editor (try " + (attempt + 1) + "):", error);
+      await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    }
   }
+  // eslint-disable-next-line no-console
+  if (lastError) console.error("video editor:", lastError);
+  return { error: "The editor could not work that out just now." };
 }
 
 /* ── Suggestions: the AI speaks only when it has something worth saying ── */

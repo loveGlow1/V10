@@ -66,6 +66,12 @@ export type Cut = {
   captions?: boolean;
   /** Words on the last scene, e.g. "QuickStark.Ai". */
   endCard?: string;
+  /**
+   * The brand's name, drawn by the cut itself — always white, in one corner,
+   * the same on every scene it is on. A video model is never asked to draw
+   * it: models letter in whatever colour and place they like.
+   */
+  brandMark?: BrandMark;
   /** Scenes whose own sound is silenced. */
   muted?: number[];
   /* Video settings (cut-settings.ts): absent means the default. */
@@ -322,10 +328,33 @@ export function sourceSeconds(source: SceneSource, clipSeconds: number | null | 
 /** Whether a cut uses the script's voice lines at all. Pure. */
 export const usesVoice = (cut: Cut | undefined) => cut?.audio !== "original" && cut?.audio !== "none";
 
+export const BRAND_POSITIONS = ["top-left", "bottom-left", "top-right", "bottom-right"] as const;
+export type BrandMark = { text: string; position: (typeof BRAND_POSITIONS)[number]; when: "start" | "all" | "end" };
+
+/** A brand mark as written, or null to take it away. Left (top-left) and the opening by default. Pure. */
+export function normalizeBrandMark(raw: unknown): BrandMark | null | undefined {
+  if (raw === null || raw === false || raw === "none") return null;
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const words = withBrand(text(r.text, 60) || BRAND);
+  const asked = String(r.position ?? "").toLowerCase().replace(/\s+/g, "-");
+  const position = (BRAND_POSITIONS as readonly string[]).includes(asked)
+    ? (asked as BrandMark["position"])
+    : asked === "left"
+      ? "top-left"
+      : asked === "right"
+        ? "top-right"
+        : "top-left";
+  const when = r.when === "all" || r.when === "end" ? r.when : "start";
+  return { text: words, position, when };
+}
+
 export function normalizeCut(raw: unknown): Cut | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Record<string, unknown>;
   const cut: Cut = {};
+  const mark = normalizeBrandMark(r.brandMark);
+  if (mark) cut.brandMark = mark;
   if (r.audio === "voiceover" || r.audio === "original" || r.audio === "mix" || r.audio === "none") cut.audio = r.audio;
   if (typeof r.captions === "boolean") cut.captions = r.captions;
   const end = text(r.endCard, 80);

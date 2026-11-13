@@ -74,11 +74,18 @@ export function languageFor(answers: Record<string, string>): string {
    video model's job here: every spoken word comes from the voice model,
    which reads the script exactly. A clip is asked for picture and room sound
    only. Pure. */
-export const NO_LETTERING = "No subtitles, captions, titles or any added on-screen text.";
+export const NO_LETTERING = "No subtitles, captions, titles, logos, brand names, wordmarks or any lettering anywhere in the picture.";
+
+/** A clip prompt with every request to draw the brand's name or a logo taken out: the cut draws it, white, in its place (Cut.brandMark). Pure. */
+export function withoutBrandLettering(prompt: string): string {
+  const sentences = prompt.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((s) => !(/quick ?stark/i.test(s) || /\b(logo|wordmark|brand name|lettering|text reading|words? reading|title card)\b/i.test(s)));
+  return (kept.length ? kept.join(" ") : prompt.replace(/quick ?stark(\.ai)?/gi, "")).trim();
+}
 export const NO_SPEECH = "No dialogue: nobody talks, mouths words or mumbles; natural ambient sound only.";
 export function clipPrompt(prompt: string): string {
   const rules = `${NO_LETTERING} ${NO_SPEECH}`;
-  return `${prompt.slice(0, 2000 - rules.length - 1)} ${rules}`;
+  return `${withoutBrandLettering(prompt).slice(0, 2000 - rules.length - 1)} ${rules}`;
 }
 
 /** Every job a plan needs: a clip per scene, a voice line per spoken scene. */
