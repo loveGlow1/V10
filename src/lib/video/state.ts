@@ -126,9 +126,9 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
       const handedOn = await retryClip(service, { videoId: id, version: video.current_version as number, n: row.scene, failed: "n8n", origin: origin });
       if (handedOn) continue;
     }
-    await supabase.from("video_renders").update({ status: "failed", error: "Timed out — the render job never reported back." }).eq("id", row.id);
+    await supabase.from("video_renders").update({ status: "failed", error: "Timed out — the generation never reported back." }).eq("id", row.id);
     row.status = "failed";
-    row.error = "Timed out — the render job never reported back.";
+    row.error = "Timed out — the generation never reported back.";
   }
   let status = video.status as string;
   if (stale.length && !(renderRows ?? []).some((row) => row.status === "running")) {

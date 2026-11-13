@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, History, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, MessageSquare, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
 import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
@@ -210,7 +210,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retryFailed }) }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as { error?: string; queued?: number; failed?: number; missing?: { label: string; health: string }[] } | null;
     if (response?.ok) {
-      setRenderResult({ ok: true, text: `Rendering ${body?.queued ?? 0} jobs${body?.failed ? ` (${body.failed} could not be sent)` : ""}. Clips arrive one by one — usually within a few minutes.` });
+      setRenderResult({ ok: true, text: `Generating ${body?.queued ?? 0} pieces${body?.failed ? ` (${body.failed} could not be sent)` : ""}. Clips arrive one by one — usually within a few minutes.` });
       await load(true);
     }
     else
@@ -218,7 +218,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         ok: false,
         text: body?.missing?.length
           ? `${body.error} Needed: ${body.missing.map((m) => `${m.label} (${HEALTH[m.health] ?? m.health})`).join(", ")}. Your plan, script and preview are ready to use meanwhile.`
-          : (body?.error ?? "Could not start the render."),
+          : (body?.error ?? "Could not start generating."),
       });
     setBusy(null);
   }
@@ -386,7 +386,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
               >
                 {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {status === "rendering" ? "Rendering…" : data.renders.length ? "Render again" : "Generate video"}
+                {status === "rendering" ? "Generating…" : data.renders.length ? "Generate again" : "Generate video"}
                 {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
               </button>
               {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
@@ -921,7 +921,7 @@ function renderFailure(renders: RenderRow[]): string | null {
     return "The video engine's account is out of credit, so no clips were made and nothing was charged. Once it's topped up, press Retry failed scenes — your plan is kept.";
   }
   if (/sensitive|safety|moderation|policy/i.test(errors)) {
-    return "The video engine declined some scenes. Ask me to tone them down, then render again.";
+    return "The video engine declined some scenes. Ask me to tone them down, then generate again.";
   }
   return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
 }
@@ -951,14 +951,22 @@ const QUICK = [
 ];
 
 /* The sessions of a video's chat, newest first, each named by its first request. Pure. */
-function sessionList(messages: VideoMessage[], upTo: number): { session: number; title: string; when: string }[] {
-  const out: { session: number; title: string; when: string }[] = [];
+type SessionItem = { session: number; title: string; when: string; group: string; count: number };
+
+function sessionList(messages: VideoMessage[], upTo: number): SessionItem[] {
+  const out: SessionItem[] = [];
+  const today = new Date();
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   for (let k = upTo; k >= 1; k -= 1) {
     const own = messages.filter((m) => m.session === k);
     const first = own.find((m) => m.role === "user") ?? own[0];
-    const title = first ? first.text.split("\n")[0].slice(0, 70) : k === 1 ? "First session" : "New session";
-    const when = first ? new Date(first.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
-    out.push({ session: k, title, when });
+    const last = own[own.length - 1];
+    const title = first ? first.text.split("\n")[0].slice(0, 80) : k === 1 ? "First session" : "New session";
+    const at = last ? new Date(last.created_at) : today;
+    const days = Math.round((day(today) - day(at)) / 86_400_000);
+    const group = days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 7 ? "This week" : "Earlier";
+    const when = days <= 0 ? at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : at.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    out.push({ session: k, title, when: last ? when : "now", group, count: own.filter((m) => m.role === "user").length });
   }
   return out;
 }
@@ -1011,7 +1019,25 @@ function DirectorChat(props: {
      and the Director's answer — a new version or why not — follows it. */
   const [messages, setMessages] = useState<VideoMessage[]>([]);
   const [session, setSession] = useState<number | null>(null);
-  const [showSessions, setShowSessions] = useState(false);
+  /* The list of sessions: open by default, folded away with one click, and
+     remembered folded or open for next time. */
+  const [showSessions, setShowSessions] = useState(true);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("qs-director-sessions") === "closed") setShowSessions(false);
+    } catch {
+      /* Open. */
+    }
+  }, []);
+  const toggleSessions = () =>
+    setShowSessions((open) => {
+      try {
+        window.localStorage.setItem("qs-director-sessions", open ? "closed" : "open");
+      } catch {
+        /* Not remembered. */
+      }
+      return !open;
+    });
   useEffect(() => {
     let alive = true;
     void fetch(`/api/video/${props.videoId}/messages`, { cache: "no-store" })
@@ -1089,33 +1115,62 @@ function DirectorChat(props: {
       <header className="flex items-center gap-2 border-b border-line/[0.06] px-4 py-3">
         <Sparkles className="h-4 w-4 text-accent" />
         <h2 className="text-[14px] font-medium text-ink">Director</h2>
-        <div className="ml-auto flex items-center gap-1">
-          <button type="button" onClick={() => setShowSessions((v) => !v)} aria-expanded={showSessions} title="Earlier sessions" className="flex h-7 items-center gap-1 rounded-full px-2 text-[11.5px] text-soft hover:bg-layer/[0.08] hover:text-ink">
-            <History className="h-3.5 w-3.5" /> Sessions
-          </button>
-          <button type="button" onClick={newSession} disabled={busy !== null || shown.length === 0 && active > latestSession} title="Start a new session — a fresh conversation; this one stays in Sessions" className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08] disabled:opacity-40">
-            <Plus className="h-3.5 w-3.5" /> New session
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={newSession}
+          disabled={busy !== null || (shown.length === 0 && active > latestSession)}
+          title="Start a new session — a fresh conversation; this one stays in the list"
+          className="ml-auto flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2.5 text-[11.5px] text-ink transition hover:bg-layer/[0.08] disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" /> New session
+        </button>
       </header>
-      {showSessions && (
-        <nav aria-label="Sessions" className="max-h-56 overflow-y-auto border-b border-line/[0.06] px-2 py-2">
-          {sessions.map((item) => (
-            <button
-              key={item.session}
-              type="button"
-              onClick={() => {
-                setSession(item.session);
-                setShowSessions(false);
-              }}
-              className={`flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] hover:bg-layer/[0.06] ${item.session === active ? "bg-layer/[0.08] text-ink" : "text-soft"}`}
-            >
-              <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              <span className="shrink-0 text-[11px] text-muted">{item.when}</span>
-            </button>
-          ))}
-        </nav>
-      )}
+
+      <div className="border-b border-line/[0.06]">
+        <button
+          type="button"
+          onClick={toggleSessions}
+          aria-expanded={showSessions}
+          aria-controls="director-sessions"
+          className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-muted transition hover:text-ink"
+        >
+          <History className="h-3.5 w-3.5" />
+          Sessions
+          <span className="rounded-full bg-layer/[0.08] px-1.5 py-px text-[10.5px] normal-case tracking-normal text-soft">{sessions.length}</span>
+          {!showSessions && (
+            <span className="min-w-0 flex-1 truncate text-[11.5px] font-normal normal-case tracking-normal text-soft">{sessions.find((item) => item.session === active)?.title}</span>
+          )}
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform duration-200 ${showSessions ? "" : "-rotate-90"}`} />
+        </button>
+        <div id="director-sessions" className={`grid transition-[grid-template-rows] duration-200 ease-out ${showSessions ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+          <nav aria-label="Sessions" className="min-h-0 overflow-hidden">
+            <ul className="max-h-60 overflow-y-auto px-2 pb-2">
+              {sessions.map((item, i) => (
+                <li key={item.session}>
+                  {(i === 0 || sessions[i - 1].group !== item.group) && (
+                    <p className="px-2 pb-1 pt-2 text-[10.5px] font-medium text-muted">{item.group}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSession(item.session)}
+                    aria-current={item.session === active ? "true" : undefined}
+                    className={`group relative flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3 pr-2 text-left transition ${item.session === active ? "bg-layer/[0.08] text-ink" : "text-soft hover:bg-layer/[0.04] hover:text-ink"}`}
+                  >
+                    <span aria-hidden className={`absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full transition ${item.session === active ? "bg-accent" : "bg-transparent"}`} />
+                    <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${item.session === active ? "text-accent" : "text-muted group-hover:text-soft"}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[12.5px] leading-5">{item.title}</span>
+                      <span className="block text-[10.5px] leading-4 text-muted">
+                        {item.count ? `${item.count} ${item.count === 1 ? "message" : "messages"}` : "Empty"} · {item.when}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </div>
+      </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
         {earlier.map((turn) => {
@@ -1126,7 +1181,7 @@ function DirectorChat(props: {
               <p className="mr-6 text-soft">
                 {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
                 {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
-                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then render it."}
+                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then generate it."}
               </p>
             </div>
           );
@@ -1140,15 +1195,17 @@ function DirectorChat(props: {
           ) : (
             <p key={message.id} className={message.failed ? "mr-6 rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft" : "mr-6 text-soft"}>
               {message.text}
-              {!message.failed && message.version === current && ` · ${props.scenes} scenes, ${props.seconds}s.`}
+              {!message.failed && message.version === current && (
+                <span className="mt-1 block text-[11px] text-muted">Version {message.version} · {props.scenes} scenes · {props.seconds}s</span>
+              )}
             </p>
           ),
         )}
         {props.status === "rendering" && (
-          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering the clips — they arrive one by one, usually within a few minutes.</p>
+          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating the clips — they arrive one by one, usually within a few minutes.</p>
         )}
         {failure && <p className="rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft">{failure}</p>}
-        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and render again whenever you like.</p>}
+        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and generate again whenever you like.</p>}
         {busy === "plan" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
         )}
@@ -1225,7 +1282,7 @@ function DirectorChat(props: {
               disabled={busy !== null || !props.canRender}
               className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40"
             >
-              <Play className="h-3.5 w-3.5" /> {rendered ? "Render again" : "Render"} · {props.cost}
+              <Play className="h-3.5 w-3.5" /> {rendered ? "Generate again" : "Generate"} · {props.cost}
             </button>
           )}
         </div>

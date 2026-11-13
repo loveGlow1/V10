@@ -362,7 +362,7 @@ has(/FILLED\}\\n\$\{fill\}/.test(vplan) && /first && prompt\.trim\(\) && prompt\
 has(/owner\?\.intent === VIDEO_INTENT/.test(vpreview) && /videoBoardHtml\(/.test(vpreview), "the preview iframe shows the video board");
 has(/verifyBoardToken\(id/.test(vboard) && /Access-Control-Allow-Origin/.test(vboard) && /\{ video: video \? \{ id: video\.id, status: video\.status, title: video\.title \} : null, latest, renders, final \}/.test(vboard), "the board reads its video's state with a token for that video only");
 has(/setTimeout\(load,busy\?6000:30000\)/.test(vws), "the board updates itself as clips land");
-has(/rendered\.status === 402[\s\S]{0,300}you have \$\{await balanceOf/.test(vws) && /say "render it"/.test(vws), "short of credits, the chat says how many it needs and how many you have");
+has(/rendered\.status === 402[\s\S]{0,300}you have \$\{await balanceOf/.test(vws) && /say "generate it"/.test(vws), "short of credits, the chat says how many it needs and how many you have");
 has(/const renderOnly = !first && RENDER_ONLY\.test/.test(vws), "\"render it\" renders the current plan without planning it again");
 has(/grid-template-columns:minmax\(0,1fr\)/.test(vws) && /overflow-x:hidden/.test(vws), "the video board fits a phone: nothing wider than the screen");
 /* n8n's queue: five at a time, the rest wait — not failures. */
@@ -901,6 +901,7 @@ const chatPage = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"
 const msgRoute = readFileSync(join(root, "src/app/api/video/[id]/messages/route.ts"), "utf8");
 has(/setNote\(""\);\s*setAttached\(\[\]\);\s*void ask\(/.test(chatPage) && /role: "user", text/.test(chatPage) && /from\("video_messages"\)/.test(msgRoute), "a message leaves the box at once, drops into the chat and is stored");
 has(/New session/.test(chatPage) && /sessionList\(messages/.test(chatPage), "a new session starts a fresh conversation; earlier ones are listed");
+has(/aria-expanded=\{showSessions\}/.test(chatPage) && /qs-director-sessions/.test(chatPage) && /"Today" : days === 1 \? "Yesterday"/.test(chatPage), "the sessions are a list grouped by day that folds away, and stays folded or open next time");
 const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video_messages.sql"), "utf8");
 has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");
 

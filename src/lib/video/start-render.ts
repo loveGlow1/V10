@@ -62,7 +62,7 @@ export async function startRender(
   if (!ready.ready) {
     return NextResponse.json(
       {
-        error: plan.pipeline === "clone" ? "Your clone needs the avatar and lip-sync engine, which isn't connected yet." : "Rendering isn't connected yet for this video.",
+        error: plan.pipeline === "clone" ? "Your clone needs the avatar and lip-sync engine, which isn't connected yet." : "Generating isn't connected yet for this video.",
         missing: ready.engines.filter((entry) => entry.required && entry.health !== "available"),
         readiness: ready,
       },
@@ -133,7 +133,7 @@ export async function startRender(
       return NextResponse.json({ queued: filed, failed: 0, cost: 0, readiness: ready });
     }
   } else if ((existing ?? []).some((r) => r.status === "queued" || r.status === "running")) {
-    return NextResponse.json({ error: "This version is already rendering." }, { status: 409 });
+    return NextResponse.json({ error: "This version is already generating." }, { status: 409 });
   } else {
     /* A fresh render: nothing of the last one carries over. */
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version);
@@ -145,7 +145,7 @@ export async function startRender(
   }
   const uploaded = body.retryFailed === true ? 0 : body.onlyMissing === true ? 0 : await fileUploads(supabase, { videoId: id, userId, version, plan });
   if (jobs.length === 0) {
-    if (!uploaded) return NextResponse.json({ error: "There is nothing to render in this plan yet." }, { status: 400 });
+    if (!uploaded) return NextResponse.json({ error: "There is nothing to generate in this plan yet." }, { status: 400 });
     const service = createSupabaseServiceClient();
     if (service) {
       await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
@@ -166,7 +166,7 @@ export async function startRender(
   if (service) {
     const balance = await currentBalance(service, userId);
     if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < cost) {
-      return NextResponse.json({ error: `This render needs ${cost} credits. Top up to render it.` }, { status: 402 });
+      return NextResponse.json({ error: `Generating this needs ${cost} credits. Top up to generate it.` }, { status: 402 });
     }
   }
 
@@ -178,7 +178,7 @@ export async function startRender(
   const { error: insertError } = await supabase.from("video_renders").insert(
     keys.map((key) => ({ video_id: id, user_id: userId, version, scene: key.scene, engine: key.engine, provider: key.engine === "voice" && voiceDirect(process.env, tier, n8nPaused) ? "minimax:speech" : "n8n:minimax", status: "running" })),
   );
-  if (insertError) return NextResponse.json({ error: "Could not start the render." }, { status: 500 });
+  if (insertError) return NextResponse.json({ error: "Could not start generating." }, { status: 500 });
 
   const callbackUrl = `${origin}/api/video/${id}/render/callback`;
   const fail = (job: RenderJob, error: string) =>
@@ -337,7 +337,7 @@ export async function startRender(
     if (service) await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
   }
   await supabase.from("video_projects").update({ status: accepted ? "rendering" : "failed" }).eq("id", id);
-  if (!accepted) return NextResponse.json({ error: sent[0]?.error ?? "The render could not be started." }, { status: 502 });
+  if (!accepted) return NextResponse.json({ error: sent[0]?.error ?? "Generating could not be started." }, { status: 502 });
   return NextResponse.json({ queued: accepted, failed: sent.length - accepted, cost, readiness: ready });
 }
 

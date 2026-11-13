@@ -155,7 +155,7 @@ export function VersionControls({
             <p className="text-[14px] font-semibold text-ink">Versions</p>
             <p className="mt-0.5 text-[12px] leading-snug text-muted">
               {kind === "video"
-                ? "Pick a cut to play it. Every cut is kept, switching is instant, and nothing is rendered again — it's free."
+                ? "Pick a cut to play it. Every cut is kept, switching is instant, and nothing is generated again — it's free."
                 : kind === "flier"
                 ? "Pick a set to show it. Every set is kept, switching is instant, and nothing is designed again — it's free."
                 : "Pick one to go back to it. It's restored as a new version, so nothing is lost — and it's free."}
