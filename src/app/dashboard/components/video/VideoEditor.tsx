@@ -518,7 +518,7 @@ export default function VideoEditor({ id }: { id: string }) {
       {!draft ? (
         <div className="mt-4">
           <MediaPanel videoId={id} assets={assets} title="Your clips" description="Upload the pieces of your video. They go on the timeline in the order you add them." inTimeline={new Set()} onChanged={() => load(true)}>
-            <button onClick={() => void stitch()} disabled={busy !== null || !assets.some((a) => a.kind !== "audio" && a.kind !== "render" && a.status !== "failed")} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50">
+            <button onClick={() => void stitch()} disabled={busy !== null || !assets.some((a) => a.kind !== "audio" && a.kind !== "render" && a.kind !== "document" && a.status !== "failed")} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50">
               {busy === "stitch" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scissors className="h-4 w-4" />} Put them on the timeline
             </button>
           </MediaPanel>

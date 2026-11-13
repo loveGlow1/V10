@@ -11,7 +11,7 @@
  *
  * Browser-only. */
 
-import { assetKind, uploadProblem } from "./assets";
+import { assetKind, documentMime, uploadProblem } from "./assets";
 
 export type MediaInfo = { durationS: number | null; width: number | null; height: number | null };
 
@@ -19,7 +19,7 @@ export type MediaInfo = { durationS: number | null; width: number | null; height
 export function readMediaInfo(file: File): Promise<MediaInfo> {
   const kind = assetKind(file.type);
   const none: MediaInfo = { durationS: null, width: null, height: null };
-  if (typeof document === "undefined" || kind === "file") return Promise.resolve(none);
+  if (typeof document === "undefined" || kind === "file" || kind === "document") return Promise.resolve(none);
   const url = URL.createObjectURL(file);
   return new Promise((resolve) => {
     const done = (info: MediaInfo) => {
@@ -86,7 +86,7 @@ export async function uploadStudioFile(
   file: File,
   options: { role?: "product" | "person" | "photo" | "reference"; onProgress?: (fraction: number) => void } = {},
 ): Promise<{ ok: true; id: string; kind: string } | { ok: false; error: string }> {
-  const mime = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : /\.m4a$/i.test(file.name) ? "audio/mp4" : "");
+  const mime = file.type || (/\.mov$/i.test(file.name) ? "video/quicktime" : /\.m4a$/i.test(file.name) ? "audio/mp4" : documentMime(file.name));
   const info = await readMediaInfo(file);
   const problem = uploadProblem({ mime, size: file.size, durationS: info.durationS });
   if (problem) return { ok: false, error: `${file.name}: ${problem}` };

@@ -37,6 +37,12 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
       await fail("The upload could not be found in storage.");
       return;
     }
+    /* A document is read by the director as it is: nothing to probe or make. */
+    if (asset.kind === "document") {
+      await service.from("video_assets").update({ status: "ready", error: null, updated_at: new Date().toISOString() }).eq("id", assetId);
+      await charge(service, asset);
+      return;
+    }
     await mkdir(dir, { recursive: true });
     const source = join(dir, "source");
     if (!(await downloadTo(signed.signedUrl, source))) {

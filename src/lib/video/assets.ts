@@ -13,11 +13,12 @@
  *
  * Pure: read by the browser (the studio's upload) and by the server. */
 
-export type UploadKind = "video" | "audio" | "image" | "file";
+export type UploadKind = "video" | "audio" | "image" | "document" | "file";
 
 /** The kind of an upload, from its MIME type. Pure. */
 export function assetKind(mime: string | null | undefined): UploadKind {
   const m = (mime ?? "").toLowerCase();
+  if (m === "application/pdf" || m === "text/plain" || m === "text/markdown" || m === "text/x-markdown") return "document";
   return m.startsWith("video/") ? "video" : m.startsWith("audio/") ? "audio" : m.startsWith("image/") ? "image" : "file";
 }
 
@@ -39,13 +40,23 @@ export const ACCEPTED_TYPES = [
   "image/png",
   "image/jpeg",
   "image/webp",
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
 ] as const;
-export const ACCEPT_ATTRIBUTE = [...ACCEPTED_TYPES, ".mov", ".m4a", ".mp3", ".wav"].join(",");
+export const ACCEPT_ATTRIBUTE = [...ACCEPTED_TYPES, ".mov", ".m4a", ".mp3", ".wav", ".pdf", ".txt", ".md"].join(",");
+
+/** A document's type from its name, when the browser does not say (a .md file often arrives as ""). Pure. */
+export function documentMime(name: string): string {
+  return /\.pdf$/i.test(name) ? "application/pdf" : /\.(md|markdown)$/i.test(name) ? "text/markdown" : /\.txt$/i.test(name) ? "text/plain" : "";
+}
 
 export const LIMITS = {
   video: { bytes: 400 * 1024 * 1024, seconds: 3600 },
   audio: { bytes: 50 * 1024 * 1024, seconds: 600 },
   image: { bytes: 20 * 1024 * 1024, seconds: 0 },
+  /* A script, a brand guide, a brief: read by the director, never shown. */
+  document: { bytes: 10 * 1024 * 1024, seconds: 0 },
 } as const;
 
 /** How many uploads one video holds. */
@@ -58,9 +69,9 @@ const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
 /** Why an upload is refused, or null when it is fine. Pure. */
 export function uploadProblem(input: { mime: string; size: number; durationS?: number | null }): string | null {
   const kind = assetKind(input.mime);
-  if (kind === "file") return "Upload a video (MP4, MOV, WebM), a sound file (MP3, WAV, M4A) or a picture (PNG, JPG, WebP).";
+  if (kind === "file") return "Upload a video (MP4, MOV, WebM), a sound file (MP3, WAV, M4A), a picture (PNG, JPG, WebP) or a document (PDF, TXT, MD).";
   const limit = LIMITS[kind];
-  if (input.size > limit.bytes) return `${kind === "video" ? "Clips" : kind === "audio" ? "Sound files" : "Pictures"} can be up to ${mb(limit.bytes)}; this one is ${mb(input.size)}.`;
+  if (input.size > limit.bytes) return `${kind === "video" ? "Clips" : kind === "audio" ? "Sound files" : kind === "document" ? "Documents" : "Pictures"} can be up to ${mb(limit.bytes)}; this one is ${mb(input.size)}.`;
   if (input.size <= 0) return "That file is empty.";
   if (limit.seconds && input.durationS && input.durationS > limit.seconds + 0.5) {
     return kind === "video"
@@ -95,6 +106,9 @@ export function extensionFor(mime: string, name: string): string {
     "image/png": "png",
     "image/jpeg": "jpg",
     "image/webp": "webp",
+    "application/pdf": "pdf",
+    "text/plain": "txt",
+    "text/markdown": "md",
   };
   const fromName = name.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase();
   return byType[mime.toLowerCase()] ?? fromName ?? "bin";
@@ -143,15 +157,17 @@ export function attachmentManifest(assets: StudioAsset[]): string {
   const usable = assets.filter((a) => a.status !== "failed" && a.kind !== "render");
   const videos = usable.filter((a) => a.kind === "video");
   const audios = usable.filter((a) => a.kind === "audio");
-  const images = usable.filter((a) => a.kind !== "video" && a.kind !== "audio");
+  const documents = usable.filter((a) => a.kind === "document");
+  const images = usable.filter((a) => a.kind !== "video" && a.kind !== "audio" && a.kind !== "document");
   const named = handles(usable);
   const entry = (a: StudioAsset) =>
-    `{assetId: "${a.id}", ref: "${named.get(a.id)}", name: "${a.name.replace(/"/g, "'").slice(0, 60)}"${a.durationS ? `, durationS: ${Math.round(a.durationS * 10) / 10}` : ""}${a.width && a.height ? `, ${a.width}x${a.height}` : ""}${a.kind === "video" && a.hasAudio === false ? ", silent" : ""}${a.kind !== "video" && a.kind !== "audio" && a.kind !== "image" ? `, role: ${a.kind}` : ""}}`;
+    `{assetId: "${a.id}", ref: "${named.get(a.id)}", name: "${a.name.replace(/"/g, "'").slice(0, 60)}"${a.durationS ? `, durationS: ${Math.round(a.durationS * 10) / 10}` : ""}${a.width && a.height ? `, ${a.width}x${a.height}` : ""}${a.kind === "video" && a.hasAudio === false ? ", silent" : ""}${a.kind !== "video" && a.kind !== "audio" && a.kind !== "image" && a.kind !== "document" ? `, role: ${a.kind}` : ""}}`;
   return [
     "ATTACHMENTS (authoritative, do not infer from the text):",
     `- video x${videos.length}: [${videos.map(entry).join(", ")}]`,
     `- audio x${audios.length}: [${audios.map(entry).join(", ")}]`,
     `- image x${images.length}: [${images.map(entry).join(", ")}]`,
+    `- document x${documents.length}: [${documents.map(entry).join(", ")}]${documents.length ? " — read in full below (DOCUMENTS); never a scene" : ""}`,
     ...(videos.length === 0 ? ["If video x0, the user has NOT attached a video. Never claim to see one."] : []),
     ...(usable.length ? ["In the IDEA, an @name is the upload whose ref matches it (ignore case and spacing; the closest ref when it is not exact)."] : []),
   ].join("\n");

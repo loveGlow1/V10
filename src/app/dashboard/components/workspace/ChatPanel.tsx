@@ -76,6 +76,8 @@ import {
   thumbnailOf,
 } from "./visual-ask";
 import { safeHttpUrl } from "@/lib/safe-url";
+import { ACCEPT_ATTRIBUTE as VIDEO_ACCEPT, handleFor } from "@/lib/video/assets";
+import { uploadStudioFile } from "@/lib/video/upload-client";
 import {
   appendToThread,
   deleteThread,
@@ -780,6 +782,12 @@ export default function ChatPanel({
 
   async function attachFiles(files: FileList) {
     if (!project || !userId) return;
+    /* A video's files go into the video itself — its media, which the
+       Director and the editor use — and the message names them. */
+    if (project.intent === "video") {
+      await attachToVideo(files);
+      return;
+    }
 
     const room = MAX_ATTACHMENTS - attached.length;
     if (room <= 0) {
@@ -808,6 +816,37 @@ export default function ChatPanel({
       }
     }
     setUploading(false);
+  }
+
+  async function attachToVideo(files: FileList) {
+    if (!project) return;
+    setUploading(true);
+    try {
+      const found = await fetch(`/api/video?project=${project.id}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null) as { videos?: { id: string }[] } | null;
+      const videoId = found?.videos?.[0]?.id;
+      if (!videoId) {
+        say({ from: "system", text: "This video's files could not be reached. Open the studio and add them under Media.", tone: "error" }, undefined, "session");
+        return;
+      }
+      const added: string[] = [];
+      for (const file of Array.from(files).slice(0, 9)) {
+        const result = await uploadStudioFile(videoId, file);
+        if (!result.ok) {
+          say({ from: "system", text: result.error, tone: "error" }, undefined, "session");
+          continue;
+        }
+        added.push(handleFor(file.name));
+      }
+      if (added.length) {
+        /* Named in the message, so it says what each file is for. */
+        setDraft((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${added.join(" ")} `);
+        say({ from: "system", text: `Added to this video's media: ${added.join(", ")}. Say what each is for — a scene to show, the look, the soundtrack, or a script or brand guide to follow.` }, undefined, "session");
+      }
+    } finally {
+      setUploading(false);
+    }
   }
 
   /* Every message goes through here, so nothing can be shown without also being
@@ -2762,7 +2801,7 @@ export default function ChatPanel({
                   type="file"
                   ref={fileInputRef}
                   multiple
-                  accept={ACCEPT}
+                  accept={project?.intent === "video" ? VIDEO_ACCEPT : ACCEPT}
                   className="sr-only"
                   onChange={(event) => {
                     const files = event.target.files;

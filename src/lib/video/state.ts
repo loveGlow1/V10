@@ -205,7 +205,7 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
         height: asset.height ?? null,
         hasAudio: asset.has_audio ?? null,
         url: isMedia ? await sign(asset.working_path ?? asset.storage_path) : null,
-        posterUrl: isMedia ? await sign(asset.poster_path ?? (asset.kind === "video" || asset.kind === "audio" ? null : asset.storage_path)) : null,
+        posterUrl: isMedia ? await sign(asset.poster_path ?? (asset.kind === "video" || asset.kind === "audio" || asset.kind === "document" ? null : asset.storage_path)) : null,
       };
     }),
   );

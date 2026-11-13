@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -481,7 +481,7 @@ const CF = await import(join(dir, "cut-filters.js"));
 const T = await import(join(dir, "timeline.js"));
 const MF = await import(join(dir, "media-files.js"));
 const id1 = "11111111-1111-4111-8111-111111111111", id2 = "22222222-2222-4222-8222-222222222222", id3 = "33333333-3333-4333-8333-333333333333";
-has(A.assetKind("video/quicktime") === "video" && A.assetKind("audio/mpeg") === "audio" && A.assetKind("image/webp") === "image" && A.assetKind("application/pdf") === "file", "an upload's kind comes from its MIME type");
+has(A.assetKind("video/quicktime") === "video" && A.assetKind("audio/mpeg") === "audio" && A.assetKind("image/webp") === "image" && A.assetKind("application/pdf") === "document" && A.assetKind("application/zip") === "file", "an upload's kind comes from its MIME type");
 has(A.uploadProblem({ mime: "video/mp4", size: 401 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 3700 }) !== null && A.uploadProblem({ mime: "video/mp4", size: 10, durationS: 3500 }) === null, "clips up to 400 MB and an hour");
 has(A.uploadProblem({ mime: "audio/wav", size: 51 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "application/zip", size: 10 }) !== null, "sound up to 50 MB; other files are refused");
 const vids = [
@@ -580,7 +580,7 @@ has(revoiced.revoice.join() === "1" && revoiced.refilm.length === 0, "changing o
 const added = ED.applyEdit(edPlan, { reply: "", replan: false, scenes: [], add: [{ assetId: id2, after: 1 }] }, [{ id: id2, kind: "image", name: "p.png", durationS: null, status: "ready", mime: "image/png", width: 1, height: 1, hasAudio: null }]);
 has(added.plan.scenes.length === 4 && added.plan.scenes[1].source.assetId === id2 && added.carry.length === 3, "the AI editor can put an upload into the video — free, nothing else changes");
 has(/settleRunwareCredits\(quote, made\.cost\)/.test(readFileSync(join(root, "src/app/api/video/[id]/audio/route.ts"), "utf8")) && /lyrics/.test(read_runware()), "music on demand is charged at what Runware billed; songs take lyrics");
-has(/decideEdit\(\{ plan, made, instruction, assets: uploads, model: agent\.apiId \}\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")), "the AI editor sees every upload and the timeline on screen, and saves nothing itself");
+has(/decideEdit\(\{ plan, made, instruction, assets: uploads, model: agent\.apiId, \.\.\.files \}\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")), "the AI editor sees every upload and the timeline on screen, and saves nothing itself");
 function read_runware() { return readFileSync(join(root, "src/lib/runware.ts"), "utf8"); }
 
 
@@ -838,6 +838,33 @@ has(/complete\(model, system, parts, 20000\)/.test(dirSrc) && /for \(const attem
 has(/JSON\.stringify\(input\.previous\)\.slice\(0, 120_000\)/.test(dirSrc), "the director sees the whole current plan, not its first scenes");
 has(/sayLlmError\(error\)/.test(dirSrc) && /could not plan this one \(\$\{lastProblem\}\)/.test(dirSrc), "when it still cannot, it says why");
 has(L.withBrand("Follow quickstark.ai today") === "Follow QuickStark.Ai today" && L.BRAND === "QuickStark.Ai", "the name is spelt QuickStark.Ai everywhere in videos");
+
+console.log("\nfiles for the Director: pictures, clips, sound and documents");
+const CTX = await import(join(dir, "context-files.js"));
+has(A.assetKind("application/pdf") === "document" && A.assetKind("text/markdown") === "document" && A.assetKind("text/plain") === "document" && A.documentMime("Script.MD") === "text/markdown" && A.documentMime("brand.pdf") === "application/pdf", "a PDF, a text or a Markdown file is a document (named by its extension when the browser does not say)");
+has(A.uploadProblem({ mime: "application/pdf", size: 2 * 1024 * 1024 }) === null && A.uploadProblem({ mime: "application/pdf", size: 11 * 1024 * 1024 }) !== null && A.uploadProblem({ mime: "application/zip", size: 10 }) !== null, "documents up to 10 MB; other files are refused");
+has(A.ACCEPT_ATTRIBUTE.includes(".pdf") && A.ACCEPT_ATTRIBUTE.includes("text/markdown"), "the file pickers take documents");
+has(/document x1: \[\{assetId: "d1", ref: "@script"/.test(A.attachmentManifest([{ id: "d1", kind: "document", name: "Script.pdf", status: "ready" }])), "the Director's list of uploads names each document, by @name");
+const ctxUploads = [
+  ...Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, kind: "image", status: "ready", storage_path: `img${i}.png` })),
+  { id: "v1", kind: "video", status: "ready", storage_path: "v.mp4", poster_path: "v.jpg" },
+  { id: "a1", kind: "audio", status: "ready", storage_path: "a.mp3" },
+  { id: "d1", kind: "document", status: "ready", storage_path: "s.pdf" },
+];
+const ctxPics = CTX.picturePaths(ctxUploads, ["v1"]);
+has(ctxPics.length === 9 && ctxPics[0] === "v.jpg" && !ctxPics.includes("a.mp3") && !ctxPics.includes("s.pdf"), "up to nine pictures, the look first (a clip by its frame), never a sound file or a document");
+has(CTX.documentsOf(ctxUploads).length === 1 && CTX.documentsOf(Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, kind: "document", storage_path: `d${i}.txt` }))).length === 5, "up to five documents are read");
+const ctxFileSrc = readFileSync(join(root, "src/lib/video/context-files.ts"), "utf8");
+has(/mediaType: "application\/pdf"/.test(ctxFileSrc) && /slice\(0, MAX_DOCUMENT_CHARS\)/.test(ctxFileSrc), "a PDF is handed over whole; a text file as its text");
+const ctxDirSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
+has(/\.\.\.documents, \{ type: "text" as const, text: shared \}\], 12000\)/.test(ctxDirSrc) && /\.\.\.images, \.\.\.documents/.test(ctxDirSrc) && /DOCUMENTS_NOTE/.test(ctxDirSrc), "the Director reads the documents — with the outline and with every chapter of a long film");
+has(/contextFiles\(supabase, uploads, marked\)/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "planning gathers the pictures and documents");
+has(/contextFiles\(input\.writer/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")) && /contextFiles\(supabase, uploads/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")) && /DOCUMENTS_NOTE/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "so does the AI editor, from the chat and from the editor");
+has(/asset\.kind === "document"[\s\S]{0,200}status: "ready"/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "a document is ready as soon as it is uploaded");
+const ctxStudioSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /<Paperclip/.test(ctxStudioSrc), "the studio's change box has a paperclip, and the message names what was attached");
+const ctxChatSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(ctxChatSrc) && /uploadStudioFile\(videoId, file\)/.test(ctxChatSrc) && /project\?\.intent === "video" \? VIDEO_ACCEPT : ACCEPT/.test(ctxChatSrc), "a file attached in the workspace chat of a video goes into the video's media, and its @name into the message");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

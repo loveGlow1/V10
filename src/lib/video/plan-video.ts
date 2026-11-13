@@ -16,6 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { direct, planChapterCount } from "@/lib/video/director";
+import { contextFiles } from "@/lib/video/context-files";
 import { readiness } from "@/lib/video/engines";
 import { isPipelineId } from "@/lib/video/pipelines";
 import { normalizePlan, qaAndRepair, secondsFrom, unfilledPlaceholders, type ProductionPlan } from "@/lib/video/plan";
@@ -172,25 +173,17 @@ export async function planVideo(
       }
     }
 
-    /* What the director can look at: reference pictures, and a frame from
-       each uploaded clip — never a video or a sound file. */
-    const images: string[] = [];
-    /* The clips marked as the look come first: their frames are what the plan must match. */
+    /* What the director can look at and read: up to nine pictures (the look
+       first) and the person's documents — a script, a brand guide, a brief. */
     const marked = ((current?.plan as ProductionPlan | undefined)?.referenceClips ?? []);
-    const ordered = [...uploads].sort((a, b) => Number(marked.includes(b.id)) - Number(marked.includes(a.id)));
-    for (const asset of ordered) {
-      if (images.length >= 3 || asset.status === "failed") continue;
-      const path = asset.kind === "video" ? asset.poster_path : asset.kind === "audio" ? null : asset.storage_path;
-      if (!path) continue;
-      const { data } = await supabase.storage.from("video-assets").createSignedUrl(path, 600);
-      if (data?.signedUrl) images.push(data.signedUrl);
-    }
+    const { images, documents } = await contextFiles(supabase, uploads, marked);
 
     const directed = await direct({
       pipeline: video.pipeline,
       brief,
       answers,
       images,
+      documents,
       assets: uploads,
       characters: cast,
       model: agent.apiId,
