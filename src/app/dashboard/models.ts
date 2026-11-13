@@ -281,15 +281,15 @@ export const MODELS: Model[] = [
   // NEXT_PUBLIC_AI_OPENAI at build time; the key itself never reaches the
   // browser). Answered through lib/ai/llm.ts in the app, and through n8n's
   // OpenAI credential for full builds. Multipliers from published prices
-  // against Sonnet 5's $2/$10, rounded up.
+  // against Sonnet 5's $2/$10, rounded up. Open to every plan.
   {
     id: "gpt-5",
     name: "GPT-5",
     available: OPENAI_ON,
     blurb: "OpenAI's flagship for complex work",
     provider: "openai",
-    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
-    minPlan: "standard",
+    /* No plan lock: once its key is set, every account can pick it, priced
+       by its multiplier like any other model. */
     apiId: "gpt-5",
     /* $1.25/$10 per Mtok: the default's price. */
     creditMultiplier: 1,
@@ -302,8 +302,8 @@ export const MODELS: Model[] = [
     available: OPENAI_ON,
     blurb: "Cheaper, for everyday changes",
     provider: "openai",
-    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
-    minPlan: "standard",
+    /* No plan lock: once its key is set, every account can pick it, priced
+       by its multiplier like any other model. */
     apiId: "gpt-5-mini",
     /* $0.25/$2 per Mtok. */
     creditMultiplier: 0.25,
@@ -317,8 +317,8 @@ export const MODELS: Model[] = [
     available: OPENAI_ON,
     blurb: "Cheapest, for small mechanical edits",
     provider: "openai",
-    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
-    minPlan: "standard",
+    /* No plan lock: once its key is set, every account can pick it, priced
+       by its multiplier like any other model. */
     apiId: "gpt-5-nano",
     /* $0.05/$0.40 per Mtok; held at the floor. */
     creditMultiplier: 0.25,
@@ -336,8 +336,8 @@ export const MODELS: Model[] = [
     available: GOOGLE_ON,
     blurb: "Google's flagship, strong over long context",
     provider: "google",
-    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
-    minPlan: "standard",
+    /* No plan lock: once its key is set, every account can pick it, priced
+       by its multiplier like any other model. */
     /* If Google publishes it under another name (e.g. a -preview suffix),
        set MODEL_ID_GEMINI_3_PRO on the server — lib/ai/llm.ts wireId. */
     apiId: "gemini-3-pro",
@@ -353,8 +353,8 @@ export const MODELS: Model[] = [
     available: GOOGLE_ON,
     blurb: "Fast and inexpensive",
     provider: "google",
-    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
-    minPlan: "standard",
+    /* No plan lock: once its key is set, every account can pick it, priced
+       by its multiplier like any other model. */
     apiId: "gemini-2.5-flash",
     /* $0.30/$2.50 per Mtok, thinking billed as output. */
     creditMultiplier: 0.5,

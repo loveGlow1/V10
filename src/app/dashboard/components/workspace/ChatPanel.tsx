@@ -26,6 +26,7 @@ import {
 
 import {
   MODELS,
+  isModelAvailable,
   shortModelName,
   providerOf,
 } from "../../models";
@@ -2877,7 +2878,7 @@ export default function ChatPanel({
                     </button>
                   </Popover>
                   {/* The picker, as a sheet: Auto and the Claude models in the
-                      main card, every other maker's behind "More models". A
+                      main card with every connected maker's; the rest behind "More models". A
                       model that cannot be picked says why on its badge — not
                       on this plan, not affordable on this balance, or not
                       available yet — rather than being left out. See useModel. */}
@@ -2898,8 +2899,10 @@ export default function ChatPanel({
                         },
                       };
                     };
-                    const main = MODELS.filter((option) => option.provider === "auto" || option.provider === "claude");
-                    const others = MODELS.filter((option) => option.provider !== "auto" && option.provider !== "claude");
+                    /* ChatGPT and Gemini join the main list the moment their keys
+                       are set; "More models" keeps only what is not connected yet. */
+                    const main = MODELS.filter((option) => option.provider === "auto" || option.provider === "claude" || isModelAvailable(option));
+                    const others = MODELS.filter((option) => option.provider !== "auto" && option.provider !== "claude" && !isModelAvailable(option));
                     const elsewhere = others.find((option) => option.id === model);
                     return (
                       <ChoiceSheet
