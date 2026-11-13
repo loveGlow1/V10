@@ -70,6 +70,7 @@ import { continuesFrom } from "@/lib/video/continuity";
 
 import CharactersPanel from "./CharactersPanel";
 import EditorLibrary, { type LibraryTab } from "./EditorLibrary";
+import { placeholderStyle, useClipPosters } from "./useClipPosters";
 import MediaPanel, { ASSET_DRAG, type PanelAsset } from "./MediaPanel";
 import TimelineClip from "./TimelineClip";
 import VideoSettings from "./VideoSettings";
@@ -209,7 +210,11 @@ export default function VideoEditor({ id }: { id: string }) {
   };
 
   const assets = useMemo(() => data?.assets ?? [], [data]);
-  const segments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? []) : []), [draft, assets, data]);
+  const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? []) : []), [draft, assets, data]);
+  /* A still from every made clip, so generated scenes show their picture
+     in the filmstrip and the scene list like uploads do (useClipPosters). */
+  const posters = useClipPosters(rawSegments.filter((s) => s.kind === "video" && !s.posterUrl).map((s) => s.mediaUrl));
+  const segments = rawSegments.map((s) => (!s.posterUrl && s.kind === "video" && s.mediaUrl && posters.get(s.mediaUrl) ? { ...s, posterUrl: posters.get(s.mediaUrl) ?? null } : s));
   const total = timelineLength(segments);
   const dirty = Boolean(draft && data?.latest && JSON.stringify(draft) !== JSON.stringify(data.latest.plan));
   const cut = draft ? resolveCut(draft) : null;
@@ -739,6 +744,7 @@ export default function VideoEditor({ id }: { id: string }) {
             onOpenTab={(tab) => setLibraryTab(tab)}
             locked={locked}
             onLocked={setLocked}
+            onClearText={(n) => change((p) => ({ ...p, scenes: p.scenes.map((scene) => (scene.n === n ? { ...scene, onScreenText: "" } : scene)) }))}
             onDropAsset={(assetId, index) => {
               const asset = assets.find((a) => a.id === assetId);
               if (!asset) return;
@@ -833,12 +839,12 @@ function Storyboard(props: {
             <li key={`${scene.n}-${scene.source?.assetId ?? scene.motionPrompt.slice(0, 20)}`}>
               <div className={`group flex items-center gap-2.5 rounded-[10px] px-1.5 py-1 ${active ? "bg-layer/[0.1]" : "hover:bg-layer/[0.05]"}`}>
                 <button onClick={() => props.onSelect(scene.n)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-                  <span className={`relative h-9 w-14 shrink-0 overflow-hidden rounded-[6px] bg-layer/[0.1] ${props.current === scene.n ? "ring-2 ring-accent" : ""}`}>
+                  <span className={`relative h-9 w-14 shrink-0 overflow-hidden rounded-[6px] bg-layer/[0.1] ${props.current === scene.n ? "ring-2 ring-accent" : ""}`} style={thumb ? undefined : placeholderStyle(`${scene.shot}${scene.visual}`)}>
                     {thumb ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={thumb} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <Sparkles className="absolute inset-0 m-auto h-3.5 w-3.5 text-muted" />
+                      <Sparkles className="absolute inset-0 m-auto h-3.5 w-3.5 text-white/70" />
                     )}
                     <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[9.5px] font-semibold text-white">{index + 1}</span>
                   </span>
@@ -907,6 +913,8 @@ function Timeline(props: {
   onOpenTab: (tab: LibraryTab) => void;
   /** An upload dragged in from the library, put before the clip at `index`. */
   onDropAsset: (assetId: string, index: number) => void;
+  /** Takes the words off a clip. */
+  onClearText: (n: number) => void;
   /** Tracks locked against changes (the keyboard respects them too). */
   locked: Set<TrackId>;
   onLocked: (next: Set<TrackId>) => void;
@@ -1051,18 +1059,25 @@ function Timeline(props: {
                       props.onSelect({ type: "scene", n: s.n });
                       props.onSeek(s.start + Math.min(s.seconds - 0.05, (e.clientX - e.currentTarget.getBoundingClientRect().left) / pps));
                     }}
-                    className={`group absolute top-0 h-16 overflow-hidden rounded-[8px] border ${isLocked("video") ? "cursor-default" : "cursor-grab"} ${isSel(s.n) ? "border-accent ring-2 ring-accent/40" : "border-line/[0.15]"} ${s.kind === "pending" ? "bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.05)_0_6px,transparent_6px_12px)]" : "bg-layer/[0.08]"}`}
+                    className={`group absolute top-0 h-16 overflow-hidden rounded-[8px] border ${isLocked("video") ? "cursor-default" : "cursor-grab"} ${isSel(s.n) ? "border-accent ring-2 ring-accent/40" : "border-line/[0.15]"} bg-layer/[0.08]`}
                     style={{
                       left: leftOf(s) * pps,
                       width: Math.max(14, lengthOf(s) * pps - 2),
                       /* A filmstrip: the clip's frame repeated along its length. */
-                      ...(picture ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined } : {}),
+                      ...(picture
+                        ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined }
+                        : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)),
                     }}
                     title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? " · made on export" : ""}`}
                   >
                     <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium text-white">
                       {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
                     </span>
+                    {!picture && (
+                      <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
+                        {s.kind === "pending" ? <><Sparkles className="h-2.5 w-2.5" /> Made on export</> : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                      </span>
+                    )}
                     <span className="pointer-events-none absolute bottom-0.5 right-1.5 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">{lengthOf(s).toFixed(1)}s</span>
                     {!isLocked("video") && (["start", "end"] as const).map((edge) => (
                       <span
@@ -1141,9 +1156,25 @@ function Timeline(props: {
             <div className="relative mt-1 h-6">
               {segments.map((s) =>
                 s.text ? (
-                  <button key={s.n} disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="absolute top-0 h-6 truncate rounded-[6px] bg-pink-500/35 px-1.5 text-left text-[10.5px] text-pink-50" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
-                    T · {s.text}
-                  </button>
+                  <span key={s.n} className="group/text absolute top-0 flex h-6 items-center rounded-[6px] bg-pink-500/35" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
+                    <button disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="h-6 min-w-0 flex-1 truncate px-1.5 text-left text-[10.5px] text-pink-50" title="Edit these words">
+                      T · {s.text}
+                    </button>
+                    {!isLocked("words") && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onClearText(s.n);
+                        }}
+                        aria-label={`Remove the words on clip ${s.n}`}
+                        title="Remove these words from the video"
+                        className="mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-pink-50/80 hover:bg-black/30 hover:text-white"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
                 ) : null,
               )}
             </div>

@@ -866,5 +866,11 @@ has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the fi
 const ctxChatSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
 has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(ctxChatSrc) && /uploadStudioFile\(videoId, file\)/.test(ctxChatSrc) && /project\?\.intent === "video" \? VIDEO_ACCEPT : ACCEPT/.test(ctxChatSrc), "a file attached in the workspace chat of a video goes into the video's media, and its @name into the message");
 
+console.log("\nthumbnails for every scene");
+const vePosters = readFileSync(join(root, "src/app/dashboard/components/video/useClipPosters.ts"), "utf8");
+const veSrc2 = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+has(/crossOrigin = "anonymous"/.test(vePosters) && /toDataURL\("image\/jpeg"/.test(vePosters) && /running >= 2/.test(vePosters) && /split\("\?"\)\[0\]/.test(vePosters), "a still is taken from each made clip in the browser, two at a time, kept for the tab whatever its signed link");
+has(/useClipPosters\(rawSegments/.test(veSrc2) && /placeholderStyle\(`\$\{scene\?\.shot/.test(veSrc2) && /placeholderStyle\(`\$\{scene\.shot\}\$\{scene\.visual\}`\)/.test(veSrc2), "the filmstrip and the scene list show it; a scene still to be made gets its own colour, not stripes");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
