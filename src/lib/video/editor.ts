@@ -31,10 +31,11 @@ import { sceneFromAsset } from "./timeline";
 import { VOICES, isVoiceId } from "./voices";
 import { castManifest, normalizeSceneCast } from "./cast";
 import { MAX_CLIP_SECONDS, normalizeCut, referenceClipsOf, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
+import { ASPECTS, COLORS, type ColorGrade } from "./cut-settings";
 
 export type SceneEdit = {
   n: number;
-  action: "keep" | "refilm" | "revoice" | "remove";
+  action: "keep" | "refilm" | "revoice" | "remove" | "duplicate" | "split";
   /** For refilm: the new clip prompt, complete. */
   motionPrompt?: string;
   /** For revoice: the new spoken line. */
@@ -47,6 +48,17 @@ export type SceneEdit = {
   voiceId?: string;
   /** Who is on screen (cast ids). Changing it films the scene again with their pictures. */
   characters?: string[];
+  /** The person's own clip: where it starts and ends (seconds into the file), its speed, its own sound level. */
+  trimStart?: number;
+  trimEnd?: number;
+  speed?: number;
+  volume?: number;
+  /** This scene's own filter; "none" is natural colour. */
+  color?: ColorGrade;
+  /** Carries on from the scene before (true), cuts away (false), or automatic (null). */
+  continues?: boolean | null;
+  /** For split: seconds into the scene where it is cut in two. */
+  at?: number;
 };
 
 export type Edit = {
@@ -63,9 +75,15 @@ export type Edit = {
   continueFrom?: { assetId: string; prompt: string; seconds?: number }[];
   /** The uploads every generated scene matches (look.ts); an empty list clears it. */
   look?: string[];
+  /** The video's shape. */
+  aspect?: ProductionPlan["aspect"];
+  /** The video's title. */
+  title?: string;
+  /** Made music in these words ("upbeat afrobeat, warm guitar"), or "none" for no music. */
+  music?: string;
 };
 
-const ACTIONS = ["keep", "refilm", "revoice", "remove"] as const;
+const ACTIONS = ["keep", "refilm", "revoice", "remove", "duplicate", "split"] as const;
 const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 /** Reads what the model wrote, whatever it left out. Never throws. Pure. */
@@ -74,7 +92,7 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const numbers = new Set(plan.scenes.map((scene) => scene.n));
   const scenes: SceneEdit[] = [];
-  for (const entry of Array.isArray(r.scenes) ? r.scenes.slice(0, 24) : []) {
+  for (const entry of Array.isArray(r.scenes) ? r.scenes.slice(0, 300) : []) {
     const e = (entry && typeof entry === "object" ? entry : {}) as Record<string, unknown>;
     const n = Number(e.n);
     const action = ACTIONS.find((a) => a === e.action);
@@ -93,6 +111,25 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     if (Array.isArray(e.characters)) edit.characters = normalizeSceneCast(e.characters, castOf);
     const duration = Math.round(Number(e.duration));
     if (Number.isFinite(duration) && duration >= 2 && duration <= MAX_CLIP_SECONDS) edit.duration = duration;
+    const seconds = (value: unknown, max = 3600) => {
+      const v = Number(value);
+      return value !== undefined && value !== null && Number.isFinite(v) && v >= 0 && v <= max ? Math.round(v * 100) / 100 : undefined;
+    };
+    const trimStart = seconds(e.trimStart);
+    const trimEnd = seconds(e.trimEnd);
+    if (trimStart !== undefined) edit.trimStart = trimStart;
+    if (trimEnd !== undefined && (trimStart === undefined || trimEnd > trimStart + 0.2)) edit.trimEnd = trimEnd;
+    const speed = Number(e.speed);
+    if (e.speed !== undefined && Number.isFinite(speed) && speed >= 0.25 && speed <= 4) edit.speed = Math.round(speed * 100) / 100;
+    const volume = Number(e.volume);
+    if (e.volume !== undefined && Number.isFinite(volume) && volume >= 0 && volume <= 2) edit.volume = Math.round(volume * 100) / 100;
+    if ((COLORS as readonly string[]).includes(String(e.color))) edit.color = e.color as ColorGrade;
+    if (typeof e.continues === "boolean" || e.continues === null) edit.continues = e.continues;
+    if (action === "split") {
+      const at = seconds(e.at);
+      if (at === undefined || at <= 0.2) continue;
+      edit.at = at;
+    }
     scenes.push(edit);
   }
   let order: number[] | undefined;
@@ -124,6 +161,9 @@ export function normalizeEdit(raw: unknown, plan: Pick<ProductionPlan, "scenes" 
     ...(add.length ? { add } : {}),
     ...(continueFrom.length ? { continueFrom } : {}),
     ...(look ? { look } : {}),
+    ...((ASPECTS as readonly string[]).includes(String(r.aspect)) ? { aspect: r.aspect as ProductionPlan["aspect"] } : {}),
+    ...(text(r.title, 160) ? { title: text(r.title, 160) } : {}),
+    ...(text(r.music, 300) ? { music: text(r.music, 300) } : {}),
   };
 }
 
@@ -151,6 +191,26 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
     const at = entry.after === undefined ? -1 : ordered.findIndex((s) => s.n === entry.after);
     ordered = at < 0 ? [...ordered, scene] : [...ordered.slice(0, at + 1), scene, ...ordered.slice(at + 1)];
   }
+
+  /* Duplicate: a copy right after, its clip and voice reused. Split: the
+     person's own clip cut in two at a moment — the second half is a new
+     scene from the same file, with no voice line of its own. */
+  ordered = ordered.flatMap((scene) => {
+    const e = scene.n === 0 ? undefined : byN.get(scene.n);
+    if (e?.action === "duplicate") return [scene, { ...scene }];
+    if (e?.action === "split" && e.at && scene.source) {
+      const asset = uploads.find((a) => a.id === scene.source?.assetId);
+      const speed = scene.source.speed ?? 1;
+      const from = scene.source.trimStart ?? 0;
+      const to = scene.source.trimEnd ?? (asset?.durationS ?? from + scene.duration * speed);
+      const cut = Math.round((from + e.at * speed) * 100) / 100;
+      if (cut <= from + 0.2 || cut >= to - 0.2) return [scene];
+      const first: Scene = { ...scene, source: { ...scene.source, trimEnd: cut }, duration: Math.round(((cut - from) / speed) * 10) / 10 };
+      const second: Scene = { ...scene, n: 0, voiceover: "", voiceAsset: undefined, onScreenText: "", source: { ...scene.source, trimStart: cut }, duration: Math.round(((to - cut) / speed) * 10) / 10 };
+      return [first, second];
+    }
+    return [scene];
+  });
 
   /* "Continue my clip": a new scene right after it that starts on its last frame. */
   for (const entry of edit.continueFrom ?? []) {
@@ -192,6 +252,28 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
       scene.characters = e.characters.length ? e.characters : undefined;
       clip = false;
     }
+    /* The person's own clip: trimmed, sped up or slowed, its sound up or down — nothing is filmed. */
+    if (scene.source && e && (e.trimStart !== undefined || e.trimEnd !== undefined || e.speed !== undefined || e.volume !== undefined)) {
+      const source = { ...scene.source };
+      if (e.trimStart !== undefined) source.trimStart = e.trimStart;
+      if (e.trimEnd !== undefined) source.trimEnd = e.trimEnd;
+      if (e.speed !== undefined) source.speed = e.speed;
+      if (e.volume !== undefined) source.volume = e.volume;
+      if (source.trimEnd !== undefined && source.trimEnd <= (source.trimStart ?? 0) + 0.2) delete source.trimEnd;
+      scene.source = source;
+      if (source.trimEnd !== undefined) scene.duration = Math.max(0.3, Math.round(((source.trimEnd - (source.trimStart ?? 0)) / (source.speed ?? 1)) * 10) / 10);
+    }
+    if (e?.color) {
+      if (e.color === (plan.cut?.color ?? "none")) delete scene.color;
+      else scene.color = e.color;
+    }
+    if (e && e.continues !== undefined && !scene.source) {
+      const was = scene.continues;
+      if (e.continues === null) delete scene.continues;
+      else scene.continues = e.continues;
+      /* Filmed differently now: from the scene before's last frame, or on its own. */
+      if (was !== scene.continues) clip = false;
+    }
     if (e?.voiceId && e.voiceId !== scene.voiceId) {
       scene.voiceId = e.voiceId;
       delete scene.voiceAsset;
@@ -210,6 +292,15 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
   const next: ProductionPlan = { ...plan, scenes };
   if (cut) next.cut = cut;
   else delete next.cut;
+  if (edit.aspect) next.aspect = edit.aspect;
+  if (edit.title) next.title = edit.title;
+  if (edit.music) {
+    if (/^(none|no music|off|remove)$/i.test(edit.music.trim())) next.cut = { ...(next.cut ?? {}), music: { source: "none" } };
+    else {
+      next.music = edit.music;
+      next.cut = { ...(next.cut ?? {}), music: { source: "generate" } };
+    }
+  }
   /* The look: only uploads that are really there. */
   if (edit.look) {
     const known = edit.look.filter((id) => uploads.some((a) => a.id === id && a.status !== "failed" && a.kind !== "audio"));
@@ -267,7 +358,9 @@ export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: b
   const lines = plan.scenes.map((scene) => {
     const m = made.find((x) => x.scene === scene.n);
     return [
-      `SCENE ${scene.n} · ${scene.duration}s · ${scene.source ? `THE PERSON'S OWN ${scene.engine === "image" ? "PICTURE" : "CLIP"} (upload ${scene.source.assetId}${scene.source.trimStart || scene.source.trimEnd ? `, trimmed ${scene.source.trimStart ?? 0}-${scene.source.trimEnd ?? "end"}s` : ""}${scene.source.speed ? `, ${scene.source.speed}x` : ""}) — never refilm it` : `clip ${m?.clip ? "made" : "missing"}`} · voice ${scene.voiceover ? (m?.voice ? "made" : "missing") : "none"}`,
+      `SCENE ${scene.n} · ${scene.duration}s · ${scene.source ? `THE PERSON'S OWN ${scene.engine === "image" ? "PICTURE" : "CLIP"} (upload ${scene.source.assetId}${scene.source.trimStart || scene.source.trimEnd ? `, trimmed ${scene.source.trimStart ?? 0}-${scene.source.trimEnd ?? "end"}s` : ""}${scene.source.speed ? `, ${scene.source.speed}x` : ""}${scene.source.volume !== undefined ? `, sound ${Math.round(scene.source.volume * 100)}%` : ""}) — never refilm it` : `clip ${m?.clip ? "made" : "missing"}`} · voice ${scene.voiceover ? (m?.voice ? "made" : "missing") : "none"}`,
+      ...(scene.color ? [`  filter: ${scene.color}`] : []),
+      ...(scene.continues !== undefined ? [`  continues from the scene before: ${scene.continues}`] : []),
       ...(scene.characters?.length ? [`  on screen: ${scene.characters.map((id) => plan.characters?.find((c) => c.id === id)?.name ?? id).join(", ")}`] : []),
       `  spoken: ${scene.voiceover || "—"}`,
       `  on screen: ${scene.onScreenText || "—"}`,
@@ -277,6 +370,8 @@ export function editorBrief(plan: ProductionPlan, made: { scene: number; clip: b
   return [
     `TITLE: ${plan.title}`,
     `FORMAT: ${plan.aspect}`,
+    `MUSIC: ${plan.cut?.music?.source === "upload" ? "the person's own file" : plan.cut?.music?.source === "none" ? "none" : plan.music || "none"}`,
+    `LOOK FROM: ${(plan.referenceClips ?? []).join(", ") || "—"}`,
     `LOCKS: ${JSON.stringify(plan.locks).slice(0, 1500)}`,
     `CUT NOW: ${JSON.stringify(plan.cut ?? {})}`,
     ...lines,
@@ -309,6 +404,13 @@ What you can do, cheapest first:
    look — uploads (by assetId) whose setting, light, colour and people every generated scene should match: ["..."]; [] stops matching. Only affects scenes filmed from now on.
    characters on a scene — who is on screen, by id from CHARACTERS (e.g. "characters":["<id>"]): the scene is filmed again from their reference pictures so they look exactly the same. Use it whenever the person asks for a character in a scene.
    voiceId on a scene — read its line in another voice; "cut":{"voiceId":"..."} — every line in another voice. Voices: ${VOICES.map((v) => v.id).join(", ")}.
+   The person's own clips (never refilmed) — on a scene: trimStart / trimEnd (seconds into the FILE, e.g. "cut the first 3 seconds" of a clip starting at 0 → trimStart 3), speed 0.25-4 (2 = twice as fast), volume 0-2 (its own sound; 0 silences it). Free.
+   color on a scene — that scene's own filter ("none" | "vivid" | "warm" | "cool" | "cinematic" | "mono" | "vintage"); cut.color is the whole video's. Free.
+   action "duplicate" — the scene again right after it (reuses its clip). Free.
+   action "split" with "at" (seconds into the scene) — cuts the person's own clip in two there. Only for their own clips; a generated scene is one shot and is changed with refilm instead.
+   continues on a generated scene — true: starts where the scene before ended (filmed again from its last frame); false: a fresh shot; null: automatic.
+   aspect — the video's shape ("9:16" | "1:1" | "16:9" | "4:5"); clips are fitted, not refilmed. title — the video's name.
+   music — made music described in words ("calm piano, slow build"), or "none" for no music. (A song the person uploaded is chosen in the studio, or with cut.music {"source":"upload","assetId":"..."}.)
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
 Rules:
@@ -320,7 +422,7 @@ Rules:
 - reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
-{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove","motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[]}],"order":[1,2,3],"add":[{"assetId":"","after":1}],"continueFrom":[{"assetId":"","prompt":"","seconds":6}],"look":[]}
+{"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove|duplicate|split","at":2.5,"motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[],"trimStart":0,"trimEnd":8,"speed":1,"volume":1,"color":"warm","continues":true}],"order":[1,2,3],"add":[{"assetId":"","after":1}],"continueFrom":[{"assetId":"","prompt":"","seconds":6}],"look":[],"aspect":"9:16","title":"","music":""}
 Omit any field you are not changing.`;
 
 /** Asks the editor model for the edits an instruction needs. Server-only. */
@@ -335,7 +437,7 @@ export async function decideEdit(input: {
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
   try {
-    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [{ type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 4000);
+    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [{ type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 16000);
     const raw = message.text
       .replace(/```json|```/g, "")
       .trim();
@@ -378,7 +480,7 @@ export function normalizeReview(raw: unknown, plan: Pick<ProductionPlan, "scenes
     if (!title || !why) continue;
     const edit = normalizeEdit(e.edit, plan);
     if (edit.replan) continue;
-    if (!edit.cut && !edit.scenes.length && !edit.order && !edit.add && !edit.continueFrom && !edit.look) continue;
+    if (!edit.cut && !edit.scenes.length && !edit.order && !edit.add && !edit.continueFrom && !edit.look && !edit.aspect && !edit.title && !edit.music) continue;
     out.push({ title, why, edit: { ...edit, reply: why } });
   }
   return out;
