@@ -11,6 +11,7 @@
  * before it is stored. */
 
 import { planVideo } from "@/lib/video/plan-video";
+import { withStop } from "@/lib/ai/llm";
 import { editVideo, setSound } from "@/lib/video/apply-edit";
 import { soundCommand } from "@/lib/video/sound";
 
@@ -31,6 +32,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const noCard = await refuseWithoutCard(createSupabaseServiceClient(), userId);
   if (noCard) return noCard;
   const body = ((await request.json().catch(() => null)) ?? {}) as { note?: unknown; plan?: unknown };
+  /* Stop in the studio aborts this request; every model call it makes stops
+     with it, and nothing it would have saved or charged is. */
+  return withStop(request.signal, () => respond(request, supabase, userId, id, body));
+}
+
+async function respond(
+  request: Request,
+  supabase: Awaited<ReturnType<typeof videoSession>> extends infer S ? (S extends { supabase: infer C } ? C : never) : never,
+  userId: string,
+  id: string,
+  body: { note?: unknown; plan?: unknown },
+): Promise<Response> {
   /* A video already made is edited, not planned again: only the part the
      message names changes (a line of on-screen text, one scene's look, the
      music), every other clip and voice line is reused as it is — same file,

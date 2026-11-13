@@ -23,6 +23,8 @@
  *
  * Server-only. */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import Anthropic from "@anthropic-ai/sdk";
 
 import { MODELS, type Model, type Provider } from "@/app/dashboard/models";
@@ -108,9 +110,23 @@ export function providerReady(provider: Exclude<Provider, "auto">, env: Record<s
 
 /* ── Shared helpers ─────────────────────────────────────────────────────── */
 
+/* Stop, for real: a request run inside withStop(signal, …) — the person's
+   own request, aborted when they press Stop or leave — cancels every model
+   call it makes, however deep, and stopped() tells the caller not to save or
+   charge what came back. */
+const stopSignal = new AsyncLocalStorage<AbortSignal>();
+export function withStop<T>(signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
+  return signal ? stopSignal.run(signal, run) : run();
+}
+export function stopped(): boolean {
+  return stopSignal.getStore()?.aborted === true;
+}
+
 function timeLeft(deadlineAt?: number): AbortSignal | undefined {
-  if (!deadlineAt) return undefined;
-  return AbortSignal.timeout(Math.max(1000, deadlineAt - Date.now()));
+  const stop = stopSignal.getStore();
+  const limit = deadlineAt ? AbortSignal.timeout(Math.max(1000, deadlineAt - Date.now())) : undefined;
+  if (stop && limit) return AbortSignal.any([stop, limit]);
+  return stop ?? limit;
 }
 
 const isAbort = (error: unknown) => error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");

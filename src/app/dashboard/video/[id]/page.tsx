@@ -77,6 +77,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [note, setNote] = useState("");
   const [renderResult, setRenderResult] = useState<{ ok: boolean; text: string } | null>(null);
   const autoPlanned = useRef(false);
+  const planAbort = useRef<AbortController | null>(null);
 
   const load = useCallback(async (keepDraft = false) => {
     const response = await fetch(`/api/video/${id}`, { cache: "no-store" }).catch(() => null);
@@ -105,11 +106,21 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
       } catch {
         /* Auto. */
       }
+      /* Stop aborts this request; the server stops the model with it and
+         saves and charges nothing (lib/ai/llm.ts withStop). */
+      const controller = new AbortController();
+      planAbort.current = controller;
       const response = await fetch(`/api/video/${id}/plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model, ...payload }),
+        signal: controller.signal,
       }).catch(() => null);
+      planAbort.current = null;
+      if (controller.signal.aborted) {
+        setBusy(null);
+        return { ok: false, error: "Stopped — nothing was changed or charged." };
+      }
       const body = (await response?.json().catch(() => null)) as { error?: string; message?: string; edited?: boolean } | null;
       if (!response?.ok) {
         const message = body?.error ?? "The plan could not be made. Try again.";
@@ -425,6 +436,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             note={note}
             setNote={setNote}
             onAsk={(text) => plan({ note: text })}
+            onStop={() => planAbort.current?.abort()}
             onRender={() => void render()}
             canRender={!dirty && status !== "rendering"}
             cost={data.cost}
@@ -953,11 +965,13 @@ const QUICK = [
 /* The sessions of a video's chat, newest first, each named by its first request. Pure. */
 type SessionItem = { session: number; title: string; when: string; group: string; count: number };
 
-function sessionList(messages: VideoMessage[], upTo: number): SessionItem[] {
+function sessionList(messages: VideoMessage[], active: number): SessionItem[] {
   const out: SessionItem[] = [];
   const today = new Date();
   const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  for (let k = upTo; k >= 1; k -= 1) {
+  /* Only sessions that hold something, and the one open now. */
+  const numbers = [...new Set([...messages.map((m) => m.session), active])].sort((a, b) => b - a);
+  for (const k of numbers) {
     const own = messages.filter((m) => m.session === k);
     const first = own.find((m) => m.role === "user") ?? own[0];
     const last = own[own.length - 1];
@@ -986,6 +1000,8 @@ function DirectorChat(props: {
   setNote: (value: string) => void;
   onAsk: (text: string) => Promise<{ ok: boolean; error?: string; version?: number | null; message?: string }>;
   onRender: () => void;
+  /** Stops the change being made, for real. */
+  onStop: () => void;
   canRender: boolean;
   cost: number;
   /** For the paperclip: files go into this video's media, which the director reads. */
@@ -1052,7 +1068,29 @@ function DirectorChat(props: {
   }, [props.videoId]);
   const latestSession = messages.reduce((max, m) => Math.max(max, m.session), 1);
   const active = session ?? latestSession;
-  const sessions = sessionList(messages, Math.max(latestSession, active));
+  const sessions = sessionList(messages, active);
+  /* Deleting a session: asked once on the row, then gone — its messages,
+     not the versions it made. The open one gives way to the newest left. */
+  const [confirming, setConfirming] = useState<number | null>(null);
+  /* One message out of the conversation (the version it made stays). */
+  const removeMessage = async (messageId: string) => {
+    const before = messages;
+    setMessages((list) => list.filter((m) => m.id !== messageId));
+    if (messageId.startsWith("local-")) return;
+    const response = await fetch(`/api/video/${props.videoId}/messages?message=${encodeURIComponent(messageId)}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) setMessages(before);
+  };
+  const removeSession = async (number: number) => {
+    setConfirming(null);
+    const before = messages;
+    setMessages((list) => list.filter((m) => m.session !== number));
+    if (number === active) {
+      const left = before.filter((m) => m.session !== number).reduce((max, m) => Math.max(max, m.session), 0);
+      setSession(left || Math.max(latestSession, active) + 1);
+    }
+    const response = await fetch(`/api/video/${props.videoId}/messages?session=${number}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) setMessages(before);
+  };
   const shown = messages.filter((m) => m.session === active);
   /* Versions made before anything was kept here belong to the first session. */
   const firstKept = messages[0]?.created_at ?? null;
@@ -1150,21 +1188,48 @@ function DirectorChat(props: {
                   {(i === 0 || sessions[i - 1].group !== item.group) && (
                     <p className="px-2 pb-1 pt-2 text-[10.5px] font-medium text-muted">{item.group}</p>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setSession(item.session)}
-                    aria-current={item.session === active ? "true" : undefined}
-                    className={`group relative flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3 pr-2 text-left transition ${item.session === active ? "bg-layer/[0.08] text-ink" : "text-soft hover:bg-layer/[0.04] hover:text-ink"}`}
-                  >
-                    <span aria-hidden className={`absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full transition ${item.session === active ? "bg-accent" : "bg-transparent"}`} />
-                    <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${item.session === active ? "text-accent" : "text-muted group-hover:text-soft"}`} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12.5px] leading-5">{item.title}</span>
-                      <span className="block text-[10.5px] leading-4 text-muted">
-                        {item.count ? `${item.count} ${item.count === 1 ? "message" : "messages"}` : "Empty"} · {item.when}
+                  <div className={`group relative flex items-center rounded-lg transition ${item.session === active ? "bg-layer/[0.08] text-ink" : "text-soft hover:bg-layer/[0.04] hover:text-ink"}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirming(null);
+                        setSession(item.session);
+                      }}
+                      aria-current={item.session === active ? "true" : undefined}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-3 pr-1 text-left"
+                    >
+                      <span aria-hidden className={`absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full transition ${item.session === active ? "bg-accent" : "bg-transparent"}`} />
+                      <MessageSquare className={`h-3.5 w-3.5 shrink-0 ${item.session === active ? "text-accent" : "text-muted group-hover:text-soft"}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12.5px] leading-5">{item.title}</span>
+                        <span className="block text-[10.5px] leading-4 text-muted">
+                          {item.count ? `${item.count} ${item.count === 1 ? "message" : "messages"}` : "Empty"} · {item.when}
+                        </span>
                       </span>
-                    </span>
-                  </button>
+                    </button>
+                    {item.count > 0 &&
+                      (confirming === item.session ? (
+                        <span className="flex shrink-0 items-center gap-1 pr-1.5">
+                          <button type="button" onClick={() => void removeSession(item.session)} className="h-6 rounded-full bg-danger/[0.15] px-2 text-[11px] font-medium text-danger hover:bg-danger/[0.25]">
+                            Delete
+                          </button>
+                          <button type="button" onClick={() => setConfirming(null)} aria-label="Keep this session" className="flex h-6 w-6 items-center justify-center rounded-full text-muted hover:text-ink">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirming(item.session)}
+                          disabled={busy !== null && item.session === active}
+                          aria-label={`Delete the session “${item.title}”`}
+                          title="Delete this session"
+                          className="mr-1.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-layer/[0.1] hover:text-danger focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0 [@media(hover:none)]:opacity-100"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ))}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1189,18 +1254,35 @@ function DirectorChat(props: {
         {active > 1 && shown.length === 0 && (
           <p className="text-soft">New session. {current ? `Version ${current} is the current one — ` : ""}ask me for anything to change.</p>
         )}
-        {shown.map((message) =>
-          message.role === "user" ? (
-            <p key={message.id} className="ml-8 whitespace-pre-wrap rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{message.text}</p>
+        {shown.map((message) => {
+          const remove = (
+            <button
+              type="button"
+              onClick={() => void removeMessage(message.id)}
+              aria-label="Delete this message"
+              title="Delete this message"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-layer/[0.1] hover:text-danger focus-visible:opacity-100 group-hover/msg:opacity-100 [@media(hover:none)]:opacity-100"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          );
+          return message.role === "user" ? (
+            <div key={message.id} className="group/msg ml-8 flex items-start justify-end gap-1">
+              {remove}
+              <p className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-layer/[0.08] px-3 py-2 text-ink">{message.text}</p>
+            </div>
           ) : (
-            <p key={message.id} className={message.failed ? "mr-6 rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft" : "mr-6 text-soft"}>
-              {message.text}
-              {!message.failed && message.version === current && (
-                <span className="mt-1 block text-[11px] text-muted">Version {message.version} · {props.scenes} scenes · {props.seconds}s</span>
-              )}
-            </p>
-          ),
-        )}
+            <div key={message.id} className="group/msg mr-6 flex items-start gap-1">
+              <p className={message.failed ? "min-w-0 flex-1 rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft" : "min-w-0 flex-1 text-soft"}>
+                {message.text}
+                {!message.failed && message.version === current && (
+                  <span className="mt-1 block text-[11px] text-muted">Version {message.version} · {props.scenes} scenes · {props.seconds}s</span>
+                )}
+              </p>
+              {remove}
+            </div>
+          );
+        })}
         {props.status === "rendering" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating the clips — they arrive one by one, usually within a few minutes.</p>
         )}
@@ -1220,7 +1302,8 @@ function DirectorChat(props: {
               type="button"
               onClick={() => void ask(quick.note)}
               disabled={busy !== null}
-              className="h-7 rounded-full border border-line/[0.1] px-2.5 text-[12px] text-soft hover:text-ink disabled:opacity-40"
+              /* A warm clay, like Claude's own: only these quick-ask chips. */
+              className="h-7 rounded-full border border-[#E8915F]/40 bg-[#E8915F]/[0.12] px-2.5 text-[12px] font-medium text-[#F0A274] transition hover:border-[#E8915F]/70 hover:bg-[#E8915F]/[0.2] hover:text-[#F7B58C] active:scale-[0.98] disabled:opacity-40"
             >
               {quick.label}
             </button>
@@ -1263,15 +1346,30 @@ function DirectorChat(props: {
             placeholder="Ask for a change — e.g. make her sound more excited"
             className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-1 text-[13.5px] text-ink outline-none placeholder:text-muted"
           />
-          <button
-            type="button"
-            onClick={send}
-            disabled={busy !== null || Boolean(uploading) || (!note.trim() && !attached.length)}
-            aria-label="Send"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-solid text-onSolid disabled:opacity-40"
-          >
-            {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-          </button>
+          {busy === "plan" ? (
+            /* Working: a stop sign inside a turning ring — pressing it stops
+               the change for real (nothing saved, nothing charged). */
+            <button
+              type="button"
+              onClick={props.onStop}
+              aria-label="Stop"
+              title="Stop — nothing is changed or charged"
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-layer/[0.16] text-ink transition hover:bg-layer/[0.24] active:scale-[0.97]"
+            >
+              <span aria-hidden className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-accent" />
+              <span aria-hidden className="block h-[11px] w-[11px] rounded-[3px] bg-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={send}
+              disabled={busy !== null || Boolean(uploading) || (!note.trim() && !attached.length)}
+              aria-label="Send"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-solid text-onSolid disabled:opacity-40"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          )}
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-[11.5px] text-muted">A change uses 1 credit. Saving your own scene edits makes a new cut: 1 credit per started minute of video.</p>
