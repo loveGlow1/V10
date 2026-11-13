@@ -1302,7 +1302,8 @@ function DirectorChat(props: {
               type="button"
               onClick={() => void ask(quick.note)}
               disabled={busy !== null}
-              className="h-7 rounded-full border border-line/[0.1] px-2.5 text-[12px] text-soft hover:text-ink disabled:opacity-40"
+              /* A warm clay, like Claude's own: only these quick-ask chips. */
+              className="h-7 rounded-full border border-[#D97757]/35 bg-[#D97757]/[0.10] px-2.5 text-[12px] font-medium text-[#D97757] transition hover:border-[#D97757]/60 hover:bg-[#D97757]/[0.18] hover:text-[#E8916F] active:scale-[0.98] disabled:opacity-40"
             >
               {quick.label}
             </button>
