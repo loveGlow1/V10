@@ -3,6 +3,8 @@
  *   GET    every message, oldest first, and the sessions with their first line
  *   POST   { role, text, session, version?, failed? } — one message, stored
  *          the moment it is sent
+ *   DELETE ?session=3 — a whole session, gone for good (the versions it
+ *          made stay); ?message=<id> — one message
  *
  * Owner-only through RLS. */
 
@@ -58,4 +60,23 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     .single();
   if (error || !data) return NextResponse.json({ error: "Could not keep the message." }, { status: 500 });
   return NextResponse.json({ message: data as VideoMessage });
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const session = await videoSession();
+  if ("error" in session) return session.error;
+  const params = new URL(request.url).searchParams;
+  const messageId = params.get("message");
+  if (messageId) {
+    if (!/^[0-9a-f-]{36}$/i.test(messageId)) return NextResponse.json({ error: "Which message?" }, { status: 400 });
+    const { error } = await session.supabase.from("video_messages").delete().eq("video_id", id).eq("id", messageId);
+    if (error) return NextResponse.json({ error: "Could not delete the message." }, { status: 500 });
+    return NextResponse.json({ deleted: messageId });
+  }
+  const number = Math.floor(Number(params.get("session")));
+  if (!(number >= 1)) return NextResponse.json({ error: "Which session?" }, { status: 400 });
+  const { error } = await session.supabase.from("video_messages").delete().eq("video_id", id).eq("session", number);
+  if (error) return NextResponse.json({ error: "Could not delete the session." }, { status: 500 });
+  return NextResponse.json({ deleted: number });
 }

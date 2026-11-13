@@ -901,9 +901,16 @@ const chatPage = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"
 const msgRoute = readFileSync(join(root, "src/app/api/video/[id]/messages/route.ts"), "utf8");
 has(/setNote\(""\);\s*setAttached\(\[\]\);\s*void ask\(/.test(chatPage) && /role: "user", text/.test(chatPage) && /from\("video_messages"\)/.test(msgRoute), "a message leaves the box at once, drops into the chat and is stored");
 has(/New session/.test(chatPage) && /sessionList\(messages/.test(chatPage), "a new session starts a fresh conversation; earlier ones are listed");
+has(/messageId = params\.get\("message"\)/.test(msgRoute) && /removeMessage\(message\.id\)/.test(chatPage), "one message can be deleted from the conversation");
+const llmSrc = readFileSync(join(root, "src/lib/ai/llm.ts"), "utf8");
+has(/AbortSignal\.any\(\[stop, limit\]\)/.test(llmSrc) && /withStop\(request\.signal/.test(planRoute), "Stop aborts the request, and every model call it makes stops with it");
+has(/if \(stopped\(\)\) return NextResponse\.json\(\{ error: "Stopped/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /if \(stopped\(\)\) return \{ ok: false, message: "Stopped/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")), "a stopped change saves and charges nothing");
+has(/aria-label="Stop"/.test(chatPage) && /animate-spin rounded-full border-2/.test(chatPage) && /signal: controller\.signal/.test(chatPage), "while it works, the send button is a stop sign in a turning ring");
 has(/aria-expanded=\{showSessions\}/.test(chatPage) && /qs-director-sessions/.test(chatPage) && /"Today" : days === 1 \? "Yesterday"/.test(chatPage), "the sessions are a list grouped by day that folds away, and stays folded or open next time");
 const msgSql = readFileSync(join(root, "supabase/migrations/20261113200000_video_messages.sql"), "utf8");
 has(/enable row level security/.test(msgSql) && /p\.user_id = auth\.uid\(\)/.test(msgSql), "the chat is stored owner-only");
+has(/export async function DELETE/.test(msgRoute) && /\.delete\(\)\.eq\("video_id", id\)\.eq\("session", number\)/.test(msgRoute) && /video_messages_owner_delete/.test(msgSql), "a session can be deleted, owner-only");
+has(/setConfirming\(item\.session\)/.test(chatPage) && /removeSession\(item\.session\)/.test(chatPage) && /if \(!response\?\.ok\) setMessages\(before\)/.test(chatPage), "deleting asks once on the row, and comes back if the server says no");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

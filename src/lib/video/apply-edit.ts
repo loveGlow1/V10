@@ -20,6 +20,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
+import { stopped } from "@/lib/ai/llm";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
@@ -96,6 +97,7 @@ export async function editVideo(input: {
   const context = await contextFiles(input.writer, uploads, plan.referenceClips ?? []);
   const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
+  if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
   if (decided.edit.replan) return null;
   const result = await commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: agentCost(EDIT_COST, agent), outputTokens: decided.outputTokens });
   return agent.declined ? { ...result, message: `${result.message} (Made with ${agent.name} — ${agent.declined}.)` } : result;

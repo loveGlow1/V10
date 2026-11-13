@@ -14,6 +14,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
+import { stopped } from "@/lib/ai/llm";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { direct, planChapterCount } from "@/lib/video/director";
 import { contextFiles } from "@/lib/video/context-files";
@@ -205,6 +206,8 @@ export async function planVideo(
      on a number that is already taken. */
   const { data: newestRow } = await supabase.from("video_versions").select("version").eq("video_id", id).order("version", { ascending: false }).limit(1).maybeSingle();
   const version = Math.max(video.current_version ?? 0, (newestRow?.version as number | undefined) ?? 0) + 1;
+  /* Stopped by the person while it was being planned: nothing saved, nothing charged. */
+  if (stopped()) return NextResponse.json({ error: "Stopped — nothing was changed or charged." }, { status: 499 });
   const { error: saveError } = await supabase.from("video_versions").insert({ video_id: id, user_id: userId, version, plan, issues, note });
   if (saveError) return NextResponse.json({ error: "The plan was made but could not be saved. Try again." }, { status: 500 });
   await supabase.from("video_projects").update({ current_version: version, status: "planned", title: plan.title.slice(0, 160) }).eq("id", id);
