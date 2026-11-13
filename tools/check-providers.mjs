@@ -132,6 +132,16 @@ has(/chosen\.provider === "openai" \|\| chosen\.provider === "google"/.test(edit
 for (const f of ["src/lib/video/director.ts", "src/lib/video/editor.ts"]) has(!/new Anthropic\(\)/.test(readFileSync(join(process.cwd(), f), "utf8")), `${f.split("/").pop()} asks whichever model was picked`);
 has(!/can't edit videos yet/.test(readFileSync(join(process.cwd(), "src/lib/video/agent.ts"), "utf8")), "the video studio offers GPT and Gemini as agents");
 
+has(gpt.every((m) => !m.minPlan), "no plan lock: every account can pick GPT and Gemini once the key is set");
+const cp = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+has(/option\.provider === "claude" \|\| isModelAvailable\(option\)/.test(cp), "connected GPT and Gemini sit on the picker's first page, not behind More models");
+has(/entry\.provider === requested\.provider && creditMultiplierFor/.test(readFileSync(join(process.cwd(), "src/app/dashboard/credits.ts"), "utf8")), "Auto and a Claude pick step down to a cheaper Claude, never quietly to another maker");
+const flags = (env) => execFileSync(process.execPath, ["--input-type=module", "-e", "const c = (await import(process.argv[1])).default; console.log(JSON.stringify(c.env));", join(process.cwd(), "next.config.mjs")], { env: { ...process.env, ...env, OPENAI_API_KEY: env.OPENAI_API_KEY ?? "", GEMINI_API_KEY: env.GEMINI_API_KEY ?? "", GOOGLE_API_KEY: env.GOOGLE_API_KEY ?? "" }, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n").pop();
+const on = JSON.parse(flags({ OPENAI_API_KEY: "sk-x", GEMINI_API_KEY: "g-x" }));
+const off = JSON.parse(flags({}));
+const google = JSON.parse(flags({ GOOGLE_API_KEY: "g-y" }));
+const offByChoice = JSON.parse(flags({ OPENAI_API_KEY: "sk-x", AI_OPENAI: "off" }));
+has(on.NEXT_PUBLIC_AI_OPENAI === "on" && on.NEXT_PUBLIC_AI_GOOGLE === "on" && !off.NEXT_PUBLIC_AI_OPENAI && !off.NEXT_PUBLIC_AI_GOOGLE && google.NEXT_PUBLIC_AI_GOOGLE === "on" && !offByChoice.NEXT_PUBLIC_AI_OPENAI, "adding a key is all it takes: the build switches its models on (and AI_OPENAI=off can keep them off)", JSON.stringify({ on, off, google, offByChoice }));
 const mr = readFileSync(join(process.cwd(), "src/lib/builder/model-request.ts"), "utf8");
 const br = readFileSync(join(process.cwd(), "src/app/api/build/route.ts"), "utf8");
 has(/inlineData: \{ mimeType: inline\[1\], data: inline\[2\] \}/.test(mr) && /model\.provider === "google" \? await inlineImages\(imageUrls\)/.test(br), "a full build on Gemini sends attached pictures as bytes");

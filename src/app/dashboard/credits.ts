@@ -818,8 +818,10 @@ export function resolveBuildModel(
 
   /* Dearest first, so the step down is as small as it can be: somebody short of
      Fable gets Opus if they can afford Opus, not Haiku. */
+  /* Within the same maker: a Claude pick (or Auto) steps down to a cheaper
+     Claude, never quietly to GPT or Gemini, and a GPT pick to a cheaper GPT. */
   const fallback = affordableModels(balance, planId).find(
-    (entry) => creditMultiplierFor(entry.id) < creditMultiplierFor(requested.id),
+    (entry) => entry.provider === requested.provider && creditMultiplierFor(entry.id) < creditMultiplierFor(requested.id),
   );
 
   return fallback ? { model: fallback, downgradedFrom: requested } : null;

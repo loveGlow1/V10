@@ -185,7 +185,7 @@ A web app with sign-in and a database is not marked **Built**, and not charged, 
 Every request a person can pick a model for goes through one adapter (`src/lib/ai/llm.ts`): workspace edits, answers and clarifications, the video Creative Director, the video editor and its suggestions. Whichever maker answers, the request is shaped the same way: system prompt, the earlier turns, pictures and PDFs, the length limit, the text streamed as it is written. The answer is also read the same way: finished, out of room, refused, or out of time. Errors read the same too (key refused, rate limited, request refused, unknown model, unreachable).
 
 To switch them on:
-1. Set `OPENAI_API_KEY` and/or `GEMINI_API_KEY` on Vercel and redeploy. The models stop being greyed in the picker. They are on paid plans only, like Opus and Fable, priced from their published rates against Sonnet 5:
+1. Set `OPENAI_API_KEY` and/or `GEMINI_API_KEY` on Vercel and redeploy (Vercel asks for one when a variable is added). Nothing else is needed in the app: the models switch on, join the first page of the workspace's model picker and the video studio's agent list, and are open to every plan, charged at their own rates. Auto stays Claude, and a Claude pick only ever steps down to a cheaper Claude. Rates, from published prices against Sonnet 5:
 
    | Model | Credits per use |
    |---|---|
