@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { LlmError, generate, sayLlmError, type LlmPart } from "@/lib/ai/llm";
+
 import { MODELS, claudeNameOf, creditMultiplierFor, modelById } from "@/app/dashboard/models";
 
 import {
@@ -506,6 +508,12 @@ async function ask(
      carries the text the caller parses. Empty for every ordinary edit. */
   tools: Record<string, unknown>[] = [],
 ): Promise<Anthropic.Message> {
+  /* ChatGPT or Gemini, when one was picked: the same request, the same
+     progress, the same answer shape — see askAnyProvider below. */
+  const chosen = MODELS.find((entry) => entry.id === model || entry.apiId === model);
+  if (chosen && (chosen.provider === "openai" || chosen.provider === "google")) {
+    return askAnyProvider(system, prompt, maxTokens, attachments, prior, onProgress, streamAnswer, chosen.id, deadlineAt);
+  }
   try {
     /* Streamed rather than awaited whole, and the streaming is the point: the
        events are the only source of what is happening while it happens. The
@@ -704,6 +712,110 @@ async function ask(
     }
     if (error instanceof Anthropic.APIError) {
       throw new EditError(`I couldn't reach the model (HTTP ${error.status}). Nothing was changed — try that again.`, 502);
+    }
+    throw new EditError("I couldn't reach the model, so nothing was changed. Try that again.", 502);
+  }
+}
+
+/* A pick from another company, asked the same way (lib/ai/llm.ts), and
+   answered in the shape every caller already reads — a Message with one text
+   block — so an edit, an answer or a clarification behaves identically
+   whichever model wrote it. What does not carry over: Claude's server tools
+   (web fetch) and its summarised reasoning, which the others do not stream. */
+async function askAnyProvider(
+  system: string,
+  prompt: string,
+  maxTokens: number,
+  attachments: Anthropic.ContentBlockParam[],
+  prior: Anthropic.MessageParam[],
+  onProgress: OnProgress | undefined,
+  streamAnswer: boolean,
+  model: string,
+  deadlineAt: number | undefined,
+): Promise<Anthropic.Message> {
+  const toParts = (content: Anthropic.MessageParam["content"] | Anthropic.ContentBlockParam[]): LlmPart[] => {
+    if (typeof content === "string") return [{ type: "text", text: content }];
+    const parts: LlmPart[] = [];
+    for (const block of content) {
+      if (block.type === "text") parts.push({ type: "text", text: block.text });
+      else if (block.type === "image" || block.type === "document") {
+        const source = block.source as { type: string; url?: string; data?: string; media_type?: string };
+        if (source.type === "url" && source.url) parts.push({ type: "image", url: source.url });
+        else if (source.type === "base64" && source.data) parts.push({ type: "file", mediaType: source.media_type ?? "image/png", base64: source.data });
+        else if (source.type === "text" && typeof source.data === "string") parts.push({ type: "text", text: source.data });
+      }
+    }
+    return parts.length ? parts : [{ type: "text", text: "" }];
+  };
+
+  let written = "";
+  let pending = "";
+  let lastAnswerAt = 0;
+  let lastSent = 0;
+  const onText = onProgress
+    ? (delta: string) => {
+        written += delta;
+        if (streamAnswer) {
+          pending += delta;
+          if (Date.now() - lastAnswerAt >= ANSWER_EVERY_MS) {
+            onProgress({ kind: "answer", delta: pending });
+            pending = "";
+            lastAnswerAt = Date.now();
+          }
+        }
+        if (Date.now() - lastSent < PROGRESS_EVERY_MS) return;
+        lastSent = Date.now();
+        const blocks = (written.match(/<{7} SEARCH/g) ?? []).length;
+        if (blocks > 0) onProgress({ kind: "writing", blocks });
+      }
+    : undefined;
+
+  try {
+    const answer = await generate({
+      model,
+      system,
+      turns: [
+        ...prior.map((turn) => ({ role: (turn.role === "assistant" ? "assistant" : "user") as "user" | "assistant", parts: toParts(turn.content) })),
+        { role: "user" as const, parts: [...toParts(attachments), { type: "text" as const, text: prompt }] },
+      ],
+      maxTokens,
+      onText,
+      deadlineAt,
+    });
+    if (pending && onProgress) onProgress({ kind: "answer", delta: pending });
+    if (answer.stop === "refusal" && !answer.text.trim()) {
+      throw new EditError(`${modelById(model).name} declined this request, so nothing was changed. Try rewording it, or pick another model.`, 400);
+    }
+    const message = {
+      id: `msg_${answer.provider}`,
+      type: "message",
+      role: "assistant",
+      model: answer.model,
+      content: [{ type: "text", text: answer.text, citations: null }],
+      stop_reason: answer.stop === "max_tokens" ? "max_tokens" : answer.stop === "refusal" ? "refusal" : "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: answer.inputTokens,
+        output_tokens: answer.outputTokens,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        server_tool_use: null,
+        service_tier: null,
+      },
+    } as unknown as Anthropic.Message;
+    /* Out of time: what was written stands, as with Claude. */
+    if (answer.stop === "deadline") cutShort.add(message);
+    return message;
+  } catch (error) {
+    if (error instanceof EditError) throw error;
+    if (error instanceof LlmError) {
+      /* A file the model would not take must not take the edit down with it. */
+      if (error.kind === "bad_request" && attachments.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error("edit: retrying without the attachments after:", error.message);
+        return askAnyProvider(system, prompt, maxTokens, [], prior, onProgress, streamAnswer, model, deadlineAt);
+      }
+      throw new EditError(sayLlmError(error), error.kind === "rate" ? 429 : error.kind === "bad_request" ? 400 : error.kind === "not_configured" ? 503 : 502);
     }
     throw new EditError("I couldn't reach the model, so nothing was changed. Try that again.", 502);
   }

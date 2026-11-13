@@ -259,6 +259,7 @@ import {
   resolveModel,
 } from "@/app/dashboard/models";
 import { generationRequest, providerConfigured, userMessage } from "@/lib/builder/model-request";
+import { inlineImages } from "@/lib/ai/llm";
 import { stepRecorder, type BuildStep, type StepSink } from "@/lib/builder/steps";
 import {
   checkpointBeforeEdit,
@@ -5809,7 +5810,8 @@ ${found.fix.message}` }) : answer(found.message, { links: panel });
         [attachedText, referencedText, fromConnectors?.text ?? ""].filter(Boolean).join("\n\n"),
         imageUrls.length,
       ),
-      imageUrls.map((url) => ({ url })),
+      /* Gemini takes pictures as bytes, not links (lib/ai/llm.ts). */
+      model.provider === "google" ? await inlineImages(imageUrls) : imageUrls.map((url) => ({ url })),
       /* The same condition that decided treeInstructions above, because it is
          the same fact: this build's answer is a file tree rather than a
          document. It governs how the output budget is split — thinking and

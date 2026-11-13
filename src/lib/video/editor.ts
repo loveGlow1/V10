@@ -21,7 +21,7 @@
  *
  * The model call is server-only; everything else here is pure. */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { complete, providerFor, providerReady } from "@/lib/ai/llm";
 
 import { withPolicy } from "@/lib/safety/policy";
 
@@ -333,22 +333,14 @@ export async function decideEdit(input: {
   /** The model that edits (agent.ts); the studio's default otherwise. */
   model?: string;
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
-  if (!process.env.ANTHROPIC_API_KEY) return { error: "The video editor is not configured on this server." };
+  if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
   try {
-    const message = await new Anthropic().messages.create({
-      model: input.model || DIRECTOR_MODEL,
-      max_tokens: 4000,
-      system: withPolicy(SYSTEM),
-      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }],
-    });
-    const raw = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("")
+    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [{ type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 4000);
+    const raw = message.text
       .replace(/```json|```/g, "")
       .trim();
     const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    return { edit: normalizeEdit(parsed, input.plan), outputTokens: message.usage.output_tokens };
+    return { edit: normalizeEdit(parsed, input.plan), outputTokens: message.outputTokens };
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("video editor:", error);
@@ -399,22 +391,14 @@ export async function reviewEdit(input: {
   assets?: StudioAsset[];
   model?: string;
 }): Promise<{ suggestions: Suggestion[]; outputTokens: number } | { error: string }> {
-  if (!process.env.ANTHROPIC_API_KEY) return { error: "The video editor is not configured on this server." };
+  if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
   try {
-    const message = await new Anthropic().messages.create({
-      model: input.model || DIRECTOR_MODEL,
-      max_tokens: 3000,
-      system: withPolicy(`${REVIEW_SYSTEM}\n\n${SYSTEM}`),
-      messages: [{ role: "user", content: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nLook over this edit. Quiet unless something clearly needs saying.` }],
-    });
-    const raw = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("")
+    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(`${REVIEW_SYSTEM}\n\n${SYSTEM}`), [{ type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nLook over this edit. Quiet unless something clearly needs saying.` }], 3000);
+    const raw = message.text
       .replace(/```json|```/g, "")
       .trim();
     const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    return { suggestions: normalizeReview(parsed, input.plan), outputTokens: message.usage.output_tokens };
+    return { suggestions: normalizeReview(parsed, input.plan), outputTokens: message.outputTokens };
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("video review:", error);

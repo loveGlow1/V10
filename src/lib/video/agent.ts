@@ -4,9 +4,9 @@
  * (the Creative Director, the editor, the editor's assistant) goes through
  * this, and is charged at that model's rate.
  *
- * Only models this deployment can call are offered (models.ts resolveModel);
- * the video calls speak Anthropic's API, so a model from another maker is
- * declined here with a reason until that maker is connected.
+ * Only models this deployment can call are offered (models.ts resolveModel).
+ * Claude, ChatGPT and Gemini all answer through lib/ai/llm.ts; one whose
+ * maker has no key on this server is declined here with a reason.
  *
  * Server-only. */
 
@@ -15,12 +15,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { modelAllowedOnPlan } from "@/app/dashboard/credits";
 import { AUTO_MODEL, creditMultiplierFor, resolveModel } from "@/app/dashboard/models";
 import { currentBalance } from "@/lib/credits-server";
+import { providerReady } from "@/lib/ai/llm";
 
 export type VideoAgent = {
   /** Our id for it ("claude-opus-5-5"), what the picker shows. */
   id: string;
   name: string;
-  /** What Anthropic's API calls it. */
+  /** What its maker's API calls it. */
   apiId: string;
   /** Credits are multiplied by this (1 for the default). */
   multiplier: number;
@@ -40,7 +41,7 @@ export async function videoAgentFor(service: SupabaseClient | null, userId: stri
   if (typeof asked !== "string" || !asked || asked === "auto") return fallback;
   const model = resolveModel(asked);
   if (!model) return { ...fallback, declined: "that model isn't available here yet" };
-  if (model.provider !== "claude") return { ...fallback, declined: `${model.name} can't edit videos yet` };
+  if (model.provider !== "auto" && !providerReady(model.provider)) return { ...fallback, declined: `${model.name} isn't connected on this server yet` };
   try {
     const balance = service ? await currentBalance(service, userId) : null;
     if (balance && !modelAllowedOnPlan(model, balance.modelPlanId)) return { ...fallback, declined: `your plan doesn't include ${model.name}` };

@@ -623,7 +623,7 @@ console.log("\nthe AI agent from the workspace");
 const agentSrc = readFileSync(join(root, "src/lib/video/agent.ts"), "utf8");
 has(/resolveModel\(asked\)/.test(agentSrc) && /modelAllowedOnPlan/.test(agentSrc) && /creditMultiplierFor/.test(agentSrc), "the agent picked is checked against the plan and charged at its rate");
 has(/model: body\.model/.test(readFileSync(join(root, "src/app/api/build/route.ts"), "utf8")) && /model: input\.model/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "a message in the workspace plans and edits the video on the agent picked there");
-has(/model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /model: input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
+has(/complete\(input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /complete\(input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
 
 
 console.log("\nscene-to-scene continuity");

@@ -164,10 +164,12 @@ try {
 
   /* ── Which plan may pick what ───────────────────────────────────────────
      Free: Haiku and Sonnet. Every paid plan: everything. */
+  /* ChatGPT and Gemini, once their keys are set: paid plans only. */
+  const otherMakers = models.MODELS.filter((m) => (m.provider === "openai" || m.provider === "google") && models.isModelAvailable(m)).map((m) => m.id);
   const expected = {
     free: ["claude-haiku-4-5", "claude-sonnet-5"],
-    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5"],
-    pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5"],
+    standard: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5", ...otherMakers],
+    pro: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-5-5", "claude-fable-5", ...otherMakers],
   };
   for (const [plan, ids] of Object.entries(expected)) {
     const got = credits.modelsForPlan(plan).map((model) => model.id).sort();

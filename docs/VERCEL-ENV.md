@@ -39,8 +39,8 @@ a sensible default.
 | `NEXT_PUBLIC_WEBCONTAINER_CLIENT_ID` | Feature | StackBlitz WebContainer client id, for the in-browser terminal |
 | `BROWSERLESS_TOKEN` | **Required for the app test** | browserless.io: screenshots, and the sign-in / dashboard / save test every web app must pass before it is Built |
 | `BROWSERLESS_URL` | **Required for the app test** | e.g. `https://production-sfo.browserless.io` (the test calls its `/function` API). Without it, apps are Built untested and the thread says so |
-| `OPENAI_API_KEY` | Feature | GPT models in the model picker (also OpenAI images) |
-| `GEMINI_API_KEY` *or* `GOOGLE_API_KEY` | Feature | Gemini models in the picker (also Gemini images) |
+| `OPENAI_API_KEY` | Feature | GPT-5, GPT-5 mini and nano in the model picker, on at the next deploy (also OpenAI images). Put the same key on n8n's **OpenAI account** credential for full builds. `AI_OPENAI=off` keeps them off |
+| `GEMINI_API_KEY` *or* `GOOGLE_API_KEY` | Feature | Gemini 3 Pro and 2.5 Flash in the picker, on at the next deploy (also Gemini images). Put the same key on n8n's **Google Gemini account** credential for full builds. `AI_GOOGLE=off` keeps them off |
 
 ## 3. Databases for generated apps (login, data, the database agent)
 
@@ -179,3 +179,24 @@ or large clips are refused.
 ## The web app guarantee
 
 A web app with sign-in and a database is not marked **Built**, and not charged, until it passes a test in a real browser (`src/lib/builder/verify-run.ts`): a confirmed test member signs in, the dashboard opens without a database error, and a record they save is found in the database. A failure is repaired automatically (up to two rounds, one file each) and tested again; if it still fails the project is **Needs fixing**, the owner is told which step failed, and nothing is charged. A web app whose database is not ready stops before the test, uncharged, with the reason. Each run is recorded in `build_verifications`. Needs `BROWSERLESS_URL`, `BROWSERLESS_TOKEN` and `CRON_SECRET`.
+
+## ChatGPT and Gemini, handled like Claude
+
+Every request a person can pick a model for goes through one adapter (`src/lib/ai/llm.ts`): workspace edits, answers and clarifications, the video Creative Director, the video editor and its suggestions. Whichever maker answers, the request is shaped the same way: system prompt, the earlier turns, pictures and PDFs, the length limit, the text streamed as it is written. The answer is also read the same way: finished, out of room, refused, or out of time. Errors read the same too (key refused, rate limited, request refused, unknown model, unreachable).
+
+To switch them on:
+1. Set `OPENAI_API_KEY` and/or `GEMINI_API_KEY` on Vercel and redeploy. The models stop being greyed in the picker. They are on paid plans only, like Opus and Fable, priced from their published rates against Sonnet 5:
+
+   | Model | Credits per use |
+   |---|---|
+   | GPT-5 | 1× |
+   | GPT-5 mini | 0.25× |
+   | GPT-5 nano | 0.25× |
+   | Gemini 3 Pro | 1.5× |
+   | Gemini 2.5 Flash | 0.5× |
+
+2. In n8n, attach the same keys to the **Generate With OpenAI** and **Generate With Gemini** nodes (credentials "OpenAI account" and "Google Gemini account"). Full builds go through those nodes.
+3. Run `node tools/check-providers.mjs --live` with the keys set. It confirms each model id exists on your account and that each model answers.
+4. If a provider has renamed a model, set `MODEL_ID_<ID>`, for example `MODEL_ID_GEMINI_3_PRO=gemini-3-pro-preview`, without a release.
+
+What stays Claude-only: Auto (Sonnet 5), the background helpers that classify a request and draft schemas, and Claude's web-fetch tool and reasoning summary during edits.
