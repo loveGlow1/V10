@@ -759,7 +759,7 @@ has(/directFilm/.test(lenSrc) && /Promise\.all\(\s*chapters\.map/.test(lenSrc) &
 const filmPlan = readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8");
 has(/agentCost\(PLAN_COST, agent\) \* calls/.test(filmPlan), "every planning call of a long film is paid for");
 const filmCut = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
-has(/chaptersOf\(plan\.scenes\)/.test(filmCut) && /kick\(origin, videoId, version, i \+ 1\)/.test(filmCut) && /maybeJoin/.test(filmCut) && /streamToStorage/.test(filmCut), "a long cut: every chapter at once, then one join streamed into storage");
+has(/stableChapters\(/.test(filmCut) && /kick\(origin, videoId, version, p\.k\)/.test(filmCut) && /maybeJoin/.test(filmCut) && /streamToStorage/.test(filmCut), "a long cut: every changed chapter at once, then one join streamed into storage");
 has(/partsOutput\(parts\.length, base\)/.test(filmCut), "if the single file cannot be stored, the film is kept as its parts");
 has(/remote = Boolean\(upload && !still && Number\(upload\.duration_s\) > WORKING_COPY_SECONDS\)/.test(filmCut), "a long upload is read where it is stored, not copied onto the server");
 const filmRender = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");

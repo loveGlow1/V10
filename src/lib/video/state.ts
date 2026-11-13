@@ -2,7 +2,7 @@
    whether the engines its plan needs are connected, and the current render —
    each job's clip or voice line as a short-lived signed URL. */
 
-import { partPath, readPartsOutput } from "./chapters";
+import { partOf, partPath, readPartsOutput } from "./chapters";
 import { EXPORT_LABEL, exportPath, exportsFor } from "@/lib/video/exports";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -212,11 +212,17 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
 
   /* A long film whose single file could not be stored: its parts, in order. */
   const keptAsParts = readPartsOutput((renderRows ?? []).find((row) => row.engine === "compose" && row.status === "done")?.output_path);
+  /* Each part where it really is: a part reused from an earlier version
+     (chapters.ts) lives under that version's files. */
+  const partRows = (renderRows ?? [])
+    .filter((row) => row.engine === "part" && row.status === "done" && row.output_path?.startsWith("storage:"))
+    .map((row) => ({ k: partOf(row.provider as string) ?? 0, path: (row.output_path as string).slice(8) }))
+    .sort((a, b) => a.k - b.k);
   const parts = keptAsParts
     ? (
         await Promise.all(
-          Array.from({ length: keptAsParts.count }, async (_, i) => {
-            const { data } = await supabase.storage.from("video-assets").createSignedUrl(partPath(keptAsParts.base, i + 1), 60 * 60);
+          (partRows.length ? partRows.map((row) => row.path) : Array.from({ length: keptAsParts.count }, (_, i) => partPath(keptAsParts.base, i + 1))).map(async (path) => {
+            const { data } = await supabase.storage.from("video-assets").createSignedUrl(path, 60 * 60);
             return data?.signedUrl ?? null;
           }),
         )

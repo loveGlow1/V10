@@ -265,3 +265,19 @@ over each saved edit (`POST [id]/review`, `editor.ts reviewEdit`).
 - **Right:** the selected clip or sound (Edit), or the AI editor, in two tabs.
 - **Timeline (bottom, full width):** Video, Filter, Text, Voice and Music tracks. Each has a lock (the keyboard respects it too); Video, Voice and Music have a mute. Clips show as filmstrips; ones still to be made are striped; diamonds between clips open Transitions; trims snap to the playhead and other clips (Snap); media dropped from the library lands where it is dropped.
 - **Phone:** preview, timeline, library, inspector, one under another.
+
+## Re-cutting only what changed (long films)
+
+Each part of a long film records what it was made from: each scene's plan and the clip, voice and upload files it uses, the cut's settings, the music and where in the music the part starts, and whether it opens or closes the film. This is stored in `video_renders.fingerprint` and `detail`.
+
+On the next save, a part with the same fingerprint as an earlier version's is reused as it is. Only the others are cut, and the charge is for the minutes re-cut, with at least 1 credit for the join. To keep parts reusable after an edit, a new version keeps the earlier part boundaries wherever their scenes are unchanged (`stableChapters`).
+
+Measured on a 30-minute film in `tools/check-film.mjs`:
+
+| Edit | Parts re-cut (of 15) |
+|---|---|
+| One word changed, a scene filmed again, or a scene removed | 1 |
+| A new end card | 1 (the last) |
+| Saving without a change | 0 |
+| A scene made longer, no music | 1 |
+| A scene made longer, with music | That part and the parts after it, so the music stays in step |

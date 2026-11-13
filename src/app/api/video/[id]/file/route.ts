@@ -9,7 +9,7 @@
  * serves byte ranges, which a phone's player needs), made only after the
  * caller's own session has read the video — RLS returns only their videos. */
 
-import { partPath, readPartsOutput } from "@/lib/video/chapters";
+import { partPath, partProvider, readPartsOutput } from "@/lib/video/chapters";
 import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
@@ -47,9 +47,20 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const kept = readPartsOutput(output);
   if (kept) {
     const k = Math.min(kept.count, Math.max(1, Number(url.searchParams.get("part")) || 1));
+    /* Where the part really is: a reused part lives under an earlier version. */
+    const { data: row } = await supabase
+      .from("video_renders")
+      .select("output_path")
+      .eq("video_id", id)
+      .eq("version", version)
+      .eq("engine", "part")
+      .eq("provider", partProvider(k))
+      .eq("status", "done")
+      .maybeSingle<{ output_path: string | null }>();
+    const stored = row?.output_path?.startsWith("storage:") ? row.output_path.slice(8) : partPath(kept.base, k);
     const { data } = await supabase.storage
       .from("video-assets")
-      .createSignedUrl(partPath(kept.base, k), 60 * 60, download ? { download: fileName(video.title as string, `-part-${k}`) } : undefined);
+      .createSignedUrl(stored, 60 * 60, download ? { download: fileName(video.title as string, `-part-${k}`) } : undefined);
     if (!data?.signedUrl) return new Response("Not found", { status: 404 });
     return NextResponse.redirect(data.signedUrl, { status: 302, headers: { "Cache-Control": "private, no-store" } });
   }
