@@ -40,7 +40,7 @@ import { downloadTo, inspect, runFfmpeg } from "./media-files";
 import { signedUrl } from "./production";
 import { chargeCredits } from "@/lib/credits-server";
 import { cutCredits } from "./pricing";
-import { chapterStarts, chaptersOf, concatList, musicOffset, partOf, partPath, partProvider, partsOutput, streamJoinArgs } from "./chapters";
+import { chapterStarts, chaptersOf, concatList, musicOffset, partFingerprint, partOf, partPath, partProvider, partsOutput, sceneKey, stableChapters, streamJoinArgs } from "./chapters";
 import { falToken, verifyFalToken } from "./fal";
 import { ffmpegOutput, streamToStorage } from "./stream-upload";
 import { WORKING_COPY_SECONDS } from "./prepare-asset";
@@ -137,6 +137,38 @@ async function font(): Promise<string | null> {
 }
 
 type Row = { scene: number | null; engine: string; status: string; output_path: string | null };
+
+/** What a part of a long film is, kept on its row (chapters.ts). */
+type PartDetail = { scenes: number[]; keys: string[]; start: number; first: boolean; last: boolean; seconds: number; reused: boolean };
+
+/* What a scene's stretch of the cut is made from: its plan and the exact files it uses. */
+function keyOf(ctx: Cutting, scene: ProductionPlan["scenes"][number]): string {
+  const file = (engine: string) => ctx.rows.find((row) => row.scene === scene.n && row.engine === engine && row.status === "done")?.output_path ?? null;
+  const upload = scene.source ? ctx.uploads.get(scene.source.assetId) : undefined;
+  return sceneKey(scene as unknown as Record<string, unknown> & { n: number }, {
+    picture: file("avatar") ?? file("video"),
+    voice: file("voice"),
+    upload: upload ? upload.working_path ?? upload.storage_path : null,
+    muted: ctx.cut.muted.has(scene.n) ? "muted" : null,
+  });
+}
+
+/* The settings that shape a part. What touches one scene (its mute) is in
+   that scene's key; what touches only the opening or the closing part (fade
+   in, fade out, the end card) only in theirs — so changing them re-cuts one
+   part, not the film. */
+function cutForPart(ctx: Cutting, first: boolean, last: boolean): Record<string, unknown> {
+  const { muted: _muted, endCard, fadeIn, fadeOut, ...rest } = ctx.cut;
+  void _muted;
+  return { ...rest, ...(first ? { fadeIn } : {}), ...(last ? { fadeOut, endCard: endCard ?? "" } : {}) };
+}
+
+/* The music the parts are scored with, as one key; null when there is none. */
+function musicKeyOf(ctx: Cutting): string | null {
+  if (ctx.cut.audio === "none" || ctx.cut.music.source === "none") return null;
+  const made = ctx.rows.find((row) => row.engine === "music" && row.status === "done")?.output_path ?? null;
+  return made ? `${made}@${ctx.cut.music.source === "upload" ? ctx.cut.music.start : 0}` : null;
+}
 type Upload = { kind: string; storage_path: string; working_path: string | null; duration_s: number | null };
 
 /** What every part of one cut shares. */
@@ -359,28 +391,90 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     const base = `${video.user_id}/${videoId}/v${version}`;
 
     if (part === undefined && chapters.length > 1) {
-      /* A long film: every chapter at once, each in a run of its own. */
+      /* A long film: the parts fall where the last version's did wherever
+         their scenes are unchanged, and a part that would come out the same
+         is reused rather than cut — and charged — again. The rest are cut at
+         once, each in a run of its own. */
+      const keys = new Map(plan.scenes.map((scene) => [scene.n, keyOf(ctx, scene)]));
+      const { data: earlier } = await service
+        .from("video_renders")
+        .select("version, fingerprint, detail, output_path")
+        .eq("video_id", videoId)
+        .eq("engine", "part")
+        .eq("status", "done")
+        .neq("version", version)
+        .not("fingerprint", "is", null)
+        .order("version", { ascending: false })
+        .limit(2000);
+      const previous = (earlier ?? []) as { version: number; fingerprint: string; detail: PartDetail | null; output_path: string | null }[];
+      const groups = stableChapters(
+        plan.scenes.map((scene) => ({ n: scene.n, duration: Number(scene.duration) || 0, continues: scene.continues, key: keys.get(scene.n) ?? "" })),
+        previous.map((row) => row.detail?.keys ?? []),
+      );
+      const starts = chapterStarts(plan.scenes, groups);
+      const music = musicKeyOf(ctx);
+      const parts = groups.map((scenes, i) => {
+        const partKeys = scenes.map((n) => keys.get(n) ?? "");
+        const fingerprint = partFingerprint({ keys: partKeys, cut: cutForPart(ctx, i === 0, i === groups.length - 1), aspect: plan.aspect, music, musicStart: starts[i], first: i === 0, last: i === groups.length - 1 });
+        const seconds = scenes.reduce((sum, n) => sum + (Number(plan.scenes.find((scene) => scene.n === n)?.duration) || 0), 0);
+        const reuse = previous.find((row) => row.fingerprint === fingerprint && row.output_path);
+        const detail: PartDetail = { scenes, keys: partKeys, start: starts[i], first: i === 0, last: i === groups.length - 1, seconds, reused: Boolean(reuse) };
+        return { k: i + 1, fingerprint, detail, reuse };
+      });
       await service.from("video_renders").delete().eq("video_id", videoId).eq("version", version).eq("engine", "part");
       const { error } = await service.from("video_renders").insert(
-        chapters.map((_, i) => ({ video_id: videoId, user_id: video.user_id, version, scene: null, engine: "part", provider: partProvider(i + 1), status: "running" })),
+        parts.map((p) => ({
+          video_id: videoId,
+          user_id: video.user_id,
+          version,
+          scene: null,
+          engine: "part",
+          provider: partProvider(p.k),
+          status: p.reuse ? "done" : "running",
+          output_path: p.reuse?.output_path ?? null,
+          fingerprint: p.fingerprint,
+          detail: p.detail,
+        })),
       );
       if (error) throw new Error(`The film's parts could not be started: ${error.message}`);
-      const started = await Promise.all(chapters.map((_, i) => kick(origin, videoId, version, i + 1)));
-      const missed = started.map((ok, i) => (ok ? 0 : i + 1)).filter(Boolean);
-      if (missed.length === chapters.length) throw new Error("The film's parts could not be started.");
+      const toCut = parts.filter((p) => !p.reuse);
+      const started = await Promise.all(toCut.map((p) => kick(origin, videoId, version, p.k)));
+      const missed = toCut.filter((_, i) => !started[i]).map((p) => p.k);
+      if (toCut.length && missed.length === toCut.length) throw new Error("The film's parts could not be started.");
       for (const k of missed) await markPart(service, videoId, version, k, { status: "failed", error: "This part could not be started." });
-      if (missed.length) await maybeJoin(service, videoId, version, origin);
+      /* Nothing to cut, or some could not start: see whether it can be joined now. */
+      if (!toCut.length || missed.length) await maybeJoin(service, videoId, version, origin);
       return;
     }
 
     if (typeof part === "number") {
-      const scenes = (chapters[part - 1] ?? []).map((n) => plan.scenes.find((scene) => scene.n === n)!).filter(Boolean);
+      /* What this part is: written when the film's parts were laid out. */
+      const { data: mine } = await service
+        .from("video_renders")
+        .select("detail")
+        .eq("video_id", videoId)
+        .eq("version", version)
+        .eq("engine", "part")
+        .eq("provider", partProvider(part))
+        .maybeSingle();
+      const detail = (mine?.detail ?? null) as PartDetail | null;
+      const numbers = detail?.scenes ?? chapters[part - 1] ?? [];
+      const scenes = numbers.map((n) => plan.scenes.find((scene) => scene.n === n)!).filter(Boolean);
       if (!scenes.length) throw new Error(`There is no part ${part}.`);
       try {
         const made = await cutScenes(ctx, scenes, `part-${part}`);
         const out = join(dir, `part-${part}.mp4`);
-        const starts = chapterStarts(plan.scenes, chapters);
-        await scoreAndFinish(ctx, { joined: made.joined, voiced: made.voiced, out, name: `part-${part}`, chapterStart: starts[part - 1], loop: true, fadeIn: part === 1, fadeOut: part === chapters.length });
+        const fallbackStarts = chapterStarts(plan.scenes, chapters);
+        await scoreAndFinish(ctx, {
+          joined: made.joined,
+          voiced: made.voiced,
+          out,
+          name: `part-${part}`,
+          chapterStart: detail?.start ?? fallbackStarts[part - 1],
+          loop: true,
+          fadeIn: detail ? detail.first : part === 1,
+          fadeOut: detail ? detail.last : part === chapters.length,
+        });
         const path = partPath(base, part);
         const { error } = await service.storage.from("video-assets").upload(path, await readFile(out), { contentType: "video/mp4", upsert: true });
         if (error) throw new Error(`Part ${part} could not be stored: ${error.message}`);
@@ -426,12 +520,12 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
 }
 
 /* The cut is work: charged once per version, by its length. */
-async function chargeCut(service: SupabaseClient, video: { user_id: string; title: string }, videoId: string, version: number, total: number) {
+async function chargeCut(service: SupabaseClient, video: { user_id: string; title: string }, videoId: string, version: number, total: number, label?: string) {
   await chargeCredits(service, {
     userId: video.user_id,
     action: "generate",
     cost: cutCredits(total),
-    description: `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
+    description: label ?? `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
     dedupeKey: `video-cut:${videoId}:${version}`,
   });
 }
@@ -475,7 +569,7 @@ async function maybeJoin(service: SupabaseClient, videoId: string, version: numb
 /* The parts, end to end, as one MP4 written into storage while it is made. */
 async function joinParts(service: SupabaseClient, videoId: string, version: number, origin: string, failed: (error: unknown) => Promise<void>) {
   const { data: video } = await service.from("video_projects").select("id, user_id, title").eq("id", videoId).maybeSingle();
-  const { data } = await service.from("video_renders").select("provider, status, output_path, error").eq("video_id", videoId).eq("version", version).eq("engine", "part");
+  const { data } = await service.from("video_renders").select("provider, status, output_path, error, detail").eq("video_id", videoId).eq("version", version).eq("engine", "part");
   if (!video) return failed(new Error("The video is missing."));
   const parts = (data ?? [])
     .map((row) => ({ k: partOf(row.provider as string), status: row.status as string, path: row.output_path as string | null, error: row.error as string | null }))
@@ -520,7 +614,21 @@ async function joinParts(service: SupabaseClient, videoId: string, version: numb
     .eq("video_id", videoId)
     .eq("version", version)
     .eq("engine", "compose");
-  await chargeCut(service, video as { user_id: string; title: string }, videoId, version, total);
+  /* Charged for the parts cut this time; parts reused from the last version
+     are not cut, or paid for, twice. Joining is still work: at least 1 credit. */
+  const details = (data ?? []).map((row) => row.detail as PartDetail | null);
+  const recut = details.every(Boolean) ? details.reduce((sum, d) => sum + (d && !d.reused ? d.seconds : 0), 0) : total;
+  const reusedCount = details.filter((d) => d?.reused).length;
+  await chargeCut(
+    service,
+    video as { user_id: string; title: string },
+    videoId,
+    version,
+    Math.max(1, recut),
+    reusedCount
+      ? `Video re-cut: ${parts.length - reusedCount} of ${parts.length} parts changed (${Math.max(1, Math.ceil(recut / 60))} min): ${String(video.title)}`
+      : undefined,
+  );
   await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
   await announceFinal(service, { videoId, version, origin, scenes: scenes.length });
 }

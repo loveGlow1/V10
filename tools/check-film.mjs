@@ -111,5 +111,46 @@ let refused = false;
 try { for await (const _ of S.ffmpegOutput(["-hide_banner", "-i", join(dir, "missing.mp4"), "-f", "mp4", "pipe:1"], 10_000)) { /* nothing */ } } catch { refused = true; }
 has(refused, "a join that fails says so instead of storing half a film");
 
+console.log("\nre-cutting only what changed");
+/* A 30-minute film of 10 s scenes, as the cut sees it: each scene's key, then its part's fingerprint. */
+const aFilm = (edit = (s) => s) => Array.from({ length: 180 }, (_, i) => edit({ n: i + 1, duration: 10, visual: `scene ${i + 1}`, voiceover: `line ${i + 1}` }));
+const keyed = (scenes, files = () => ({ picture: "p", voice: "v" })) => scenes.map((s) => ({ n: s.n, duration: s.duration, key: C.sceneKey(s, files(s)) }));
+const layout = (scenes, previous = [], opts = {}) => {
+  const k = keyed(scenes, opts.files);
+  const groups = C.stableChapters(k, previous);
+  const starts = C.chapterStarts(scenes, groups);
+  const keyOfN = new Map(k.map((x) => [x.n, x.key]));
+  return groups.map((g, i) => {
+    const keys = g.map((n) => keyOfN.get(n));
+    return { keys, fp: C.partFingerprint({ keys, cut: { transition: "crossfade", ...(i === groups.length - 1 ? { endCard: opts.endCard ?? "" } : {}) }, aspect: "16:9", music: opts.music ?? null, musicStart: starts[i], first: i === 0, last: i === groups.length - 1 }) };
+  });
+};
+const v1 = layout(aFilm());
+const recut = (before, after) => after.filter((p) => !before.some((q) => q.fp === p.fp)).length;
+has(v1.length >= 14 && v1.length <= 16, `a 30-minute film is ${v1.length} parts`);
+has(C.sceneKey({ n: 3, visual: "a" }, {}) === C.sceneKey({ n: 9, visual: "a" }, {}) && C.sceneKey({ n: 3, visual: "a" }, {}) !== C.sceneKey({ n: 3, visual: "b" }, {}), "a scene's key is its content, not its number");
+const v2 = layout(aFilm((s) => (s.n === 90 ? { ...s, voiceover: "a better line" } : s)), v1.map((p) => p.keys));
+has(recut(v1, v2) === 1, `one word changed in scene 90: ${recut(v1, v2)} of ${v2.length} parts re-cut`);
+const v3 = layout(aFilm((s) => (s.n === 90 ? { ...s, visual: "new picture" } : s)), v1.map((p) => p.keys), { files: (s) => ({ picture: s.n === 90 ? "p2" : "p", voice: "v" }) });
+has(recut(v1, v3) === 1, "a scene filmed again: only its part is re-cut");
+const v4 = layout(aFilm().filter((s) => s.n !== 50), v1.map((p) => p.keys));
+has(recut(v1, v4) === 1, `a scene taken out: ${recut(v1, v4)} part re-cut, the rest reused`);
+const v5 = layout(aFilm((s) => (s.n === 50 ? { ...s, duration: 14 } : s)), v1.map((p) => p.keys));
+has(recut(v1, v5) === 1, "a scene made longer, with no music: only its part");
+const withMusic = layout(aFilm(), [], { music: "m.mp3" });
+const longerMusic = layout(aFilm((s) => (s.n === 50 ? { ...s, duration: 14 } : s)), withMusic.map((p) => p.keys), { music: "m.mp3" });
+has(recut(withMusic, longerMusic) < withMusic.length && recut(withMusic, longerMusic) > 1, `with music, a longer scene re-cuts its part and those after it, so the music stays in step (${recut(withMusic, longerMusic)} of ${withMusic.length})`);
+const card = layout(aFilm(), v1.map((p) => p.keys), { endCard: "Follow for more" });
+has(recut(v1, card) === 1 && card[card.length - 1].fp !== v1[v1.length - 1].fp, "a new end card re-cuts only the last part");
+has(recut(v1, layout(aFilm(), v1.map((p) => p.keys))) === 0, "saving without a change re-cuts nothing");
+const moved = aFilm();
+const reordered = [...moved.slice(0, 20), ...moved.slice(40, 60), ...moved.slice(20, 40), ...moved.slice(60)].map((s, i) => ({ ...s, n: i + 1 }));
+const v6 = layout(reordered, v1.map((p) => p.keys));
+has(recut(v1, v6) <= 5, `two blocks of scenes swapped: ${recut(v1, v6)} parts re-cut, not the film`);
+const cutSrc = readFileSync(join(process.cwd(), "src/lib/video/compose-local.ts"), "utf8");
+has(/status: p\.reuse \? "done" : "running"/.test(cutSrc) && /output_path: p\.reuse\?\.output_path/.test(cutSrc) && /toCut\.map\(\(p\) => kick/.test(cutSrc), "an unchanged part is reused as it is; only the others are cut");
+has(/d && !d\.reused \? d\.seconds : 0/.test(cutSrc) && /Math\.max\(1, recut\)/.test(cutSrc), "the charge is for the parts cut again (at least 1 credit for the join)");
+has(/muted: ctx\.cut\.muted\.has\(scene\.n\)/.test(cutSrc) && /\.\.\.\(last \? \{ fadeOut, endCard/.test(cutSrc), "a scene's mute is in its own key; the end card and fades only in the first and last parts");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

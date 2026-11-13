@@ -61,6 +61,7 @@ import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFo
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
+import { ONE_RUN_SECONDS } from "@/lib/video/chapters";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
 import { callableModels, isModelAvailable } from "@/app/dashboard/models";
@@ -496,7 +497,7 @@ export default function VideoEditor({ id }: { id: string }) {
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
         <button onClick={() => setLibraryTab("settings")} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> Settings</button>
         <button onClick={() => void save()} disabled={!dirty || busy !== null || rendering} className={chip}>
-          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${creditsLabel(cutCredits(total))}` : ""}
+          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${total > ONE_RUN_SECONDS ? "up to " : ""}${creditsLabel(cutCredits(total))}` : ""}
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
@@ -640,7 +641,7 @@ export default function VideoEditor({ id }: { id: string }) {
               ) : (
                 <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4 text-[12.5px] leading-relaxed text-muted">
                   <p className="text-[13.5px] font-medium text-ink">Edit by hand</p>
-                  <p className="mt-1">Edit freely, then Save: each save makes the new cut ({creditsLabel(cutCredits(total))} at this length — 1 credit per started minute). Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
+                  <p className="mt-1">Edit freely, then Save: each save makes the new cut ({total > ONE_RUN_SECONDS ? `up to ${creditsLabel(cutCredits(total))} — only the parts you changed are cut and charged again` : `${creditsLabel(cutCredits(total))} at this length`} — 1 credit per started minute). Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
                   <button onClick={() => setSelection({ type: "music" })} className={`${chip} mt-3`}><Music className="h-3.5 w-3.5" /> Music and voice</button>
                 </section>
               )}

@@ -116,3 +116,93 @@ export function streamJoinArgs(input: { list: string }): string[] {
 
 /** "Part 3 of 24". Pure. */
 export const partLabel = (k: number, count: number) => `Part ${k} of ${count}`;
+
+/* ── Re-cutting only what changed ─────────────────────────────────────────
+ *
+ * Each part records what it was made from: the scenes in it (each scene's
+ * plan and the exact clip, voice and upload files it uses), the settings of
+ * the cut, the music and where in the music the part starts, and whether it
+ * opens or closes the film. A later version whose part would come out the
+ * same reuses the file already made — it is neither cut nor charged again.
+ *
+ * For that to happen after an edit, the parts must fall in the same places,
+ * so a new version keeps the old version's parts wherever their scenes are
+ * unchanged, and only groups what is new or changed afresh.
+ */
+
+/** A short stable hash of a string (cyrb53). Pure. */
+export function hashText(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/* JSON with keys in order, so the same content always reads the same. */
+function stable(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .filter((k) => (value as Record<string, unknown>)[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** What a scene's part of the cut is made from, as one key. Its number is left out: a scene that moves is the same scene. Pure. */
+export function sceneKey(scene: Record<string, unknown> & { n: number }, files: { picture?: string | null; voice?: string | null; upload?: string | null; muted?: string | null }): string {
+  const { n: _n, ...rest } = scene;
+  void _n;
+  return hashText(stable({ scene: rest, files }));
+}
+
+/** What a whole part is made from, as one key. Pure. */
+export function partFingerprint(input: { keys: string[]; cut: unknown; aspect: string; music: string | null; musicStart: number | null; first: boolean; last: boolean }): string {
+  return hashText(stable({ ...input, musicStart: input.music ? Math.round((input.musicStart ?? 0) * 10) / 10 : null, v: 1 }));
+}
+
+/**
+ * The parts of a new version: wherever a run of its scenes is exactly an
+ * earlier part's, that part is kept as it was; the rest are grouped afresh
+ * (chaptersOf). Returns scene numbers per part. Pure.
+ */
+export function stableChapters(
+  scenes: readonly (SceneLike & { key: string })[],
+  previous: readonly string[][],
+  target = CHAPTER_SECONDS,
+  oneRun = ONE_RUN_SECONDS,
+): number[][] {
+  const total = scenes.reduce((sum, scene) => sum + Math.max(0, Number(scene.duration) || 0), 0);
+  if (total <= oneRun || scenes.length <= 1) return [scenes.map((scene) => scene.n)];
+  /* Longest earlier parts first, so a whole old part wins over a piece of one. */
+  const known = [...previous].filter((keys) => keys.length > 0).sort((a, b) => b.length - a.length);
+  const out: number[][] = [];
+  let loose: (SceneLike & { key: string })[] = [];
+  const flush = () => {
+    if (!loose.length) return;
+    out.push(...chaptersOf(loose, target, 0));
+    loose = [];
+  };
+  let i = 0;
+  while (i < scenes.length) {
+    const match = known.find((keys) => keys.length <= scenes.length - i && keys.every((key, j) => scenes[i + j].key === key));
+    if (match) {
+      flush();
+      out.push(scenes.slice(i, i + match.length).map((scene) => scene.n));
+      i += match.length;
+    } else {
+      loose.push(scenes[i]);
+      i += 1;
+    }
+  }
+  flush();
+  return out;
+}
