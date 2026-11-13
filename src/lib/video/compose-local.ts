@@ -263,8 +263,8 @@ async function cutScenes(ctx: Cutting, scenes: ProductionPlan["scenes"], name: s
       const edges = { dip: cut.transition === "dip", fadeIn: cut.fadeIn && scene.n === first, fadeOut: cut.fadeOut && scene.n === last };
 
       const videoFilter = still
-        ? stillVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, motion: cut.stillMotion, color: cut.color, words, edges })
-        : sceneVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, color: cut.color, speed, stretch, words, edges });
+        ? stillVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, motion: cut.stillMotion, color: scene.color ?? cut.color, words, edges })
+        : sceneVideoFilter({ width, height, seconds, fps: cut.fps, fit: cut.fit, color: scene.color ?? cut.color, speed, stretch, words, edges });
       const audioFilter = sceneAudioFilter({
         seconds,
         ownSound: Boolean(ownSound),

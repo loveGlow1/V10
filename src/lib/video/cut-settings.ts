@@ -188,6 +188,17 @@ export function frameSize(aspect: string, resolution: Resolution): [number, numb
   return [even((short * 16) / 9), short];
 }
 
+/** How the editor's preview shows each grade (CSS filter) — close to colorFilter's ffmpeg. */
+export const COLOR_CSS: Record<ColorGrade, string> = {
+  none: "",
+  vivid: "saturate(1.35) contrast(1.06)",
+  warm: "sepia(0.18) saturate(1.1)",
+  cool: "hue-rotate(-8deg) saturate(0.95)",
+  cinematic: "contrast(1.1) saturate(0.88)",
+  mono: "grayscale(1) contrast(1.08)",
+  vintage: "sepia(0.35) saturate(0.85)",
+};
+
 /** The ffmpeg filter for a colour grade, or "". Pure. */
 export function colorFilter(color: ColorGrade): string {
   switch (color) {

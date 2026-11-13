@@ -776,5 +776,20 @@ has(A.handleFor("Lagos Street 2.MOV") === "@lagos-street-2" && [...A.handles([{ 
 has(/ref: "@/.test(A.attachmentManifest([{ id: "x", kind: "video", name: "Lagos.mp4", status: "ready", durationS: 5 }])), "the director sees each upload's @name");
 has(/referenceClips/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && L.normalizePlan({ referenceClips: [vidAsset.id], scenes: [{ duration: 3, visual: "a" }] }, "full_movie", {}).referenceClips?.length === 1, "an @photo or @clip that sets the look becomes the film's look");
 
+console.log("\nthe editor's layout");
+const colored = L.normalizePlan({ scenes: [{ duration: 3, visual: "a", color: "mono" }, { duration: 3, visual: "b", color: "neon-pink" }] }, "cinematic_short", {});
+has(colored.scenes[0].color === "mono" && colored.scenes[1].color === undefined, "a clip keeps its own filter; an unknown one is dropped");
+has(ET.segmentsFor(colored, [], [])[0].color === "mono", "the preview knows a clip's own filter");
+has(Object.keys(CS.COLOR_CSS).sort().join() === [...CS.COLORS].sort().join(), "every filter has a preview look");
+has(/color: scene\.color \?\? cut\.color/.test(readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8")), "the export applies a clip's own filter over the video's");
+const ed = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+const lib = readFileSync(join(root, "src/app/dashboard/components/video/EditorLibrary.tsx"), "utf8");
+has(["Media", "Scenes", "Text", "Transitions", "Filters", "Cast", "Settings"].every((t) => lib.includes(`label: "${t}"`)), "the library has Media, Scenes, Text, Transitions, Filters, Cast and Settings");
+has(/lg:grid-cols-\[360px_minmax\(0,1fr\)_340px\]/.test(ed) && /lg:col-span-3/.test(ed), "library, preview and inspector side by side, the timeline full width under them");
+has(/ASSET_DRAG/.test(ed) && /onDropAsset/.test(ed) && /Magnet/.test(ed) && /Diamond/.test(ed) && /\{header\("music"/.test(ed), "the timeline takes media dragged in, snaps, marks transitions, and has track headers");
+has(/!locked\.has\("video"\)\) splitHere\(\)/.test(ed), "a locked track is safe from the keyboard too");
+const mp = readFileSync(join(root, "src/app/dashboard/components/video/MediaPanel.tsx"), "utf8");
+has(/\["made", "Made here"\]/.test(mp) && /setData\(ASSET_DRAG/.test(mp), "media by kind (with what was made here), each tile dragged onto the timeline");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

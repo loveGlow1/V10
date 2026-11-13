@@ -38,7 +38,7 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     supabase.from("video_versions").select("version, plan, issues, note, created_at").eq("video_id", id).order("version", { ascending: false }).limit(30),
     supabase
       .from("video_assets")
-      .select("id, kind, storage_path, mime, name, status, error, duration_s, width, height, has_audio, working_path, poster_path, updated_at, created_at")
+      .select("id, kind, storage_path, mime, name, status, error, source, duration_s, width, height, has_audio, working_path, poster_path, updated_at, created_at")
       .eq("video_id", id)
       .order("created_at"),
     supabase.from("video_renders").select("id, scene, engine, provider, status, output_path, error, updated_at, created_at").eq("video_id", id).eq("version", video.current_version),
@@ -196,6 +196,8 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
         storage_path: asset.storage_path,
         mime: asset.mime,
         name: asset.name ?? "",
+        /* "generated" for sound made in the editor; "upload" for the person's own. */
+        source: asset.source ?? "upload",
         status,
         error: asset.error ?? null,
         durationS: asset.duration_s === null || asset.duration_s === undefined ? null : Number(asset.duration_s),
