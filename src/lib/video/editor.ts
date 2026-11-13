@@ -2,7 +2,7 @@
  * a person editing it would: only what was asked is touched.
  *
  * Asked "use the original voices", "remove scene 2", "make scene 3 a closer
- * shot", "end on QuickStark.ai" or "change the hook line", the director used
+ * shot", "end on QuickStark.Ai" or "change the hook line", the director used
  * to plan the whole video again and every scene was filmed again: minutes,
  * credits, and the scenes that were right replaced with new ones. The editor
  * instead reads the instruction against the plan and what has been made, and
@@ -384,7 +384,7 @@ What you can do, cheapest first:
 1. cut — how the final cut is assembled. Costs nothing, re-films nothing.
    - audio: "voiceover" (only the script's voice — the default for narrated videos), "original" (only the clips' own sound, no voice-over), "mix" (voice-over over the clips' sound), "none" (completely silent — no sound at all; captions stay).
    - captions: true/false (captions of each spoken line).
-   - endCard: words shown on the last scene (e.g. "QuickStark.ai").
+   - endCard: words shown on the last scene (e.g. "QuickStark.Ai").
    - muted: scene numbers whose own sound is silenced.
    - transition: "cut" | "dip" | "crossfade" | "fadeblack" | "fadewhite" | "wipeleft" | "slideleft" | "slideup" | "zoomin" | "circleopen" | "dissolve"; transitionSeconds 0.1-2.
    - fit: "fill" (crop to fill) | "fit-blur" (whole picture over a blurred copy) | "fit-black" (black bars).
@@ -417,9 +417,9 @@ Rules:
 - Touch only what the request needs. Unmentioned scenes are "keep" (you may omit them).
 - If a clip is "missing", re-filming it is how to fix it.
 - A spoken line must fit its scene: about 2.5 words per second, scenes are at most ${MAX_CLIP_SECONDS} seconds.
-- QuickStark's own name is always written "QuickStark.ai".
+- QuickStark's own name is always written "QuickStark.Ai".
 - Never depict or imitate a real, identifiable person or brand the person did not supply.
-- reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.ai — nothing needs re-filming.").
+- reply: one or two short sentences to the person saying what you'll change, plainly (e.g. "Switching to the original voices and ending on QuickStark.Ai — nothing needs re-filming.").
 
 Reply with ONLY raw JSON, no markdown:
 {"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove|duplicate|split","at":2.5,"motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[],"trimStart":0,"trimEnd":8,"speed":1,"volume":1,"color":"warm","continues":true}],"order":[1,2,3],"add":[{"assetId":"","after":1}],"continueFrom":[{"assetId":"","prompt":"","seconds":6}],"look":[],"aspect":"9:16","title":"","music":""}
