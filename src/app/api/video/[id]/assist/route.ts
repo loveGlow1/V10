@@ -21,7 +21,7 @@ import { agentCost, videoAgentFor } from "@/lib/video/agent";
 
 import { videoSession } from "../../shared";
 
-export const maxDuration = 90;
+export const maxDuration = 300;
 
 const ASSIST_COST = 1;
 

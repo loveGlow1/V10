@@ -26,12 +26,12 @@ import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./
 import { SOUND_COMMANDS } from "./sound";
 import { keyframePath } from "./frames";
 import { usesVoice, type Cut, type ProductionPlan } from "./plan";
-import { advance } from "./production";
+import { advance, startMusic } from "./production";
 import { startRender } from "./start-render";
 import type { StudioAsset } from "./assets";
 import { loadStudioAssets } from "./plan-video";
 import { agentCost, videoAgentFor } from "./agent";
-import { cutCost } from "./engines";
+import { cutCost, wantsMusic } from "./engines";
 import { creditsLabel } from "./pricing";
 
 const EDIT_COST = 1;
@@ -59,7 +59,7 @@ export async function setSound(input: { writer: SupabaseClient; userId: string; 
   return commitEdit({ ...input, ...loaded, edit, instruction: SOUND_COMMANDS[input.audio], charge: 0 });
 }
 
-type Loaded = { video: { user_id: string }; version: number; plan: ProductionPlan; done: (scene: number, engine: string) => Row | undefined };
+type Loaded = { video: { user_id: string }; version: number; plan: ProductionPlan; done: (scene: number, engine: string) => Row | undefined; /** The made music of the version edited, if any. */ music?: Row };
 
 async function load(writer: SupabaseClient, videoId: string): Promise<Loaded | null> {
   const { data: video } = await writer.from("video_projects").select("id, user_id, current_version, title").eq("id", videoId).maybeSingle();
@@ -73,7 +73,8 @@ async function load(writer: SupabaseClient, videoId: string): Promise<Loaded | n
   const done = (scene: number, engine: string) => rows.find((row) => row.scene === scene && row.engine === engine && row.status === "done" && row.output_path);
   /* Nothing filmed yet: there is nothing to edit. */
   if (!plan.scenes.some((scene) => done(scene.n, "video") || done(scene.n, "avatar"))) return null;
-  return { video: { user_id: video.user_id as string }, version, plan, done };
+  const music = rows.find((row) => row.engine === "music" && row.status === "done" && row.output_path);
+  return { video: { user_id: video.user_id as string }, version, plan, done, music };
 }
 
 export async function editVideo(input: {
@@ -192,6 +193,19 @@ async function commitNext(input: Loaded & {
     .from("video-assets")
     .copy(keyframePath(video.user_id as string, videoId, version), keyframePath(video.user_id as string, videoId, nextVersion))
     .catch(() => null);
+
+  /* The music. It used to be left behind: every edit's new cut had none.
+     Kept as it is when nothing about it changed and it is still long
+     enough; made again when the edit changed it or the video outgrew it. */
+  if (wantsMusic(next)) {
+    const seconds = (plan: ProductionPlan) => plan.scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0);
+    const unchanged = input.music && wantsMusic(input.plan) && (input.plan.music ?? "").trim() === (next.music ?? "").trim() && seconds(next) <= seconds(input.plan) + 2;
+    if (unchanged && input.music) {
+      await writer.from("video_renders").insert({ video_id: videoId, user_id: userId, version: nextVersion, scene: null, engine: "music", provider: input.music.provider, status: "done", output_path: input.music.output_path });
+    } else {
+      await startMusic(service, { video_id: videoId, user_id: userId, version: nextVersion }, origin, next);
+    }
+  }
 
   await writer.from("video_projects").update({ current_version: nextVersion, title: next.title.slice(0, 160) }).eq("id", videoId);
   if (input.charge > 0) {

@@ -800,5 +800,37 @@ const pp = readFileSync(join(root, "src/app/dashboard/components/workspace/Previ
 has(/project\?\.intent === "video" && videoId/.test(pp) && /\/dashboard\/video\/\$\{videoId\}\/edit/.test(pp), "a video's workspace has an Editor button in its toolbar");
 has(/searchParams\.get\("create"\) !== "video"/.test(readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8")), "Home opens on the Video tab when asked");
 
+console.log("\nthe AI editor can do anything the manual editor can");
+const clipA = { id: "22222222-2222-4222-8222-000000000001", kind: "video", name: "beach.mov", durationS: 20, status: "ready", mime: "video/mp4", width: 1920, height: 1080, hasAudio: true };
+const anyPlan = L.normalizePlan({ music: "calm piano", cut: { color: "warm" }, scenes: [
+  { duration: 20, visual: "beach", source: { assetId: clipA.id } },
+  { duration: 5, visual: "b", motionPrompt: "A woman walks into the sea", voiceover: "She was free." },
+  { duration: 5, visual: "c", motionPrompt: "Sunset over the water" },
+] }, "cinematic_short", {});
+const askEdit = (raw) => ED.applyEdit(anyPlan, ED.normalizeEdit(raw, anyPlan), [clipA]);
+let res = askEdit({ scenes: [{ n: 1, action: "keep", trimStart: 3 }] });
+has(res.plan.scenes[0].source.trimStart === 3 && res.refilm.length === 0, "\"cut the first 3 seconds of my clip\" trims it; nothing is filmed");
+res = askEdit({ scenes: [{ n: 1, action: "keep", trimStart: 2, trimEnd: 10, speed: 2, volume: 0 }] });
+has(res.plan.scenes[0].source.speed === 2 && res.plan.scenes[0].source.volume === 0 && res.plan.scenes[0].duration === 4, "speed it up 2x and silence it: 8 s of footage plays in 4");
+res = askEdit({ scenes: [{ n: 3, action: "keep", color: "mono" }, { n: 2, action: "keep", color: "warm" }] });
+has(res.plan.scenes[2].color === "mono" && res.plan.scenes[1].color === undefined && res.refilm.length === 0, "a filter on one scene; asking for the video's own filter clears the override");
+res = askEdit({ scenes: [{ n: 2, action: "duplicate" }] });
+has(res.plan.scenes.length === 4 && res.plan.scenes[2].motionPrompt === res.plan.scenes[1].motionPrompt && res.carry.filter((c) => c.from === 2).length === 2 && res.refilm.length === 0, "duplicate a scene: its clip and voice are reused, nothing filmed");
+res = askEdit({ scenes: [{ n: 1, action: "split", at: 8 }] });
+has(res.plan.scenes.length === 4 && res.plan.scenes[0].source.trimEnd === 8 && res.plan.scenes[1].source.trimStart === 8 && res.plan.scenes[1].source.assetId === clipA.id && res.plan.scenes[1].voiceover === "", "split my clip at 8 seconds: two scenes from the same file");
+res = askEdit({ scenes: [{ n: 2, action: "split", at: 2 }] });
+has(res.plan.scenes.length === 3, "a generated scene is not split (it is one shot); the editor is told to refilm instead");
+res = askEdit({ scenes: [{ n: 3, action: "keep", continues: true }] });
+has(res.plan.scenes[2].continues === true && res.refilm.includes(3), "\"make scene 3 carry on from scene 2\" films it again from the last frame");
+res = askEdit({ aspect: "9:16", title: "Free", music: "upbeat afrobeat" });
+has(res.plan.aspect === "9:16" && res.plan.title === "Free" && res.plan.music === "upbeat afrobeat" && res.plan.cut.music.source === "generate" && res.refilm.length === 0, "vertical, renamed, new music — nothing filmed");
+res = askEdit({ music: "none" });
+has(res.plan.cut.music.source === "none", "\"no music\" turns it off");
+has(ED.normalizeEdit({ scenes: [{ n: 1, action: "keep", speed: 9, volume: -1, color: "neon", trimEnd: 1, trimStart: 5 }] }, anyPlan).scenes[0].speed === undefined, "impossible values are dropped, not applied");
+const aiEdSrc = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
+has(["trimStart", "speed 0.25-4", "volume 0-2", "action \"duplicate\"", "action \"split\"", "continues on a generated scene", "aspect — the video's shape", "music — made music"].every((w) => aiEdSrc.includes(w)), "the editor's instructions name every one of these");
+const musicSrc = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+has(/wantsMusic\(next\)/.test(musicSrc) && /engine: "music", provider: input\.music\.provider/.test(musicSrc) && /startMusic\(service, \{ video_id: videoId/.test(musicSrc), "an edited video keeps its music, or has it made again when the edit changed it");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
