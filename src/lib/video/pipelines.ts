@@ -85,7 +85,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     blurb: "Motion graphics, kinetic type, logos, diagrams",
     template: "Create a 30-second animated motion-graphics video for [BRAND / PRODUCT], explaining [CORE IDEA] to [TARGET AUDIENCE], formatted vertical 9:16 for [PLATFORM].\nBuild everything from designed motion: kinetic typography, clean shapes, icons, simple diagrams and a logo reveal. No live-action footage.\nTimeline:\n\u2022 0\u20133 sec: Bold hook line types on with a sharp motion accent\n\u2022 3\u201310 sec: Introduce the problem with simple animated icons\n\u2022 10\u201320 sec: Show how [PRODUCT] solves it in 3 animated steps\n\u2022 20\u201326 sec: Highlight the key result: \"[BENEFIT]\"\n\u2022 26\u201330 sec: Logo reveal, tagline and \"[CTA]\"\nVisual style: clean, minimal, modern; smooth easing, purposeful transitions, generous white space, using [BRAND COLORS] and one consistent typeface pair.\nKeep the palette, typography and icon style identical in every scene. Use an upbeat modern music bed with subtle UI clicks and whooshes on transitions.\nAvoid clutter, too much text on screen, inconsistent fonts, jittery motion, low-contrast text and stock-looking clip art.",
     icon: "Sparkles",
-    stages: ["Idea", "Style frames", "Script", "Motion design", "Music", "Captions", "Render"],
+    stages: ["Idea", "Style frames", "Script", "Motion design", "Music", "Captions", "Generate"],
     questions: [
       { id: "style", label: "Style", options: ["Clean & minimal", "Bold kinetic type", "3D shapes", "Hand-drawn", "Corporate"], initial: "Clean & minimal" },
       ASPECT,
@@ -130,7 +130,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     blurb: "Reveals, demos, rotations, lifestyle scenes",
     template: "Create a premium 15-second cinematic product showcase for [PRODUCT], aimed at [TARGET AUDIENCE] and formatted for [PLATFORM / ASPECT RATIO].\nOpen with the product emerging dramatically from darkness, mist, liquid, particles, or another environment inspired by its materials and purpose. Use elegant camera movement, macro close-ups, slow rotations, and crisp detail shots to reveal its design and craftsmanship.\nTimeline:\n\u2022 0\u20133 sec: Mysterious silhouette and dramatic reveal\n\u2022 3\u20137 sec: Macro shots highlighting materials and details\n\u2022 7\u201311 sec: Demonstrate [KEY FEATURE] with a visually satisfying action\n\u2022 11\u201313 sec: Showcase the main benefit: \"[BENEFIT]\"\n\u2022 13\u201315 sec: Clean hero shot with logo, tagline, and \"[CTA]\"\nVisual style: luxurious, minimal, photorealistic, high contrast, controlled reflections, cinematic lighting, shallow depth of field, smooth motion, and a polished studio environment using [BRAND COLORS].\nKeep the product's shape, dimensions, packaging, labels, colors, and logo perfectly consistent throughout. Use subtle sound design\u2014metallic clicks, soft impacts, elegant whooshes\u2014and a modern cinematic music build.\nAvoid warped geometry, altered branding, floating parts, unreadable labels, unnecessary props, shaky movement, cluttered backgrounds, and unrealistic reflections.",
     icon: "Box",
-    stages: ["Product reference", "Product lock", "Shot design", "Scenes", "Music", "Captions", "Render"],
+    stages: ["Product reference", "Product lock", "Shot design", "Scenes", "Music", "Captions", "Generate"],
     questions: [
       { id: "style", label: "Style", options: ["Product reveal", "Feature showcase", "360° rotation", "Lifestyle", "Luxury", "App / software"], initial: "Product reveal" },
       ASPECT_WIDE,
@@ -222,7 +222,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     blurb: "Short-form for TikTok, Reels and Shorts",
     template: "Create a 30-second vertical 9:16 short-form video for [PLATFORM] about [TOPIC], aimed at [TARGET AUDIENCE], as a \"[NUMBER] things\" listicle.\nFast, punchy and made to be watched with the sound off.\nTimeline:\n\u2022 0\u20132 sec: Hook \u2014 \"[HOOK LINE]\"\n\u2022 2\u20138 sec: Point 1: [POINT 1]\n\u2022 8\u201315 sec: Point 2: [POINT 2]\n\u2022 15\u201322 sec: Point 3: [POINT 3]\n\u2022 22\u201330 sec: Payoff and \"[CTA]\" (follow, comment or link in bio)\nVisual style: bold, bright and high-energy; a new visual beat every 2\u20133 seconds; big burned-in captions; using [BRAND COLORS].\nKeep the caption style and colors consistent across all points. Female voiceover, trending-style upbeat music, quick whoosh transitions.\nAvoid slow openings, walls of text, low-contrast captions, generic stock clips and anything that needs sound to make sense.",
     icon: "Play",
-    stages: ["Idea", "Hook", "Script", "Scenes", "Captions", "CTA", "Render"],
+    stages: ["Idea", "Hook", "Script", "Scenes", "Captions", "CTA", "Generate"],
     questions: [
       { id: "format", label: "Format", options: ["Talking head", "Listicle", "Educational", "Storytelling", "Trend style", "Product promo"], initial: "Listicle" },
       PLATFORM,
@@ -243,7 +243,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     blurb: "Make a product, idea or process easy to understand",
     template: "Create a 60-second animated explainer video about [PRODUCT / CONCEPT] for [TARGET AUDIENCE], landscape 16:9.\nExplain it so simply a smart 12-year-old would get it.\nTimeline:\n\u2022 0\u20138 sec: The problem \u2014 \"[PROBLEM]\"\n\u2022 8\u201315 sec: Introduce [PRODUCT] as the solution\n\u2022 15\u201345 sec: How it works in 3 numbered steps: [STEP 1], [STEP 2], [STEP 3]\n\u2022 45\u201355 sec: The main benefit: \"[BENEFIT]\"\n\u2022 55\u201360 sec: Logo and \"[CTA]\"\nVisual style: friendly, clean isometric or flat illustration, smooth transitions between steps, step numbers on screen, using [BRAND COLORS].\nKeep characters, icons and colors consistent from scene to scene. Clear, warm female voiceover; light, optimistic music.\nAvoid jargon, crowded scenes, too much on-screen text, inconsistent illustration styles and rushed pacing.",
     icon: "Lightbulb",
-    stages: ["Concept", "Simplify", "Script", "Storyboard", "Visuals", "Voice", "Captions", "Render"],
+    stages: ["Concept", "Simplify", "Script", "Storyboard", "Visuals", "Voice", "Captions", "Generate"],
     questions: [
       { id: "style", label: "Style", options: ["Animated", "Presenter-led", "Screen walkthrough"], initial: "Animated" },
       { id: "length", label: "Length", options: ["30s", "60s", "90s", "2 min", "5 min", "10 min"], initial: "60s" },
@@ -286,7 +286,7 @@ export const PIPELINES: Record<PipelineId, Pipeline> = {
     blurb: "Bring a still image to life with motion",
     template: "Bring my photo of [SUBJECT] to life as a 5-second vertical 9:16 video.\nKeep the photo exactly as it is \u2014 same subject, framing, colors and details \u2014 and add only motion.\nMotion: gentle parallax between foreground and background, a slow cinematic push-in, and subtle natural movement in [ELEMENTS THAT SHOULD MOVE \u2014 hair, water, clouds, light].\nVisual style: smooth, realistic, cinematic depth, soft natural light.\nAvoid changing the subject's face or shape, warping, flicker, added objects and unnatural movement.",
     icon: "Image",
-    stages: ["Photo", "Motion design", "Camera move", "Environment", "Render"],
+    stages: ["Photo", "Motion design", "Camera move", "Environment", "Generate"],
     questions: [
       { id: "motion", label: "Motion", options: ["Slow push-in", "Parallax", "Orbit", "Environmental (wind, water, light)", "Cinematic pan"], initial: "Parallax" },
       { id: "length", label: "Length", options: ["5s", "10s", "15s"], initial: "5s" },

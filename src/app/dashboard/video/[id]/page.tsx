@@ -210,7 +210,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
     const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retryFailed }) }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as { error?: string; queued?: number; failed?: number; missing?: { label: string; health: string }[] } | null;
     if (response?.ok) {
-      setRenderResult({ ok: true, text: `Rendering ${body?.queued ?? 0} jobs${body?.failed ? ` (${body.failed} could not be sent)` : ""}. Clips arrive one by one — usually within a few minutes.` });
+      setRenderResult({ ok: true, text: `Generating ${body?.queued ?? 0} pieces${body?.failed ? ` (${body.failed} could not be sent)` : ""}. Clips arrive one by one — usually within a few minutes.` });
       await load(true);
     }
     else
@@ -218,7 +218,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         ok: false,
         text: body?.missing?.length
           ? `${body.error} Needed: ${body.missing.map((m) => `${m.label} (${HEALTH[m.health] ?? m.health})`).join(", ")}. Your plan, script and preview are ready to use meanwhile.`
-          : (body?.error ?? "Could not start the render."),
+          : (body?.error ?? "Could not start generating."),
       });
     setBusy(null);
   }
@@ -386,7 +386,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
               >
                 {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {status === "rendering" ? "Rendering…" : data.renders.length ? "Render again" : "Generate video"}
+                {status === "rendering" ? "Generating…" : data.renders.length ? "Generate again" : "Generate video"}
                 {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
               </button>
               {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
@@ -921,7 +921,7 @@ function renderFailure(renders: RenderRow[]): string | null {
     return "The video engine's account is out of credit, so no clips were made and nothing was charged. Once it's topped up, press Retry failed scenes — your plan is kept.";
   }
   if (/sensitive|safety|moderation|policy/i.test(errors)) {
-    return "The video engine declined some scenes. Ask me to tone them down, then render again.";
+    return "The video engine declined some scenes. Ask me to tone them down, then generate again.";
   }
   return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
 }
@@ -1181,7 +1181,7 @@ function DirectorChat(props: {
               <p className="mr-6 text-soft">
                 {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
                 {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
-                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then render it."}
+                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then generate it."}
               </p>
             </div>
           );
@@ -1202,10 +1202,10 @@ function DirectorChat(props: {
           ),
         )}
         {props.status === "rendering" && (
-          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering the clips — they arrive one by one, usually within a few minutes.</p>
+          <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating the clips — they arrive one by one, usually within a few minutes.</p>
         )}
         {failure && <p className="rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft">{failure}</p>}
-        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and render again whenever you like.</p>}
+        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and generate again whenever you like.</p>}
         {busy === "plan" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
         )}
@@ -1282,7 +1282,7 @@ function DirectorChat(props: {
               disabled={busy !== null || !props.canRender}
               className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40"
             >
-              <Play className="h-3.5 w-3.5" /> {rendered ? "Render again" : "Render"} · {props.cost}
+              <Play className="h-3.5 w-3.5" /> {rendered ? "Generate again" : "Generate"} · {props.cost}
             </button>
           )}
         </div>

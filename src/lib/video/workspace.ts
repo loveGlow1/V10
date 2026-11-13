@@ -74,7 +74,7 @@ export async function startVideoTurn(input: {
     .maybeSingle<{ id: string; current_version: number; status: string; brief: string | null }>();
   if (!video) return { ok: false, status: 404, error: "This video's settings are missing. Start it again from the Video tab on Home." };
   if (video.status === "rendering") {
-    return { ok: false, status: 409, error: "The last version is still rendering — its clips are landing in the preview. Ask for the change once it finishes." };
+    return { ok: false, status: 409, error: "The last version is still generating — its clips are landing in the preview. Ask for the change once it finishes." };
   }
 
   const writer = service ?? supabase;
@@ -137,23 +137,23 @@ export async function startVideoTurn(input: {
     if (!rendered.ok) {
       const why =
         rendered.status === 402
-          ? `${(render?.error ?? "You don't have enough credits to render it.").replace(/\.+$/, "")} — you have ${await balanceOf(writer, userId)}. Top up, then say "render it" and it renders this exact plan.`
-          : `The render could not start: ${(render?.error ?? "try again in a moment").replace(/\.+$/, "")}${render?.missing?.length ? ` (needs ${render.missing.map((m) => m.label).join(", ")})` : ""}. Say "render it" to try again.`;
+          ? `${(render?.error ?? "You don't have enough credits to generate it.").replace(/\.+$/, "")} — you have ${await balanceOf(writer, userId)}. Top up, then say "generate it" and it generates this exact plan.`
+          : `Generating could not start: ${(render?.error ?? "try again in a moment").replace(/\.+$/, "")}${render?.missing?.length ? ` (needs ${render.missing.map((m) => m.label).join(", ")})` : ""}. Say "render it" to try again.`;
       await finish(true, `Planned version ${plan.version} — ${scenes} scenes. ${why} Until then the preview plays the plan as text, without clips or voice.`);
       return;
     }
     await finish(
       true,
-      `${first ? "Planned" : "Changed"} — version ${plan.version}, ${scenes} scenes. The clips are rendering now and appear in the preview as each one lands, usually 2–4 minutes. Tell me anything to change.`,
+      `${first ? "Planned" : "Changed"} — version ${plan.version}, ${scenes} scenes. The clips are generating now and appear in the preview as each one lands, usually 2–4 minutes. Tell me anything to change.`,
     );
   });
 
   return {
     ok: true,
     message: first
-      ? "Planning your video, then sending every scene to render…"
+      ? "Planning your video, then generating every scene…"
       : renderOnly
-        ? "Sending this version to render…"
+        ? "Generating this version…"
         : "Working on that change…",
   };
 }

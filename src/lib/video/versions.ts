@@ -111,10 +111,10 @@ export async function moveVideoVersion(input: {
   const lead = move.how === "undo" ? "Undone" : move.how === "redo" ? "Redone" : "Switched";
   const state =
     status === "ready"
-      ? "Its cut is already made, so it's playing now — nothing was rendered again and no credits were used."
+      ? "Its cut is already made, so it's playing now — nothing was generated again and no credits were used."
       : status === "rendering"
-        ? "Its clips are still rendering and will land in the preview."
-        : 'It was planned but never rendered — say "render it" to render it.';
+        ? "Its clips are still generating and will land in the preview."
+        : 'It was planned but never generated — say "generate it" to generate it.';
   return say(
     true,
     `${lead} — now playing version ${move.to}${describe(row)}. ${state} Version ${found.current} is still saved: Redo or "go back to version ${found.current}" brings it back. Ask for a change and it's made from this version.`,
