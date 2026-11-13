@@ -147,6 +147,7 @@ export default function BuildResultCard({
                 Download
               </button>
             )}
+            {onPublish && (
             <button
               onClick={onPublish}
               className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-solid text-[13px] font-medium text-onSolid transition-colors hover:bg-layer/90 active:scale-[0.99]"
@@ -154,6 +155,7 @@ export default function BuildResultCard({
               <Rocket className="h-4 w-4 shrink-0" />
               Publish
             </button>
+            )}
           </div>
         )}
       </div>

@@ -955,5 +955,12 @@ const compSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx")
 has(/box\.style\.height = `\$\{Math\.min\(box\.scrollHeight, 240\)\}px`/.test(compSrc) && /text-base leading-relaxed/.test(compSrc) && /!event\.nativeEvent\.isComposing/.test(compSrc), "the Director box grows with what is typed, is 16px on a phone, and Enter sends (Shift+Enter breaks the line)");
 has(/flex flex-wrap gap-2/.test(compSrc) && /text-base text-ink outline-none placeholder:text-faint focus:border-line\/\[0\.25\] sm:h-9 sm:text-\[13px\]/.test(compSrc), "the per-scene ask wraps on a phone and never zooms it in");
 
+console.log("\npublish is for websites only");
+const pvSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+const wsSrc2 = readFileSync(join(root, "src/app/dashboard/components/workspace/Workspace.tsx"), "utf8");
+const miSrc = readFileSync(join(root, "src/lib/media-intent.ts"), "utf8");
+has(/MEDIA_INTENTS = \["video", "flier"\]/.test(miSrc) && /const publishable = !isMediaIntent\(project\?\.intent\)/.test(pvSrc) && (pvSrc.match(/\{publishable && /g) ?? []).length >= 3, "a video or flier project shows no Publish in the workspace header (phone and desktop) or the changes banner");
+has(/onDeploy=\{isMediaIntent\(project\?\.intent\) \? undefined : requestPublish\}/.test(wsSrc2) && /onPublish=\{isMediaIntent\(project\?\.intent\) \? undefined : requestPublish\}/.test(wsSrc2) && /\{onPublish && \(/.test(readFileSync(join(root, "src/app/dashboard/components/workspace/BuildResultCard.tsx"), "utf8")), "nor on the build card or the phone's quick actions; websites keep it");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
