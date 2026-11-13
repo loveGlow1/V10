@@ -642,8 +642,17 @@ export default function PreviewPanel({
     const projectId = project.id;
     function onMessage(event: MessageEvent) {
       const data = event.data as { source?: string; state?: string; detail?: { sound?: unknown } } | null;
-      if (!data || data.source !== "quickstark-preview" || data.state !== "ask") return;
+      if (!data || data.source !== "quickstark-preview") return;
       if (event.source !== frameRef.current?.contentWindow) return;
+      /* The board's "Open the editor": the preview is sandboxed, so a tab it
+         opened itself would be sandboxed too — no sign-in, and the editor
+         could not load the video. The workspace opens it instead. */
+      if (data.state === "open-editor") {
+        const path = (data.detail as { path?: unknown } | undefined)?.path;
+        if (typeof path === "string" && /^\/dashboard\/video\/[0-9a-f-]{36}\/edit$/i.test(path)) window.open(path, "_blank", "noopener");
+        return;
+      }
+      if (data.state !== "ask") return;
       if (isSound(data.detail?.sound)) askChat({ projectId, texts: [SOUND_COMMANDS[data.detail.sound]] });
     }
     window.addEventListener("message", onMessage);

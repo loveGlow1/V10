@@ -872,5 +872,14 @@ const veSrc2 = readFileSync(join(root, "src/app/dashboard/components/video/Video
 has(/crossOrigin = "anonymous"/.test(vePosters) && /toDataURL\("image\/jpeg"/.test(vePosters) && /running >= 2/.test(vePosters) && /split\("\?"\)\[0\]/.test(vePosters), "a still is taken from each made clip in the browser, two at a time, kept for the tab whatever its signed link");
 has(/useClipPosters\(rawSegments/.test(veSrc2) && /placeholderStyle\(`\$\{scene\?\.shot/.test(veSrc2) && /placeholderStyle\(`\$\{scene\.shot\}\$\{scene\.visual\}`\)/.test(veSrc2), "the filmstrip and the scene list show it; a scene still to be made gets its own colour, not stripes");
 
+console.log("\nthe editor opens from the workspace and plays smoothly");
+const wsSrc = readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8");
+const ppSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
+has(/state:'open-editor'/.test(wsSrc) && /data\.state === "open-editor"/.test(ppSrc) && /window\.open\(path, "_blank", "noopener"\)/.test(ppSrc), "the board's Open the editor is opened by the workspace, signed in — not as a sandboxed tab that cannot load the video");
+const playSrc = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+has(/if \(stalled\.current\) \{/.test(playSrc) && /v\.readyState >= 3 && !v\.seeking\) stalled\.current = false/.test(playSrc), "the clock waits while a clip loads and goes on as soon as it can play");
+has(/!video\.seeking && video\.readyState >= 1 && Math\.abs\(video\.currentTime - expected\) > \(playing \? 0\.75 : 0\.12\)/.test(playSrc), "a clip is not re-seeked while it is loading or catching up");
+has(/video\.poster = seg\.posterUrl/.test(playSrc) && /ref=\{nextRef\} preload="auto"/.test(playSrc), "its still shows instead of black, and the next clip loads ahead");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

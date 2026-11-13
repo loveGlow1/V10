@@ -226,14 +226,30 @@ export default function VideoEditor({ id }: { id: string }) {
 
   /* ── Playback ──────────────────────────────────────────────────────── */
   const clock = useRef<{ t0: number; from: number } | null>(null);
+  /* True while the clip on screen is still loading or seeking: the clock
+     waits for it rather than running ahead and dragging it back. */
+  const stalled = useRef(false);
   useEffect(() => {
     if (!playing) return;
     clock.current = { t0: performance.now(), from: time >= total ? 0 : time };
     let frame = 0;
     let last = 0;
+    let previous = performance.now();
     const tick = (now: number) => {
       const c = clock.current;
       if (!c) return;
+      /* Held while the picture catches up — the time it spent waiting is not
+         played — and let go the moment the clip can play. */
+      if (stalled.current) {
+        const v = videoRef.current;
+        if (v && v.readyState >= 3 && !v.seeking) stalled.current = false;
+        else {
+          c.t0 += now - previous;
+          /* Nudged while it loads: a paused clip is not fetched by every browser. */
+          if (v && v.paused) void v.play().catch(() => {});
+        }
+      }
+      previous = now;
       const t = c.from + (now - c.t0) / 1000;
       if (t >= total) {
         setTime(total);
@@ -260,7 +276,8 @@ export default function VideoEditor({ id }: { id: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const voiceRef = useRef<HTMLAudioElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
-  const loaded = useRef<{ video?: string; voice?: string; music?: string }>({});
+  const loaded = useRef<{ video?: string; voice?: string; music?: string; next?: string }>({});
+  const nextRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const seg = current?.segment;
@@ -270,15 +287,32 @@ export default function VideoEditor({ id }: { id: string }) {
       if (seg?.kind === "video" && seg.mediaUrl) {
         if (loaded.current.video !== seg.mediaUrl) {
           loaded.current.video = seg.mediaUrl;
+          /* The clip's still shows until its first frame is ready — never black. */
+          video.poster = seg.posterUrl ?? "";
           video.src = seg.mediaUrl;
         }
         const expected = seg.from + offset * seg.speed;
-        if (Math.abs(video.currentTime - expected) > 0.3) video.currentTime = expected;
+        const ready = video.readyState >= 3 && !video.seeking;
+        stalled.current = playing && !ready;
+        /* Moved only when it has really drifted, and never while it is still
+           loading or seeking: re-seeking a clip that is catching up is what
+           flashed black and stuttered. */
+        if (!video.seeking && video.readyState >= 1 && Math.abs(video.currentTime - expected) > (playing ? 0.75 : 0.12)) video.currentTime = expected;
         video.playbackRate = seg.speed;
         video.volume = Math.max(0, Math.min(1, seg.volume * (cut && (cut.audio === "voiceover" && seg.voiceUrl) ? 0.22 : cut?.audio === "none" ? 0 : 1)));
         if (playing && video.paused) void video.play().catch(() => {});
         if (!playing && !video.paused) video.pause();
-      } else if (!video.paused) video.pause();
+      } else {
+        stalled.current = false;
+        if (!video.paused) video.pause();
+      }
+    }
+    /* The next clip, loading in the background so the cut to it is instant. */
+    const upcoming = seg ? segments.find((s) => s.start >= seg.start + seg.seconds - 0.01 && s.kind === "video" && s.mediaUrl) : undefined;
+    const ahead = nextRef.current;
+    if (ahead && upcoming?.mediaUrl && loaded.current.next !== upcoming.mediaUrl) {
+      loaded.current.next = upcoming.mediaUrl;
+      ahead.src = upcoming.mediaUrl;
     }
     const voice = voiceRef.current;
     if (voice) {
@@ -314,7 +348,7 @@ export default function VideoEditor({ id }: { id: string }) {
         if (!playing && !music.paused) music.pause();
       } else if (!music.paused) music.pause();
     }
-  }, [current, time, playing, cut, musicUrl]);
+  }, [current, time, playing, cut, musicUrl, segments]);
 
   /* ── Saving and export ─────────────────────────────────────────────── */
   async function save(): Promise<boolean> {
@@ -589,6 +623,7 @@ export default function VideoEditor({ id }: { id: string }) {
               </div>
               <audio ref={voiceRef} preload="auto" />
               <audio ref={musicRef} preload="auto" />
+              <video ref={nextRef} preload="auto" muted playsInline className="hidden" aria-hidden />
               <div className="mt-2.5 flex items-center gap-2">
                 <button onClick={() => seek(0)} aria-label="To the start" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><SkipBack className="h-4 w-4" /></button>
                 <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"} className="flex h-9 w-9 items-center justify-center rounded-full bg-solid text-onSolid">
@@ -788,6 +823,10 @@ function Preview({ plan, segment, offset, videoRef }: { plan: ProductionPlan; se
       {cut.fit === "fit-blur" && segment?.posterUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={segment.posterUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
+      )}
+      {segment?.kind === "video" && segment.posterUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={segment.posterUrl} alt="" className={`absolute inset-0 h-full w-full ${fit}`} style={{ filter }} />
       )}
       <video ref={videoRef} playsInline muted={false} className={`absolute inset-0 h-full w-full ${fit} ${segment?.kind === "video" ? "" : "invisible"}`} style={{ filter }} />
       {segment?.kind === "image" && segment.mediaUrl && (
