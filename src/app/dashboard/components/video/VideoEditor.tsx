@@ -744,6 +744,7 @@ export default function VideoEditor({ id }: { id: string }) {
             onOpenTab={(tab) => setLibraryTab(tab)}
             locked={locked}
             onLocked={setLocked}
+            onClearText={(n) => change((p) => ({ ...p, scenes: p.scenes.map((scene) => (scene.n === n ? { ...scene, onScreenText: "" } : scene)) }))}
             onDropAsset={(assetId, index) => {
               const asset = assets.find((a) => a.id === assetId);
               if (!asset) return;
@@ -912,6 +913,8 @@ function Timeline(props: {
   onOpenTab: (tab: LibraryTab) => void;
   /** An upload dragged in from the library, put before the clip at `index`. */
   onDropAsset: (assetId: string, index: number) => void;
+  /** Takes the words off a clip. */
+  onClearText: (n: number) => void;
   /** Tracks locked against changes (the keyboard respects them too). */
   locked: Set<TrackId>;
   onLocked: (next: Set<TrackId>) => void;
@@ -1153,9 +1156,25 @@ function Timeline(props: {
             <div className="relative mt-1 h-6">
               {segments.map((s) =>
                 s.text ? (
-                  <button key={s.n} disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="absolute top-0 h-6 truncate rounded-[6px] bg-pink-500/35 px-1.5 text-left text-[10.5px] text-pink-50" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
-                    T · {s.text}
-                  </button>
+                  <span key={s.n} className="group/text absolute top-0 flex h-6 items-center rounded-[6px] bg-pink-500/35" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
+                    <button disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="h-6 min-w-0 flex-1 truncate px-1.5 text-left text-[10.5px] text-pink-50" title="Edit these words">
+                      T · {s.text}
+                    </button>
+                    {!isLocked("words") && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onClearText(s.n);
+                        }}
+                        aria-label={`Remove the words on clip ${s.n}`}
+                        title="Remove these words from the video"
+                        className="mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-pink-50/80 hover:bg-black/30 hover:text-white"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
                 ) : null,
               )}
             </div>
