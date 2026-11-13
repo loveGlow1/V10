@@ -9,6 +9,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUp,
   Clock,
+  MessagesSquare,
+  SquarePen,
+  Trash2,
   Database,
   Loader2,
   Eye,
@@ -75,7 +78,12 @@ import {
 import { safeHttpUrl } from "@/lib/safe-url";
 import {
   appendToThread,
+  deleteThread,
   loadThread,
+  loadThreads,
+  startThread,
+  touchThread,
+  type ChatThread,
   type MessageKind,
   type ThreadMessage,
 } from "@/lib/project-messages";
@@ -235,6 +243,27 @@ export default function ChatPanel({
   /* Whether this project's stored thread has arrived. Nothing may be sent
      before it does, or an app with history would be built again on arrival. */
   const [threadLoaded, setThreadLoaded] = useState(false);
+  /* The conversation shown: one per session (lib/project-messages.ts). Null is
+     a fresh one, made when its first message is sent; earlier ones are under
+     Chats. */
+  const [threadId, setThreadIdState] = useState<string | null>(null);
+  const threadRef = useRef<string | null>(null);
+  const threadMaking = useRef<Promise<string | null> | null>(null);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [chatsOpen, setChatsOpen] = useState(false);
+  const setThreadId = (id: string | null, projectId?: string) => {
+    threadRef.current = id;
+    threadMaking.current = null;
+    setThreadIdState(id);
+    /* This tab's session keeps its conversation across a reload; a new visit starts fresh. */
+    const key = projectId ? `quickstark:thread:${projectId}` : null;
+    try {
+      if (key && id) window.sessionStorage.setItem(key, id);
+      else if (key) window.sessionStorage.removeItem(key);
+    } catch {
+      /* No storage: a reload starts a fresh conversation. */
+    }
+  };
   const [userId, setUserId] = useState<string | null>(null);
   /* What the composer says the next message is. "auto" leaves it to the
      classifier; anything else is the person telling it outright, which always
@@ -531,8 +560,25 @@ export default function ChatPanel({
     if (!id) return;
 
     let cancelled = false;
-    void loadThread(id).then((thread) => {
+    setChatsOpen(false);
+    void (async () => {
+      /* Which conversation: the one this tab was in (a reload), the latest when
+         a build from it is still running, else a fresh one — every new visit
+         starts clean, and the earlier ones are under Chats. */
+      const list = await loadThreads(id);
       if (cancelled) return;
+      setThreads(list);
+      let kept: string | null = null;
+      try {
+        kept = window.sessionStorage.getItem(`quickstark:thread:${id}`);
+      } catch {
+        kept = null;
+      }
+      const chosen = kept && list.some((t) => t.id === kept) ? kept : project?.status === "Building" ? list[0]?.id ?? null : null;
+      setThreadId(chosen, id);
+      return chosen ? await loadThread(id, chosen) : [];
+    })().then((thread) => {
+      if (cancelled || !thread) return;
 
       /* The finished build's card, put back under the message that announced
          it — see threadView.ts. Without this the card lived only in the tab
@@ -573,7 +619,8 @@ export default function ChatPanel({
       if (busy || document.visibilityState !== "visible") return;
       busy = true;
       try {
-        const thread = await loadThread(id);
+        if (!threadRef.current) return;
+        const thread = await loadThread(id, threadRef.current);
         const fresh = thread.filter((message) => message.at > followedTo.current);
         if (!fresh.length) return;
         followedTo.current = Math.max(followedTo.current, ...fresh.map((message) => message.at));
@@ -785,7 +832,61 @@ export default function ChatPanel({
     /* Only the stored half is written. The clock and the applied mark are this
        session's view of the message, not part of the record. */
     if (record === "panel" && project?.id && userId) {
-      void appendToThread(project.id, userId, message);
+      const projectId = project.id;
+      void ensureThread(message.text).then((thread) => appendToThread(projectId, userId, message, thread));
+    }
+  }
+
+  /* The conversation this message belongs to, made on the first message of a
+     fresh one and marked as the one being talked in, so what the server
+     writes for this request lands in it too. */
+  function ensureThread(firstText: string): Promise<string | null> {
+    const projectId = project?.id;
+    if (!projectId || !userId) return Promise.resolve(null);
+    if (threadRef.current) {
+      const current = threadRef.current;
+      void touchThread(current);
+      return Promise.resolve(current);
+    }
+    if (!threadMaking.current) {
+      threadMaking.current = startThread(projectId, userId, firstText || "New chat").then((made) => {
+        if (made) {
+          setThreadId(made, projectId);
+          void loadThreads(projectId).then(setThreads);
+        }
+        return made;
+      });
+    }
+    return threadMaking.current;
+  }
+
+  /* A fresh conversation: the app is the same, the chat starts clean. */
+  function newChat() {
+    if (!project?.id || building) return;
+    setThreadId(null, project.id);
+    setMessages([]);
+    nextId.current = 0;
+    followedTo.current = 0;
+    setChatsOpen(false);
+  }
+
+  /* An earlier conversation, opened to read or carry on. */
+  async function openChat(id: string) {
+    if (!project?.id || building) return;
+    const projectId = project.id;
+    setChatsOpen(false);
+    setThreadId(id, projectId);
+    const thread = await loadThread(projectId, id);
+    nextId.current = 0;
+    setMessages(thread.map((message) => ({ id: nextId.current++, ...message })));
+    followedTo.current = thread.reduce((latest, message) => Math.max(latest, message.at), 0);
+  }
+
+  async function removeChat(id: string) {
+    if (!project?.id || !window.confirm("Delete this conversation? The app itself is not changed.")) return;
+    if (await deleteThread(id)) {
+      setThreads((list) => list.filter((t) => t.id !== id));
+      if (threadRef.current === id) newChat();
     }
   }
 
@@ -814,7 +915,7 @@ export default function ChatPanel({
    * week's build is not an explanation of this one.
    */
   async function storedFailure(projectId: string, runStarted: number): Promise<string | null> {
-    const thread = await loadThread(projectId);
+    const thread = await loadThread(projectId, threadRef.current);
     for (let index = thread.length - 1; index >= 0; index -= 1) {
       const message = thread[index];
       if (message.kind === "build_failed" && message.at >= runStarted - 60_000) return message.text;
@@ -1400,6 +1501,10 @@ export default function ChatPanel({
          the page, so its change is made on top of them, never over them. */
       await settleTypedEdits();
 
+      /* This conversation is the one being talked in: the server files what
+         it writes for this request into it. */
+      await ensureThread(text);
+
       const reply = await build(project.id, text, {
         intentOverride: planActive ? null : options.intentOverride ?? (mode === "auto" ? null : mode),
         planOnly: planActive,
@@ -1903,9 +2008,66 @@ export default function ChatPanel({
         </p>
       </header>
 
+      {/* The conversation: which one this is, the earlier ones, a fresh one. */}
+      <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-line/[0.06] px-3">
+        <button
+          type="button"
+          onClick={() => {
+            setChatsOpen((open) => !open);
+            if (project?.id) void loadThreads(project.id).then(setThreads);
+          }}
+          aria-expanded={chatsOpen}
+          className={`flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] ${chatsOpen ? "bg-layer/[0.1] text-ink" : "text-soft hover:bg-layer/[0.06] hover:text-ink"}`}
+        >
+          <MessagesSquare className="h-3.5 w-3.5" /> Chats{threads.length ? ` · ${threads.length}` : ""}
+        </button>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
+          {threadId ? threads.find((t) => t.id === threadId)?.title ?? "This chat" : "New chat"}
+        </span>
+        <button
+          type="button"
+          onClick={newChat}
+          disabled={building || (!threadId && messages.length === 0)}
+          title="Start a new chat — the app stays as it is"
+          className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-soft hover:bg-layer/[0.06] hover:text-ink disabled:opacity-40"
+        >
+          <SquarePen className="h-3.5 w-3.5" /> New chat
+        </button>
+      </div>
+
       {/* Wrapped so the jump control can sit over the thread rather than over
           the composer under it: this box is exactly the scrolling area. */}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {chatsOpen && (
+        <div className="absolute inset-y-0 left-0 z-20 flex w-full max-w-[320px] flex-col border-r border-line/[0.08] bg-panel shadow-xl">
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <p className="text-[13px] font-medium text-ink">Chats in this project</p>
+            <button type="button" onClick={() => setChatsOpen(false)} aria-label="Close chats" className="flex h-7 w-7 items-center justify-center rounded-lg text-muted hover:text-ink"><X className="h-4 w-4" /></button>
+          </div>
+          <button type="button" onClick={newChat} disabled={building} className="mx-3 mb-2 flex h-8 items-center justify-center gap-1.5 rounded-lg border border-line/[0.1] text-[12.5px] text-ink hover:bg-layer/[0.06] disabled:opacity-40">
+            <SquarePen className="h-3.5 w-3.5" /> New chat
+          </button>
+          <ul className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+            {threads.length === 0 && <li className="px-2 py-6 text-center text-[12px] text-muted">No earlier chats yet.</li>}
+            {threads.map((t) => (
+              <li key={t.id} className="group flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void openChat(t.id)}
+                  disabled={building}
+                  className={`min-w-0 flex-1 rounded-lg px-2 py-2 text-left disabled:opacity-50 ${t.id === threadId ? "bg-layer/[0.1]" : "hover:bg-layer/[0.06]"}`}
+                >
+                  <span className="block truncate text-[12.5px] text-ink">{t.title}</span>
+                  <span className="block text-[11px] text-muted">{new Date(t.lastAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}{t.id === threadId ? " · open now" : ""}</span>
+                </button>
+                <button type="button" onClick={() => void removeChat(t.id)} aria-label={`Delete ${t.title}`} title="Delete this chat" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted opacity-0 hover:text-danger group-hover:opacity-100 focus:opacity-100">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div
         ref={streamRef}
         onScroll={(event) => {

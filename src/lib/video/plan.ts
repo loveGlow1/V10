@@ -57,14 +57,14 @@ export type Scene = {
 };
 
 /* How the final cut is put together — what a person changes by asking
-   ("use the original voices", "no captions", "end on QuickStark.ai") without
+   ("use the original voices", "no captions", "end on QuickStark.Ai") without
    anything being generated again. Absent means the defaults. */
 export type Cut = {
   /** voiceover: only the script's voice. original: only the clips' own sound. mix: both. none: silent. */
   audio?: "voiceover" | "original" | "mix" | "none";
   /** Captions of each spoken line, burned in. Default on. */
   captions?: boolean;
-  /** Words on the last scene, e.g. "QuickStark.ai". */
+  /** Words on the last scene, e.g. "QuickStark.Ai". */
   endCard?: string;
   /** Scenes whose own sound is silenced. */
   muted?: number[];
@@ -126,9 +126,9 @@ export type ProductionPlan = {
 
 export type QaIssue = { scene: number | null; issue: string; repaired: boolean };
 
-/* QuickStark's own name is always said and shown in full: "QuickStark.ai",
+/* QuickStark's own name is always said and shown in full: "QuickStark.Ai",
    never a bare "QuickStark". Pure. */
-export const BRAND = "QuickStark.ai";
+export const BRAND = "QuickStark.Ai";
 export function withBrand(text: string): string {
   return text.replace(/\bQuick ?Stark(?:\.ai\b|\.Ai\b|\.AI\b)?(?!\.\w)/gi, BRAND);
 }

@@ -1209,14 +1209,26 @@ async function handle(
 
      Read before this message is stored, so the message is never in its own
      history. */
-  const { data: recent } = await supabase
+  /* This conversation only: each session is a chat of its own (the panel
+     marks the one it is talking in as the most recent). The app itself —
+     its files, its plan, its context — carries on whichever chat it is. */
+  const { data: currentThread } = await supabase
+    .from("project_threads")
+    .select("id")
+    .eq("project_id", project.id)
+    .order("last_message_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  let recentQuery = supabase
     .from("project_messages")
     .select("role, body, tone, kind")
     /* tone and kind travel with the text now, and they are not decoration: they
        are how a model call tells what the builder SAID from what the app
        REPORTED. See conversational() in builder/brief.ts, and the loop it was
        written for. */
-    .eq("project_id", project.id)
+    .eq("project_id", project.id);
+  if (currentThread?.id) recentQuery = recentQuery.eq("thread_id", currentThread.id);
+  const { data: recent } = await recentQuery
     .order("created_at", { ascending: false })
     .limit(20);
 

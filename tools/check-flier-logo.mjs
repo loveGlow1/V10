@@ -95,7 +95,7 @@ has(/attachmentIds: Array\.isArray\(body\.attachmentIds\)/.test(read("src/app/ap
   writeFileSync(join(dir, "house.mjs"), houseJs);
   const H = await import(join(dir, "house.mjs"));
   has(H.sameBrand("QuickStark.Ai", "quickstark") && H.sameBrand("Luxe Studio", "LUXE studio ltd") && !H.sameBrand("Luxe Studio", "Glow Salon") && !H.sameBrand("", ""), "the same brand is recognised however it is cased, spaced or suffixed — and a different one is not");
-  has(H.canonicalName("Quickstark") === "QuickStark.ai" && H.canonicalName("quick stark ai") === "QuickStark.ai" && H.canonicalName(" Luxe Studio ") === "Luxe Studio", "QuickStark's own name is always QuickStark.ai");
+  has(H.canonicalName("Quickstark") === "QuickStark.Ai" && H.canonicalName("quick stark ai") === "QuickStark.Ai" && H.canonicalName(" Luxe Studio ") === "Luxe Studio", "QuickStark's own name is always QuickStark.Ai");
   has(H.keepName("Luxe Studio", "LUXE STUDIO", "make the headline bigger") === "Luxe Studio" && H.keepName("Luxe Studio", "Luxe Hair", "make the headline bigger") === "Luxe Studio" && H.keepName("Luxe Studio", "Glow Salon", "rename it to Glow Salon") === "Glow Salon", "a revision keeps the name exactly — unless the person typed a new one");
   const base = { brand: { name: "", colors: { primary: "#000" } }, spec: { headline: "Sale", format: "portrait", textMode: "overlay" } };
   const house = { name: "Luxe Studio", logoPath: "u1/brand/logo.png" };

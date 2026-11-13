@@ -111,8 +111,8 @@ has(R.clipPrompt("x".repeat(3000)).length <= 2000, "the picture-only prompt stil
 const composeSrc = ["compose-local.ts", "cut-filters.ts", "cut-settings.ts"].map((f) => readFileSync(join(process.cwd(), "src/lib/video", f), "utf8")).join("\n");
 has(/audio: cut\.audio \?\? \(narrated \? "voiceover" : "original"\)/.test(composeSrc) && /\(Boolean\(talking\) \|\| keepsOriginal\)/.test(composeSrc), "a narrated video's cut is the script's voice only by default — a lip-synced clip's sound is that voice, and stays");
 const branded = L.qaAndRepair(L.normalizePlan({ cta: "Try QuickStark", scenes: [{ duration: 5, visual: "a", voiceover: "Then I found QuickStark.", onScreenText: "QuickStark.Ai did this", motionPrompt: "x" }, { duration: 5, visual: "b", voiceover: "Go to quickstark.tech", motionPrompt: "y" }] }, "ugc_influencer", { length: "10s" }));
-has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.ai." && branded.plan.scenes[0].onScreenText === "QuickStark.ai did this", "the name is said and shown as QuickStark.ai", JSON.stringify(branded.plan.scenes[0]));
-has(branded.plan.cta === "Try QuickStark.ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
+has(branded.plan.scenes[0].voiceover === "Then I found QuickStark.Ai." && branded.plan.scenes[0].onScreenText === "QuickStark.Ai did this", "the name is said and shown as QuickStark.Ai", JSON.stringify(branded.plan.scenes[0]));
+has(branded.plan.cta === "Try QuickStark.Ai" && branded.plan.scenes[1].voiceover === "Go to quickstark.tech", "the CTA too — a web address is left alone");
 const boardSrc = readFileSync(join(process.cwd(), "src/lib/video/workspace.ts"), "utf8");
 const boardShow = boardSrc.slice(boardSrc.indexOf("function show(k)"), boardSrc.indexOf("function startedAt"));
 has(!/s\.visual/.test(boardShow) && /Filming scene/.test(boardShow), "a scene still filming shows which scene and its line — never the engine prompt");
@@ -137,16 +137,16 @@ has(/upload/i.test(integrationsList.slice(integrationsList.indexOf('id: "storage
   has(/loudnorm=I=-14:TP=-1\.5:LRA=11/.test(c) && /"-c:v", "copy", "-af", "loudnorm/.test(c), "the whole cut is set to -14 LUFS, the picture copied, not encoded again");
   has(/cut\.captions && \(hasVoice \|\| cut\.audio === "none"\) \? scene\.voiceover/.test(c) && /scene\.n === last && cut\.endCard/.test(c), "captions are the spoken line; the end card sits on the last scene");
   has(/talking \|\| cut\.audio === "original" \|\| cut\.audio === "none" \? null : pick\(scene\.n, "voice"\)/.test(c) && /const keepsOriginal = cut\.audio === "original" \|\| cut\.audio === "mix"/.test(c) && /!cut\.muted\.has\(scene\.n\)/.test(c), "the cut's audio choice is honoured: voice-over only, original sound only, or both — and muted scenes stay silent");
-  const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.ai", muted: [1, "2", -3, 1], junk: 1 });
-  has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
+  const P2 = L.normalizeCut({ audio: "original", captions: false, endCard: "QuickStark.Ai", muted: [1, "2", -3, 1], junk: 1 });
+  has(P2.audio === "original" && P2.captions === false && P2.endCard === "QuickStark.Ai" && P2.muted.join() === "1,2" && !("junk" in P2) && L.normalizeCut({ audio: "loud" }) === undefined, "cut settings are read strictly — anything unknown is dropped");
   const kept = L.qaAndRepair(L.normalizePlan({ cut: { audio: "mix", endCard: "Try QuickStark" }, scenes: [{ duration: 5, visual: "a", motionPrompt: "x" }] }, "commercial_ad", { length: "5s" }));
-  has(kept.plan.cut?.audio === "mix" && kept.plan.cut?.endCard === "Try QuickStark.ai", "a plan keeps its cut settings through QA, the brand in full on the end card");
+  has(kept.plan.cut?.audio === "mix" && kept.plan.cut?.endCard === "Try QuickStark.Ai", "a plan keeps its cut settings through QA, the brand in full on the end card");
 }
 {
   /* The editor: only what was asked changes; the rest is reused. */
   const made = L.normalizePlan({ title: "Four Fliers", aspect: "9:16", locks: { creator: "brunette woman, cream sweater" }, scenes: [1, 2, 3, 4].map((n) => ({ duration: 5, visual: "v", voiceover: `Line ${n}.`, onScreenText: n === 4 ? "Try it" : "", motionPrompt: `prompt ${n}` })) }, "ugc_influencer", {});
   const audioOnly = ED.applyEdit(made, ED.normalizeEdit({ reply: "Original voices.", cut: { audio: "original", endCard: "QuickStark" } }, made));
-  has(audioOnly.refilm.length === 0 && audioOnly.revoice.length === 0 && audioOnly.carry.every((c) => c.clip && c.voice) && audioOnly.plan.cut.audio === "original" && audioOnly.plan.cut.endCard === "QuickStark.ai", "\"use the original voices\" re-films and re-voices nothing — a new cut only");
+  has(audioOnly.refilm.length === 0 && audioOnly.revoice.length === 0 && audioOnly.carry.every((c) => c.clip && c.voice) && audioOnly.plan.cut.audio === "original" && audioOnly.plan.cut.endCard === "QuickStark.Ai", "\"use the original voices\" re-films and re-voices nothing — a new cut only");
   has(R.jobsFor(audioOnly.plan, {}).every((j) => j.kind === "clip"), "a cut of the clips' own sound orders no voice lines");
   const refilm = ED.applyEdit(made, ED.normalizeEdit({ scenes: [{ n: 3, action: "refilm", motionPrompt: "closer shot, brunette woman, cream sweater" }, { n: 2, action: "revoice", voiceover: "A brand new line." }] }, made));
   has(refilm.refilm.join() === "3" && refilm.revoice.join() === "2" && refilm.carry.filter((c) => c.clip).length === 3 && refilm.plan.scenes[2].motionPrompt.startsWith("closer"), "re-filming scene 3 and re-voicing scene 2 reuses every other clip and line");
@@ -623,7 +623,7 @@ console.log("\nthe AI agent from the workspace");
 const agentSrc = readFileSync(join(root, "src/lib/video/agent.ts"), "utf8");
 has(/resolveModel\(asked\)/.test(agentSrc) && /modelAllowedOnPlan/.test(agentSrc) && /creditMultiplierFor/.test(agentSrc), "the agent picked is checked against the plan and charged at its rate");
 has(/model: body\.model/.test(readFileSync(join(root, "src/app/api/build/route.ts"), "utf8")) && /model: input\.model/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "a message in the workspace plans and edits the video on the agent picked there");
-has(/complete\(input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /complete\(input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
+has(/const model = input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/director.ts"), "utf8")) && /complete\(input\.model \|\| DIRECTOR_MODEL/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "the planner and the editor both run on it");
 
 
 console.log("\nscene-to-scene continuity");
@@ -831,6 +831,13 @@ const aiEdSrc = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
 has(["trimStart", "speed 0.25-4", "volume 0-2", "action \"duplicate\"", "action \"split\"", "continues on a generated scene", "aspect — the video's shape", "music — made music"].every((w) => aiEdSrc.includes(w)), "the editor's instructions name every one of these");
 const musicSrc = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
 has(/wantsMusic\(next\)/.test(musicSrc) && /engine: "music", provider: input\.music\.provider/.test(musicSrc) && /startMusic\(service, \{ video_id: videoId/.test(musicSrc), "an edited video keeps its music, or has it made again when the edit changed it");
+
+console.log("\nthe Creative Director takes a change to a big plan");
+const dirSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
+has(/complete\(model, system, parts, 20000\)/.test(dirSrc) && /for \(const attempt of \[0, 1\]\)/.test(dirSrc), "room for a whole revised plan, and one more try when the answer cannot be read");
+has(/JSON\.stringify\(input\.previous\)\.slice\(0, 120_000\)/.test(dirSrc), "the director sees the whole current plan, not its first scenes");
+has(/sayLlmError\(error\)/.test(dirSrc) && /could not plan this one \(\$\{lastProblem\}\)/.test(dirSrc), "when it still cannot, it says why");
+has(L.withBrand("Follow quickstark.ai today") === "Follow QuickStark.Ai today" && L.BRAND === "QuickStark.Ai", "the name is spelt QuickStark.Ai everywhere in videos");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

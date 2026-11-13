@@ -72,15 +72,80 @@ function readLinks(value: unknown): { label: string; href: string }[] | undefine
   return links.length > 0 ? links : undefined;
 }
 
-/** The thread for a project, oldest first. Empty when there is nothing stored. */
-export async function loadThread(projectId: string): Promise<StoredMessage[]> {
+/* ── Conversations, one per session ──────────────────────────────────────
+ *
+ * A project keeps every conversation, each in a thread of its own. A visit to
+ * the workspace starts a fresh one (made when its first message is sent);
+ * earlier ones are listed under Chats and can be reopened. The server files
+ * whatever it writes into the project's most recently active thread — see
+ * the project_threads migration — so the panel touches the thread it is
+ * talking in before each request. */
+
+export type ChatThread = { id: string; title: string; createdAt: number; lastAt: number };
+
+/** A project's conversations, most recent first. */
+export async function loadThreads(projectId: string): Promise<ChatThread[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await createSupabaseBrowserClient()
+    .from("project_threads")
+    .select("id, title, created_at, last_message_at")
+    .eq("project_id", projectId)
+    .order("last_message_at", { ascending: false })
+    .limit(200);
+  if (error || !data) return [];
+  return (data as { id: string; title: string; created_at: string; last_message_at: string }[]).map((row) => ({
+    id: row.id,
+    title: row.title || "New chat",
+    createdAt: Date.parse(row.created_at),
+    lastAt: Date.parse(row.last_message_at),
+  }));
+}
+
+/** Starts a conversation. Null when it could not be stored. */
+export async function startThread(projectId: string, userId: string, title: string): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data, error } = await createSupabaseBrowserClient()
+    .from("project_threads")
+    .insert({ project_id: projectId, user_id: userId, title: title.replace(/\s+/g, " ").trim().slice(0, 80) })
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !data) {
+    // eslint-disable-next-line no-console
+    console.error("chat: a new conversation could not be started:", error);
+    return null;
+  }
+  return data.id;
+}
+
+/** Marks a conversation as the one being talked in now, so what the server writes lands in it. */
+export async function touchThread(threadId: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  await createSupabaseBrowserClient().from("project_threads").update({ last_message_at: new Date().toISOString() }).eq("id", threadId);
+}
+
+/** Renames a conversation. */
+export async function renameThread(threadId: string, title: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  await createSupabaseBrowserClient().from("project_threads").update({ title: title.trim().slice(0, 80) }).eq("id", threadId);
+}
+
+/** Deletes a conversation and what was said in it. The app itself is untouched. */
+export async function deleteThread(threadId: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { error } = await createSupabaseBrowserClient().from("project_threads").delete().eq("id", threadId);
+  return !error;
+}
+
+/** One conversation (or, without a thread, every message of the project), oldest first. */
+export async function loadThread(projectId: string, threadId?: string | null): Promise<StoredMessage[]> {
   if (!isSupabaseConfigured) return [];
 
-  const { data, error } = await createSupabaseBrowserClient()
+  let query = createSupabaseBrowserClient()
     .from("project_messages")
     .select("role, body, links, tone, kind, created_at")
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: true });
+    .eq("project_id", projectId);
+  if (threadId) query = query.eq("thread_id", threadId);
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   /* A thread that cannot be read is an empty panel, not a broken one: the app
      still works, and the next message still saves. */
@@ -111,12 +176,14 @@ export async function appendToThread(
   projectId: string,
   userId: string,
   message: ThreadMessage,
+  threadId?: string | null,
 ): Promise<void> {
   if (!isSupabaseConfigured) return;
 
   const { error } = await createSupabaseBrowserClient().from("project_messages").insert({
     project_id: projectId,
     user_id: userId,
+    ...(threadId ? { thread_id: threadId } : {}),
     role: message.from,
     body: message.text,
     links: message.links ?? [],

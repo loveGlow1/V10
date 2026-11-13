@@ -14,7 +14,7 @@
  *
  * Read from the person's own fliers (flyer_jobs), newest first: the brand
  * they last used is the one they mean. QuickStark's own name is always
- * "QuickStark.ai".
+ * "QuickStark.Ai".
  *
  * Pure apart from houseBrand. */
 
@@ -35,7 +35,7 @@ export const sameBrand = (a: string | null | undefined, b: string | null | undef
 
 /** QuickStark's own name in full; any other name as given. Pure. */
 export function canonicalName(name: string): string {
-  return brandKey(name) === "quickstark" ? "QuickStark.ai" : name.trim();
+  return brandKey(name) === "quickstark" ? "QuickStark.Ai" : name.trim();
 }
 
 /**

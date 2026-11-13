@@ -8,7 +8,7 @@
  *
  * Server-only. */
 
-import { complete, providerFor, providerReady, type LlmPart } from "@/lib/ai/llm";
+import { LlmError, complete, providerFor, providerReady, sayLlmError, type LlmPart } from "@/lib/ai/llm";
 
 import { attachmentManifest, type StudioAsset } from "./assets";
 import { castManifest, type PlanCharacter } from "./cast";
@@ -50,7 +50,7 @@ RULES FOR EVERY VIDEO:
 - A scene that carries straight on from the previous one (same place, same moment, the action continuing — not a cut to somewhere else) sets "continues": true; it is then filmed from the previous scene's last frame. Set "continues": false on a scene that deliberately cuts away. Scenes sharing a character continue by default.
 - Anything else that must look the same in more than one scene (product, world, palette and type) goes in "locks" and is repeated word for word in each scene prompt that shows it.
 - engine is one of: ${spec.engines.map((e) => `"${e}"`).join(", ")}. Use "avatar" only for a person speaking to camera with a line in voiceover.
-- When the video names QuickStark itself, the name is always "QuickStark.ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
+- When the video names QuickStark itself, the name is always "QuickStark.Ai" — in every voiceover line, on-screen text, title and CTA. Never a bare "QuickStark".
 - Never depict or imitate a real, identifiable person or brand the user did not supply. No unsafe, hateful or sexual content.
 - Write in the language the answers ask for (default English).
 
@@ -201,7 +201,9 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     `IDEA:\n${input.brief.slice(0, 6000)}`,
     answers && `CHOICES:\n${answers}`,
     input.images?.length ? `REFERENCE IMAGES: ${input.images.length} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
-    input.previous ? `CURRENT PLAN (revise it, keep what works):\n${JSON.stringify(input.previous).slice(0, 12000)}` : "",
+    /* The whole plan: cut at 12,000 characters it lost every scene after the
+       first few, and a revision quietly dropped them. */
+    input.previous ? `CURRENT PLAN (revise it, keep what works, keep every scene the change does not touch):\n${JSON.stringify(input.previous).slice(0, 120_000)}` : "",
     input.note ? `CHANGE REQUESTED:\n${input.note.slice(0, 2000)}` : "",
   ]
     .filter(Boolean)
@@ -212,21 +214,42 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     { type: "text" as const, text },
   ];
 
-  try {
-    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(systemFor(input.pipeline, input.answers)), content, 8000);
-    const raw = message.text.replace(/```json|```/g, "").trim();
-    const start = raw.indexOf("{");
-    const end = raw.lastIndexOf("}");
-    const parsed = JSON.parse(raw.slice(start, end + 1));
-    /* The cast is the person's, never the model's: it is set here, and only
-       the scene tags the model wrote are read against it. */
-    parsed.characters = input.characters ?? [];
-    const { plan, issues } = qaAndRepair(normalizePlan(parsed, input.pipeline, input.answers));
-    if (plan.scenes.length === 0) return { error: "The Creative Director returned no scenes. Try again, or add more detail to your idea." };
-    return { plan, issues, outputTokens: message.outputTokens, calls: 1 };
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error("video director:", error);
-    return { error: "The Creative Director could not plan this one. Try again in a moment." };
+  /* Room for the whole plan: a revision re-writes every scene, and a 12-scene
+     plan alone is about 7,000 tokens — the old 8,000 cap cut such answers off
+     mid-JSON and the change was refused. Asked once more, shorter, when the
+     answer still cannot be read. */
+  const model = input.model || DIRECTOR_MODEL;
+  const system = withPolicy(systemFor(input.pipeline, input.answers));
+  let lastProblem = "";
+  for (const attempt of [0, 1]) {
+    try {
+      const parts: LlmPart[] = attempt === 0 ? content : [...content, { type: "text" as const, text: "Your last answer could not be read as complete JSON. Reply again with ONLY the JSON object, every scene, each field brief." }];
+      const message = await complete(model, system, parts, 20000);
+      if (message.stop === "refusal") return { error: "The Creative Director declined this request. Try rewording it." };
+      const raw = message.text.replace(/```json|```/g, "").trim();
+      const start = raw.indexOf("{");
+      const end = raw.lastIndexOf("}");
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
+      } catch {
+        lastProblem = message.stop === "max_tokens" ? "the answer ran out of room" : "the answer was not complete JSON";
+        continue;
+      }
+      /* The cast is the person's, never the model's: it is set here, and only
+         the scene tags the model wrote are read against it. */
+      parsed.characters = input.characters ?? [];
+      const { plan, issues } = qaAndRepair(normalizePlan(parsed, input.pipeline, input.answers));
+      if (plan.scenes.length === 0) return { error: "The Creative Director returned no scenes. Try again, or add more detail to your idea." };
+      return { plan, issues, outputTokens: message.outputTokens, calls: attempt + 1 };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("video director:", error);
+      if (error instanceof LlmError) return { error: `The Creative Director could not plan this one: ${sayLlmError(error)}` };
+      lastProblem = error instanceof Error ? error.message : "unknown";
+    }
   }
+  // eslint-disable-next-line no-console
+  console.error("video director: gave up —", lastProblem);
+  return { error: `The Creative Director could not plan this one (${lastProblem}). Try again, or ask for a smaller change.` };
 }
