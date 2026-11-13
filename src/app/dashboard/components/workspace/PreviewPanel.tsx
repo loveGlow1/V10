@@ -15,6 +15,7 @@ import {
   CreditCard,
   Database,
   Download,
+  Scissors,
   ExternalLink,
   AlertTriangle,
   Loader2,
@@ -615,6 +616,23 @@ export default function PreviewPanel({
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+
+  /* A video project's own editor: the Editor button in the toolbar opens it. */
+  const [videoId, setVideoId] = useState<string | null>(null);
+  useEffect(() => {
+    setVideoId(null);
+    if (!project?.id || project.intent !== "video") return;
+    let live = true;
+    fetch(`/api/video?project=${project.id}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { videos?: { id: string }[] } | null) => {
+        if (live) setVideoId(body?.videos?.[0]?.id ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [project?.id, project?.intent, project?.last_build_at]);
 
   /* A video's Sound control, from its preview board. Only the four fixed
      sound choices are relayed — words from the frame never reach the chat
@@ -2267,6 +2285,19 @@ export default function PreviewPanel({
             <RotateCw className="h-4 w-4" />
           </button>
 
+
+          {/* A video's editor — clips, timeline, music, voice — never hidden
+              behind the preview: named in full at every width. */}
+          {project?.intent === "video" && videoId ? (
+            <a
+              href={`/dashboard/video/${videoId}/edit`}
+              title="Open the video editor — media, timeline, text, transitions, filters, music and voice"
+              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/[0.10] px-3 text-[13px] font-medium text-accent transition-colors hover:bg-accent/[0.16]"
+            >
+              <Scissors className="h-4 w-4 shrink-0" />
+              Editor
+            </a>
+          ) : null}
 
           <button
             onClick={() => {
