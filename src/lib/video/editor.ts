@@ -444,12 +444,15 @@ export async function decideEdit(input: {
   /** Pictures and documents from the uploads (context-files.ts). */
   images?: string[];
   documents?: LlmPart[];
+  /** A still of every made scene, to match a screenshot to its scene (scene-stills.ts). */
+  stills?: LlmPart[];
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
   try {
     const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [
       ...(input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url })),
       ...(input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : []),
+      ...(input.stills ?? []),
       { type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 16000);
     const raw = message.text
       .replace(/```json|```/g, "")
