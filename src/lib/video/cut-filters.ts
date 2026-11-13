@@ -188,6 +188,9 @@ export function stillVideoFilter(input: {
  * 2 the voice line when there is one. The clip's own sound (when heard) at
  * its speed and level, ducked low under a voice; the voice on top. Pure.
  */
+/** A brick-wall limiter at -1 dBFS: loud mixes are rounded off, never clipped. */
+export const LIMITER = "alimiter=limit=0.89:attack=5:release=60:level=disabled";
+
 export function sceneAudioFilter(input: {
   seconds: number;
   ownSound: boolean;
@@ -207,9 +210,13 @@ export function sceneAudioFilter(input: {
   if (edges.fadeIn) fades.push(`afade=t=in:d=${Math.min(0.8, seconds / 3).toFixed(2)}`);
   const out = edges.fadeOut ? Math.min(1, seconds / 3) : edges.dip ? 0.3 : 0.03;
   fades.push(`afade=t=out:st=${Math.max(0, seconds - out).toFixed(2)}:d=${out.toFixed(2)}`);
-  const tail = `atrim=0:${seconds},${fades.join(",")}`;
+  /* Never past full scale. A voice line is already mastered loud; it was
+     boosted 1.5x and mixed over the clip's own sound, and every loud
+     syllable was clipped flat — heard as crackling. Now the voice goes in as
+     it is and a limiter rounds any peak off before it can clip. */
+  const tail = `atrim=0:${seconds},${fades.join(",")},${LIMITER}`;
   return input.hasVoice
-    ? `${bed};[2:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${(1.5 * (input.voiceLevel ?? 1)).toFixed(3)},adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]${tail}[a]`
+    ? `${bed};[2:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${(1.0 * (input.voiceLevel ?? 1)).toFixed(3)},adelay=150|150,apad[vo];[bed][vo]amix=inputs=2:duration=first:normalize=0[mix];[mix]${tail}[a]`
     : `${bed};[bed]${tail}[a]`;
 }
 
@@ -263,7 +270,10 @@ export function joinArgs(input: {
   if (!name || input.segments.length < 2) {
     return {
       list: input.segments.map((s) => `file '${s.path}'`).join("\n"),
-      args: ["-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", input.listPath, "-c", "copy", input.out],
+      /* The picture is copied; the sound is decoded and encoded once more as
+         one stream. Copying AAC segments end to end leaves each one's
+         encoder padding at the joins — a click at every cut. */
+      args: ["-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", input.listPath, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2", "-af", "aresample=async=1:first_pts=0", "-movflags", "+faststart", input.out],
       seconds: total,
     };
   }
@@ -343,10 +353,10 @@ export function musicMixArgs(input: {
     ? `[0:a]aformat=sample_rates=48000:channel_layouts=stereo,asplit=2[vo1][vo2];` +
       `[1:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${level.toFixed(3)},${fade}[m];` +
       `[m][vo1]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400[duck];` +
-      `[vo2][duck]amix=inputs=2:duration=first:normalize=0[a]`
+      `[vo2][duck]amix=inputs=2:duration=first:normalize=0,${LIMITER}[a]`
     : `[0:a]aformat=sample_rates=48000:channel_layouts=stereo[vo];` +
       `[1:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${level.toFixed(3)},${fade}[m];` +
-      `[vo][m]amix=inputs=2:duration=first:normalize=0[a]`;
+      `[vo][m]amix=inputs=2:duration=first:normalize=0,${LIMITER}[a]`;
   const start = input.start && input.start > 0 ? ["-ss", input.start.toFixed(2)] : [];
   return [
     "-nostdin", "-hide_banner", "-y", "-i", input.joined, ...(input.loop ? ["-stream_loop", "-1"] : []), ...start, "-t", seconds, "-i", input.music,

@@ -881,5 +881,14 @@ has(/if \(stalled\.current\) \{/.test(playSrc) && /v\.readyState >= 3 && !v\.see
 has(/!video\.seeking && video\.readyState >= 1 && Math\.abs\(video\.currentTime - expected\) > \(playing \? 0\.75 : 0\.12\)/.test(playSrc), "a clip is not re-seeked while it is loading or catching up");
 has(/video\.poster = seg\.posterUrl/.test(playSrc) && /ref=\{nextRef\} preload="auto"/.test(playSrc), "its still shows instead of black, and the next clip loads ahead");
 
+
+console.log("\nthe sound never clips or clicks");
+const limitedMix = CF.sceneAudioFilter({ seconds: 5, ownSound: true, hasVoice: true });
+has(/volume=1\.000,adelay/.test(limitedMix) && limitedMix.endsWith(`${CF.LIMITER}[a]`) && /alimiter=limit=0\.89/.test(CF.LIMITER), "a voice line goes in as it is (not boosted 1.5x) and a limiter keeps every scene under full scale");
+has(CF.sceneAudioFilter({ seconds: 5, ownSound: true, hasVoice: false }).endsWith(`${CF.LIMITER}[a]`), "a scene with no voice is limited too");
+const cutJoin = CF.joinArgs({ segments: [{ path: "a", seconds: 4 }, { path: "b", seconds: 5 }], transition: "cut", duration: 0.5, listPath: "l", out: "o", encoder: { preset: "veryfast", crf: 21 } }).args.join(" ");
+has(/-c:v copy -c:a aac/.test(cutJoin) && !/-c copy/.test(cutJoin), "scenes joined by a cut copy the picture but encode the sound once more — no click at every join");
+has(/go && voice\.paused/.test(playSrc) && /!go && !music\.paused/.test(playSrc), "in the editor, voice and music wait while a clip loads instead of running ahead and jumping back");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

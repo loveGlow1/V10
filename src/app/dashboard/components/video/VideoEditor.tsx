@@ -314,6 +314,10 @@ export default function VideoEditor({ id }: { id: string }) {
       loaded.current.next = upcoming.mediaUrl;
       ahead.src = upcoming.mediaUrl;
     }
+    /* Voice and music wait with the picture: left playing through a stall,
+       they ran ahead and were dragged back when it caught up — heard as
+       cracks and skips. */
+    const go = playing && !stalled.current;
     const voice = voiceRef.current;
     if (voice) {
       const url = cut?.audio === "original" || cut?.audio === "none" ? null : seg?.voiceUrl ?? null;
@@ -328,8 +332,8 @@ export default function VideoEditor({ id }: { id: string }) {
         } else {
           if (Math.abs(voice.currentTime - expected) > 0.3) voice.currentTime = expected;
           voice.volume = Math.min(1, cut?.voiceVolume ?? 1);
-          if (playing && voice.paused) void voice.play().catch(() => {});
-          if (!playing && !voice.paused) voice.pause();
+          if (go && voice.paused) void voice.play().catch(() => {});
+          if (!go && !voice.paused) voice.pause();
         }
       } else if (!voice.paused) voice.pause();
     }
@@ -344,8 +348,8 @@ export default function VideoEditor({ id }: { id: string }) {
         if (Math.abs(music.currentTime - expected) > 0.4) music.currentTime = expected;
         const spoken = Boolean(seg?.voiceUrl) && cut.audio !== "original";
         music.volume = Math.max(0, Math.min(1, cut.musicVolume * (spoken && cut.duck ? 0.18 : spoken ? 0.3 : 0.7)));
-        if (playing && music.paused) void music.play().catch(() => {});
-        if (!playing && !music.paused) music.pause();
+        if (go && music.paused) void music.play().catch(() => {});
+        if (!go && !music.paused) music.pause();
       } else if (!music.paused) music.pause();
     }
   }, [current, time, playing, cut, musicUrl, segments]);
