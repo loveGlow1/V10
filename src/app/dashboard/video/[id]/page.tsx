@@ -1303,7 +1303,7 @@ function DirectorChat(props: {
               onClick={() => void ask(quick.note)}
               disabled={busy !== null}
               /* A warm clay, like Claude's own: only these quick-ask chips. */
-              className="h-7 rounded-full border border-[#D97757]/35 bg-[#D97757]/[0.10] px-2.5 text-[12px] font-medium text-[#D97757] transition hover:border-[#D97757]/60 hover:bg-[#D97757]/[0.18] hover:text-[#E8916F] active:scale-[0.98] disabled:opacity-40"
+              className="h-7 rounded-full border border-[#E8915F]/40 bg-[#E8915F]/[0.12] px-2.5 text-[12px] font-medium text-[#F0A274] transition hover:border-[#E8915F]/70 hover:bg-[#E8915F]/[0.2] hover:text-[#F7B58C] active:scale-[0.98] disabled:opacity-40"
             >
               {quick.label}
             </button>
