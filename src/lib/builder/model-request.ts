@@ -265,13 +265,16 @@ export function generationRequest(
         {
           role: "user",
           parts: [
-            ...images.map((image) => ({
-              /* Google takes a URI reference rather than an https URL in a
-                 string field, and needs the type declared beside it. The
-                 signed URLs the app mints are JPEG or PNG; jpeg is the safe
-                 declaration for both, since it only steers the decoder. */
-              fileData: { mimeType: "image/jpeg", fileUri: image.url },
-            })),
+            ...images.map((image) => {
+              /* Gemini does not fetch an arbitrary https link, so the build
+                 route hands pictures over as data: URIs (lib/ai/llm.ts
+                 inlineImages) and they go as bytes. A link that could not be
+                 read stays a link, as before. */
+              const inline = image.url.match(/^data:([^;]+);base64,(.*)$/);
+              return inline
+                ? { inlineData: { mimeType: inline[1], data: inline[2] } }
+                : { fileData: { mimeType: "image/jpeg", fileUri: image.url } };
+            }),
             { text: user },
           ],
         },

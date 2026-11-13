@@ -17,6 +17,14 @@ if (missingSupabasePublicEnvVars.length > 0) {
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /* Whether ChatGPT and Gemini are offered in the model picker: "on" when
+     their key is set on this deployment, decided at build time so the
+     browser knows without ever seeing a key (src/app/dashboard/models.ts).
+     AI_OPENAI=off / AI_GOOGLE=off keep one switched off with its key set. */
+  env: {
+    NEXT_PUBLIC_AI_OPENAI: process.env.OPENAI_API_KEY?.trim() && process.env.AI_OPENAI !== "off" ? "on" : "",
+    NEXT_PUBLIC_AI_GOOGLE: (process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim()) && process.env.AI_GOOGLE !== "off" ? "on" : "",
+  },
   /* ffmpeg for the final cut of a video (src/lib/video/compose-local.ts).
      ffmpeg-static is a path to a binary, not code webpack can bundle, so it
      stays external and the binary is traced into the routes that run it: the

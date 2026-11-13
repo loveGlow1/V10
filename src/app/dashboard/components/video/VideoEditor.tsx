@@ -109,7 +109,7 @@ export default function VideoEditor({ id }: { id: string }) {
   const [ask, setAsk] = useState("");
   /* The AI agent that answers — the same choice as the workspace's picker,
      remembered on this device. */
-  const agents = useMemo(() => callableModels().filter((m) => isModelAvailable(m) && m.provider === "claude"), []);
+  const agents = useMemo(() => callableModels().filter((m) => isModelAvailable(m)), []);
   const [agent, setAgentRaw] = useState("auto");
   useEffect(() => {
     try {

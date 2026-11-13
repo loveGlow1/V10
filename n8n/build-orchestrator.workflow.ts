@@ -600,9 +600,10 @@ const generateWithClaude = node({
   },
 });
 
-/* CREDENTIAL: the shared "n8n free OpenAI API credits" pool, which is
-   EXHAUSTED — it returns `400 … used all your free n8n AI credits`. Attach a
-   real OpenAI key before offering GPT models to anyone. */
+/* CREDENTIAL: "OpenAI account" — an OpenAI API credential holding the same
+   key as the app's OPENAI_API_KEY. (It used to be the shared "n8n free OpenAI
+   API credits" pool, which is exhausted.) The app offers GPT models as soon
+   as OPENAI_API_KEY is set, so attach this at the same time. */
 const generateWithOpenAi = node({
   type: 'n8n-nodes-base.httpRequest',
   version: 4.5,
@@ -623,14 +624,13 @@ const generateWithOpenAi = node({
       jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
       options: { timeout: 900000 },
     },
-    credentials: { openAiApi: newCredential('n8n free OpenAI API credits') },
+    credentials: { openAiApi: newCredential('OpenAI account') },
   },
 });
 
-/* CREDENTIAL: NONE ATTACHED, and no Google credential exists on the instance.
-   A build that picks a Gemini model fails at this node and is flagged — correct
-   behaviour, but not a working one. Create a Google Gemini (PaLM) credential
-   from an AI Studio key and attach it.
+/* CREDENTIAL: "Google Gemini account" — a Google Gemini (PaLM) API credential
+   holding the same AI Studio key as the app's GEMINI_API_KEY. The app offers
+   Gemini models as soon as that key is set, so attach this at the same time.
 
    The wire model id rides in the URL path for Google rather than in the body,
    which is the other reason the URL comes from the app rather than being fixed
@@ -655,6 +655,7 @@ const generateWithGemini = node({
       jsonBody: expr('{{ JSON.stringify($("Normalize Build Request").item.json.generationBody) }}'),
       options: { timeout: 900000 },
     },
+    credentials: { googlePalmApi: newCredential('Google Gemini account') },
   },
 });
 

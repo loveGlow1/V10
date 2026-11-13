@@ -8,7 +8,7 @@
  *
  * Server-only. */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { complete, providerFor, providerReady, type LlmPart } from "@/lib/ai/llm";
 
 import { attachmentManifest, type StudioAsset } from "./assets";
 import { castManifest, type PlanCharacter } from "./cast";
@@ -106,13 +106,10 @@ function readJson(raw: string): Record<string, unknown> {
   return JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as Record<string, unknown>;
 }
 
-async function ask(model: string, system: string, content: Anthropic.MessageParam["content"], maxTokens: number): Promise<{ json: Record<string, unknown>; outputTokens: number }> {
-  const message = await new Anthropic().messages.create({ model, max_tokens: maxTokens, system: withPolicy(system), messages: [{ role: "user", content }] });
-  const raw = message.content
-    .filter((block): block is Anthropic.TextBlock => block.type === "text")
-    .map((block) => block.text)
-    .join("");
-  return { json: readJson(raw), outputTokens: message.usage.output_tokens };
+/* Any model picked in the workspace — Claude, ChatGPT or Gemini (lib/ai/llm.ts). */
+async function ask(model: string, system: string, content: LlmPart[], maxTokens: number): Promise<{ json: Record<string, unknown>; outputTokens: number }> {
+  const answer = await complete(model, withPolicy(system), content, maxTokens);
+  return { json: readJson(answer.text), outputTokens: answer.outputTokens };
 }
 
 type Outline = { title?: string; summary?: string; seconds?: number; setting?: string; characters?: string[]; opens?: string; ends?: string };
@@ -134,7 +131,7 @@ async function directFilm(input: DirectorInput, target: number): Promise<Directe
   ]
     .filter(Boolean)
     .join("\n\n");
-  const images = (input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, source: { type: "url" as const, url } }));
+  const images: LlmPart[] = (input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, url }));
 
   const outlineSystem = `${systemFor(input.pipeline, input.answers)}
 
@@ -193,7 +190,7 @@ Write only THIS chapter: ${chapter.summary ?? ""}. Its scenes add up to ${length
 }
 
 export async function direct(input: DirectorInput): Promise<Directed | { error: string }> {
-  if (!process.env.ANTHROPIC_API_KEY) return { error: "The Creative Director is not configured on this server." };
+  if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The Creative Director is not configured on this server for that model." };
   const target = secondsFrom(input.answers.length);
   if (target > LONG_PLAN_SECONDS) return directFilm(input, target);
 
@@ -210,24 +207,14 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     .filter(Boolean)
     .join("\n\n");
 
-  const content: Anthropic.MessageParam["content"] = [
-    ...(input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, source: { type: "url" as const, url } })),
+  const content: LlmPart[] = [
+    ...(input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, url })),
     { type: "text" as const, text },
   ];
 
   try {
-    const message = await new Anthropic().messages.create({
-      model: input.model || DIRECTOR_MODEL,
-      max_tokens: 8000,
-      system: withPolicy(systemFor(input.pipeline, input.answers)),
-      messages: [{ role: "user", content }],
-    });
-    const raw = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("")
-      .replace(/```json|```/g, "")
-      .trim();
+    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(systemFor(input.pipeline, input.answers)), content, 8000);
+    const raw = message.text.replace(/```json|```/g, "").trim();
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
     const parsed = JSON.parse(raw.slice(start, end + 1));
@@ -236,7 +223,7 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     parsed.characters = input.characters ?? [];
     const { plan, issues } = qaAndRepair(normalizePlan(parsed, input.pipeline, input.answers));
     if (plan.scenes.length === 0) return { error: "The Creative Director returned no scenes. Try again, or add more detail to your idea." };
-    return { plan, issues, outputTokens: message.usage.output_tokens, calls: 1 };
+    return { plan, issues, outputTokens: message.outputTokens, calls: 1 };
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error("video director:", error);

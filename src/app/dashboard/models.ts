@@ -143,6 +143,12 @@ export type Model = {
   refusalFallback?: boolean;
 };
 
+/* Whether OpenAI and Google are connected: decided when the app is built,
+   from whether their keys are set (next.config.mjs), so the browser's picker
+   and the server agree without the keys ever leaving the server. */
+const OPENAI_ON = process.env.NEXT_PUBLIC_AI_OPENAI === "on";
+const GOOGLE_ON = process.env.NEXT_PUBLIC_AI_GOOGLE === "on";
+
 /** What the picker shows against a model this deployment cannot reach yet. */
 export const UNAVAILABLE_LABEL = "Check back soon";
 
@@ -271,65 +277,90 @@ export const MODELS: Model[] = [
     contextWindow: 200_000,
   },
 
-  // ChatGPT
+  // ChatGPT — on once OPENAI_API_KEY is set (next.config.mjs turns that into
+  // NEXT_PUBLIC_AI_OPENAI at build time; the key itself never reaches the
+  // browser). Answered through lib/ai/llm.ts in the app, and through n8n's
+  // OpenAI credential for full builds. Multipliers from published prices
+  // against Sonnet 5's $2/$10, rounded up.
   {
     id: "gpt-5",
     name: "GPT-5",
-    /* No usable credential on the n8n instance: OpenAI is on the exhausted
-       shared free pool, Google has none at all. */
-    available: false,
+    available: OPENAI_ON,
     blurb: "OpenAI's flagship for complex work",
     provider: "openai",
+    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
+    minPlan: "standard",
     apiId: "gpt-5",
+    /* $1.25/$10 per Mtok: the default's price. */
+    creditMultiplier: 1,
     maxOutput: 64000,
+    contextWindow: 400_000,
   },
   {
     id: "gpt-5-mini",
     name: "GPT-5 mini",
-    /* No usable credential on the n8n instance: OpenAI is on the exhausted
-       shared free pool, Google has none at all. */
-    available: false,
+    available: OPENAI_ON,
     blurb: "Cheaper, for everyday changes",
     provider: "openai",
+    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
+    minPlan: "standard",
     apiId: "gpt-5-mini",
+    /* $0.25/$2 per Mtok. */
+    creditMultiplier: 0.25,
+    note: "0.25x credits",
     maxOutput: 64000,
+    contextWindow: 400_000,
   },
   {
     id: "gpt-5-nano",
     name: "GPT-5 nano",
-    /* No usable credential on the n8n instance: OpenAI is on the exhausted
-       shared free pool, Google has none at all. */
-    available: false,
+    available: OPENAI_ON,
     blurb: "Cheapest, for small mechanical edits",
     provider: "openai",
+    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
+    minPlan: "standard",
     apiId: "gpt-5-nano",
+    /* $0.05/$0.40 per Mtok; held at the floor. */
+    creditMultiplier: 0.25,
+    note: "0.25x credits",
     /* The one model deliberately below the floor: it is here for small
        mechanical edits, not for writing a page. */
     maxOutput: 32000,
+    contextWindow: 400_000,
   },
 
-  // Gemini
+  // Gemini — on once GEMINI_API_KEY (or GOOGLE_API_KEY) is set; see ChatGPT above.
   {
     id: "gemini-3-pro",
     name: "Gemini 3 Pro",
-    /* No usable credential on the n8n instance: OpenAI is on the exhausted
-       shared free pool, Google has none at all. */
-    available: false,
+    available: GOOGLE_ON,
     blurb: "Google's flagship, strong over long context",
     provider: "google",
+    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
+    minPlan: "standard",
+    /* If Google publishes it under another name (e.g. a -preview suffix),
+       set MODEL_ID_GEMINI_3_PRO on the server — lib/ai/llm.ts wireId. */
     apiId: "gemini-3-pro",
+    /* $2/$12 per Mtok, thinking billed as output: rounded up. */
+    creditMultiplier: 1.5,
+    note: "1.5x credits",
     maxOutput: 64000,
+    contextWindow: 1_000_000,
   },
   {
     id: "gemini-2-5-flash",
     name: "Gemini 2.5 Flash",
-    /* No usable credential on the n8n instance: OpenAI is on the exhausted
-       shared free pool, Google has none at all. */
-    available: false,
+    available: GOOGLE_ON,
     blurb: "Fast and inexpensive",
     provider: "google",
+    /* Free accounts keep to Haiku and Sonnet; every paid plan reaches every model. */
+    minPlan: "standard",
     apiId: "gemini-2.5-flash",
+    /* $0.30/$2.50 per Mtok, thinking billed as output. */
+    creditMultiplier: 0.5,
+    note: "0.5x credits",
     maxOutput: 64000,
+    contextWindow: 1_000_000,
   },
 ];
 
