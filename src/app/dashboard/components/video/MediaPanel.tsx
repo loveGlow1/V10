@@ -10,7 +10,7 @@
  * starts where it ends; a sound file can be the music. */
 
 import { useRef, useState } from "react";
-import { Check, FastForward, Film, Image as ImageIcon, Loader2, Music, Palette, Plus, Upload, X } from "lucide-react";
+import { Check, FastForward, FileText, Film, Image as ImageIcon, Loader2, Music, Palette, Plus, Upload, X } from "lucide-react";
 
 import { ACCEPT_ATTRIBUTE, formatSeconds, handles, type StudioAsset } from "@/lib/video/assets";
 import { uploadStudioFile } from "@/lib/video/upload-client";
@@ -22,18 +22,19 @@ type Sending = { key: string; name: string; progress: number };
 /** What a library tile carries when it is dragged onto the timeline. */
 export const ASSET_DRAG = "application/x-quickstark-asset";
 
-type Category = "all" | "video" | "audio" | "images" | "made";
+type Category = "all" | "video" | "audio" | "images" | "docs" | "made";
 const CATEGORIES: [Category, string][] = [
   ["all", "All"],
   ["video", "Video"],
   ["audio", "Audio"],
   ["images", "Pictures"],
+  ["docs", "Docs"],
   ["made", "Made here"],
 ];
 /* Sound made in the editor (voice lines, music) is "made here"; the rest is
    sorted by kind. */
 const categoryOf = (asset: PanelAsset): Exclude<Category, "all"> =>
-  asset.source === "generated" ? "made" : asset.kind === "video" ? "video" : asset.kind === "audio" ? "audio" : "images";
+  asset.source === "generated" ? "made" : asset.kind === "video" ? "video" : asset.kind === "audio" ? "audio" : asset.kind === "document" ? "docs" : "images";
 
 export default function MediaPanel({
   videoId,
@@ -118,6 +119,7 @@ export default function MediaPanel({
       video: shown.filter((a) => categoryOf(a) === "video").length,
       audio: shown.filter((a) => categoryOf(a) === "audio").length,
       images: shown.filter((a) => categoryOf(a) === "images").length,
+      docs: shown.filter((a) => categoryOf(a) === "docs").length,
       made: shown.filter((a) => categoryOf(a) === "made").length,
     };
     const visible = shown.filter((a) => category === "all" || categoryOf(a) === category);
@@ -194,8 +196,8 @@ export default function MediaPanel({
           ) : (
             <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
               {visible.map((asset) => {
-                const Icon = asset.kind === "video" ? Film : asset.kind === "audio" ? Music : ImageIcon;
-                const visual = asset.kind !== "audio";
+                const Icon = asset.kind === "video" ? Film : asset.kind === "audio" ? Music : asset.kind === "document" ? FileText : ImageIcon;
+                const visual = asset.kind !== "audio" && asset.kind !== "document";
                 const used = inTimeline.has(asset.id);
                 const isMusic = musicAssetId === asset.id;
                 const ready = asset.status !== "failed";
@@ -304,7 +306,7 @@ export default function MediaPanel({
           {children}
         </div>
       </div>
-      <p className="mt-1 text-[11.5px] text-muted">Videos (MP4, MOV, WebM) up to 400 MB and an hour · sound (MP3, WAV, M4A) up to 50 MB · pictures (PNG, JPG, WebP). Drop files here.</p>
+      <p className="mt-1 text-[11.5px] text-muted">Videos (MP4, MOV, WebM) up to 400 MB and an hour · sound (MP3, WAV, M4A) up to 50 MB · pictures (PNG, JPG, WebP) · documents the director reads (PDF, TXT, MD) up to 10 MB. Drop files here.</p>
 
       {sending.map((entry) => (
         <div key={entry.key} className="mt-2.5">
@@ -324,10 +326,10 @@ export default function MediaPanel({
       {shown.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-2">
           {shown.map((asset) => {
-            const Icon = asset.kind === "video" ? Film : asset.kind === "audio" ? Music : ImageIcon;
+            const Icon = asset.kind === "video" ? Film : asset.kind === "audio" ? Music : asset.kind === "document" ? FileText : ImageIcon;
             const used = inTimeline.has(asset.id);
             const isMusic = musicAssetId === asset.id;
-            const visual = asset.kind === "video" || (asset.kind !== "audio");
+            const visual = asset.kind === "video" || (asset.kind !== "audio" && asset.kind !== "document");
             return (
               <li key={asset.id} className="flex max-w-full items-center gap-2 rounded-[12px] border border-line/[0.1] bg-layer/[0.03] py-1.5 pl-1.5 pr-2">
                 <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-layer/[0.08] text-soft">

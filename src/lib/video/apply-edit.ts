@@ -30,6 +30,7 @@ import { advance, startMusic } from "./production";
 import { startRender } from "./start-render";
 import type { StudioAsset } from "./assets";
 import { loadStudioAssets } from "./plan-video";
+import { contextFiles } from "./context-files";
 import { agentCost, videoAgentFor } from "./agent";
 import { cutCost, wantsMusic } from "./engines";
 import { creditsLabel } from "./pricing";
@@ -92,7 +93,8 @@ export async function editVideo(input: {
   const made = plan.scenes.map((scene) => ({ scene: scene.n, clip: Boolean(done(scene.n, "video") || done(scene.n, "avatar")), voice: Boolean(done(scene.n, "voice")) }));
   const uploads = await loadStudioAssets(input.writer, input.videoId);
   const agent = await videoAgentFor(input.writer, input.userId, input.model);
-  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId });
+  const context = await contextFiles(input.writer, uploads, plan.referenceClips ?? []);
+  const decided = await decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context });
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (decided.edit.replan) return null;
   const result = await commitEdit({ ...input, ...loaded, edit: decided.edit, uploads, charge: agentCost(EDIT_COST, agent), outputTokens: decided.outputTokens });

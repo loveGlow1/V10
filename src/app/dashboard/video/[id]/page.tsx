@@ -13,10 +13,11 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, Loader2, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Download, Loader2, Paperclip, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
-import { formatSeconds } from "@/lib/video/assets";
+import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
+import { uploadStudioFile } from "@/lib/video/upload-client";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
@@ -315,7 +316,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
         {!data.latest && pipeline.needsReference && (
           <button
             onClick={() => void plan(pipeline.needsReference === "clips" ? { stitch: true } : {})}
-            disabled={busy !== null || (pipeline.needsReference === "clips" && !data.assets.some((asset) => asset.status !== "failed" && asset.kind !== "audio" && asset.kind !== "render"))}
+            disabled={busy !== null || (pipeline.needsReference === "clips" && !data.assets.some((asset) => asset.status !== "failed" && asset.kind !== "audio" && asset.kind !== "render" && asset.kind !== "document"))}
             className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50"
           >
             {busy === "plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : pipeline.needsReference === "clips" ? <Scissors className="h-4 w-4" /> : <Wand2 className="h-4 w-4" />}
@@ -422,6 +423,8 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             onRender={() => void render()}
             canRender={!dirty && status !== "rendering"}
             cost={data.cost}
+            videoId={id}
+            onUploaded={() => void load(true)}
           />
 
           <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-2">
@@ -959,8 +962,32 @@ function DirectorChat(props: {
   onRender: () => void;
   canRender: boolean;
   cost: number;
+  /** For the paperclip: files go into this video's media, which the director reads. */
+  videoId: string;
+  onUploaded: () => void;
 }) {
   const { versions, current, busy, note, setNote, onAsk } = props;
+  /* Files attached to this message: uploaded into the video's media, and
+     named in the message so the director knows they are for this change. */
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [attached, setAttached] = useState<{ name: string; handle: string }[]>([]);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const attach = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setAttachError(null);
+    for (const file of Array.from(files).slice(0, 9)) {
+      setUploading(file.name);
+      const result = await uploadStudioFile(props.videoId, file);
+      if (!result.ok) {
+        setAttachError(result.error);
+        continue;
+      }
+      setAttached((list) => [...list, { name: file.name, handle: handleFor(file.name) }]);
+    }
+    setUploading(null);
+    props.onUploaded();
+  };
   const end = useRef<HTMLDivElement>(null);
   const turns = [...versions].reverse();
   const failure = props.status !== "rendering" ? renderFailure(props.renders) : null;
@@ -971,8 +998,10 @@ function DirectorChat(props: {
 
   const send = () => {
     const text = note.trim();
-    if (!text || busy !== null) return;
-    onAsk(text);
+    if ((!text && !attached.length) || busy !== null || uploading) return;
+    const files = attached.length ? `\n\nUse the files I attached for this: ${attached.map((a) => a.handle).join(", ")}.` : "";
+    onAsk(`${text || "Use the files I attached."}${files}`);
+    setAttached([]);
   };
 
   return (
@@ -1025,7 +1054,30 @@ function DirectorChat(props: {
             </button>
           ))}
         </div>
+        {(attached.length > 0 || uploading || attachError) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {attached.map((a) => (
+              <span key={a.handle} className="flex h-7 max-w-[220px] items-center gap-1 rounded-full border border-line/[0.1] bg-layer/[0.04] pl-2.5 pr-1 text-[11.5px] text-ink" title={a.name}>
+                <span className="truncate">{a.handle}</span>
+                <button type="button" onClick={() => setAttached((list) => list.filter((x) => x.handle !== a.handle))} aria-label={`Don't use ${a.name} for this change`} className="flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-ink"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+            {uploading && <span className="flex items-center gap-1 text-[11.5px] text-muted"><Loader2 className="h-3 w-3 animate-spin" /> {uploading}</span>}
+            {attachError && <span role="alert" className="text-[11.5px] text-danger">{attachError}</span>}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-2xl border border-line/[0.1] bg-layer/[0.03] p-2 focus-within:border-line/[0.25]">
+          <input ref={fileInput} type="file" multiple accept={ACCEPT_ATTRIBUTE} className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy !== null || Boolean(uploading)}
+            aria-label="Attach pictures, clips, sound or documents"
+            title="Attach pictures, clips, sound or documents (PDF, TXT, MD) — they go into this video's media and the Director uses them"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-soft hover:bg-layer/[0.08] hover:text-ink disabled:opacity-40"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
           <textarea
             rows={2}
             value={note}
@@ -1042,7 +1094,7 @@ function DirectorChat(props: {
           <button
             type="button"
             onClick={send}
-            disabled={busy !== null || !note.trim()}
+            disabled={busy !== null || Boolean(uploading) || (!note.trim() && !attached.length)}
             aria-label="Send"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-solid text-onSolid disabled:opacity-40"
           >

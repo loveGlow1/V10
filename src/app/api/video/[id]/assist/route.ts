@@ -18,6 +18,7 @@ import { isPipelineId } from "@/lib/video/pipelines";
 import { normalizePlan, qaAndRepair } from "@/lib/video/plan";
 import { keepKnownCast, keepKnownSources, loadCast, loadStudioAssets } from "@/lib/video/plan-video";
 import { agentCost, videoAgentFor } from "@/lib/video/agent";
+import { contextFiles } from "@/lib/video/context-files";
 
 import { videoSession } from "../../shared";
 
@@ -57,7 +58,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     clip: Boolean(scene.source) || (rows ?? []).some((r) => r.scene === scene.n && (r.engine === "video" || r.engine === "avatar") && r.status === "done"),
     voice: Boolean(scene.voiceAsset) || (rows ?? []).some((r) => r.scene === scene.n && r.engine === "voice" && r.status === "done"),
   }));
-  const decided = await decideEdit({ plan, made, instruction, assets: uploads, model: agent.apiId });
+  const files = await contextFiles(supabase, uploads, plan.referenceClips ?? []);
+  const decided = await decideEdit({ plan, made, instruction, assets: uploads, model: agent.apiId, ...files });
   if ("error" in decided) return NextResponse.json({ error: `${decided.error} Nothing was charged.` }, { status: 502 });
   if (service) {
     await chargeCredits(service, { userId, action: "generate", cost, description: `Video AI editor (${agent.name}): ${video.title}`, outputTokens: decided.outputTokens, dedupeKey: `video-assist:${id}:${Date.now()}` });

@@ -39,7 +39,7 @@ export async function lookFrames(service: SupabaseClient, plan: Pick<ProductionP
     if (asset.kind === "video") {
       const frames = Array.isArray((asset.analysis as { frames?: unknown } | null)?.frames) ? ((asset.analysis as { frames: unknown[] }).frames.filter((f) => typeof f === "string") as string[]) : [];
       paths.push(...pickFrames(frames, ids.length === 1 ? room : 1));
-    } else if (asset.kind !== "audio") {
+    } else if (asset.kind !== "audio" && asset.kind !== "document") {
       paths.push(asset.storage_path as string);
     }
   }

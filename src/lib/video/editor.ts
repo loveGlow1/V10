@@ -21,7 +21,8 @@
  *
  * The model call is server-only; everything else here is pure. */
 
-import { complete, providerFor, providerReady } from "@/lib/ai/llm";
+import { complete, providerFor, providerReady, type LlmPart } from "@/lib/ai/llm";
+import { DOCUMENTS_NOTE, MAX_CONTEXT_PICTURES } from "./context-files";
 
 import { withPolicy } from "@/lib/safety/policy";
 
@@ -185,7 +186,7 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
   /* Uploads put in: a new scene each (numbered 0 until renumbered, so
      nothing carries into it but the upload itself). */
   for (const entry of edit.add ?? []) {
-    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio");
+    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio" && a.kind !== "document");
     if (!asset) continue;
     const scene = { ...sceneFromAsset(asset as StudioAsset, 0) };
     const at = entry.after === undefined ? -1 : ordered.findIndex((s) => s.n === entry.after);
@@ -214,7 +215,7 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
 
   /* "Continue my clip": a new scene right after it that starts on its last frame. */
   for (const entry of edit.continueFrom ?? []) {
-    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio");
+    const asset = uploads.find((a) => a.id === entry.assetId && a.status !== "failed" && a.kind !== "audio" && a.kind !== "document");
     if (!asset) continue;
     let at = -1;
     for (let i = ordered.length - 1; i >= 0; i -= 1) if (ordered[i].source?.assetId === asset.id) { at = i; break; }
@@ -303,7 +304,7 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
   }
   /* The look: only uploads that are really there. */
   if (edit.look) {
-    const known = edit.look.filter((id) => uploads.some((a) => a.id === id && a.status !== "failed" && a.kind !== "audio"));
+    const known = edit.look.filter((id) => uploads.some((a) => a.id === id && a.status !== "failed" && a.kind !== "audio" && a.kind !== "document"));
     if (known.length) next.referenceClips = known;
     else delete next.referenceClips;
   }
@@ -434,10 +435,16 @@ export async function decideEdit(input: {
   assets?: StudioAsset[];
   /** The model that edits (agent.ts); the studio's default otherwise. */
   model?: string;
+  /** Pictures and documents from the uploads (context-files.ts). */
+  images?: string[];
+  documents?: LlmPart[];
 }): Promise<{ edit: Edit; outputTokens: number } | { error: string }> {
   if (!providerReady(providerFor(input.model || DIRECTOR_MODEL))) return { error: "The video editor is not configured on this server for that model." };
   try {
-    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [{ type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 16000);
+    const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [
+      ...(input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url })),
+      ...(input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : []),
+      { type: "text", text: `${attachmentManifest(input.assets ?? [])}\n\n${castManifest(input.plan.characters ?? [])}\n\n${editorBrief(input.plan, input.made)}\n\nTHE PERSON ASKS:\n${input.instruction.slice(0, 2000)}` }], 16000);
     const raw = message.text
       .replace(/```json|```/g, "")
       .trim();

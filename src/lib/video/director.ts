@@ -8,6 +8,7 @@
  *
  * Server-only. */
 
+import { DOCUMENTS_NOTE, MAX_CONTEXT_PICTURES } from "./context-files";
 import { LlmError, complete, providerFor, providerReady, sayLlmError, type LlmPart } from "@/lib/ai/llm";
 
 import { attachmentManifest, type StudioAsset } from "./assets";
@@ -64,8 +65,10 @@ export type DirectorInput = {
   pipeline: PipelineId;
   brief: string;
   answers: Record<string, string>;
-  /** Signed URLs of reference images (product, person, photo) and clip posters, at most three. */
+  /** Signed URLs of reference images (product, person, photo) and clip posters, at most nine. */
   images?: string[];
+  /** The person's documents — a script, a brand guide, a brief — read in full (context-files.ts). */
+  documents?: LlmPart[];
   /** Everything the person uploaded: the ATTACHMENTS block is made from it. */
   assets?: StudioAsset[];
   /** The cast, locked: the CHARACTERS block is made from it. */
@@ -131,7 +134,10 @@ async function directFilm(input: DirectorInput, target: number): Promise<Directe
   ]
     .filter(Boolean)
     .join("\n\n");
-  const images: LlmPart[] = (input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, url }));
+  const images: LlmPart[] = (input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url }));
+  /* Documents go with the outline and with every chapter: a script's lines
+     are needed where each chapter is written. */
+  const documents: LlmPart[] = input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : [];
 
   const outlineSystem = `${systemFor(input.pipeline, input.answers)}
 
@@ -142,7 +148,7 @@ THIS IS A LONG FILM of ${Math.round(target / 60)} minutes. Do not write scenes y
   let outline: Record<string, unknown>;
   let outputTokens = 0;
   try {
-    const answer = await ask(model, outlineSystem, [...images, { type: "text" as const, text: shared }], 8000);
+    const answer = await ask(model, outlineSystem, [...images, ...documents, { type: "text" as const, text: shared }], 8000);
     outline = answer.json;
     outputTokens += answer.outputTokens;
   } catch (error) {
@@ -169,7 +175,7 @@ ${i > 0 ? `The chapter before ends on: ${chapters[i - 1].ends ?? chapters[i - 1]
 ${i < chapters.length - 1 ? `The next chapter opens on: ${chapters[i + 1].opens ?? chapters[i + 1].summary ?? ""}. End so it follows naturally.` : "This chapter ends the film: land the ending and the final image."}
 Write only THIS chapter: ${chapter.summary ?? ""}. Its scenes add up to ${lengths[i]} seconds. Keep each field brief (a motionPrompt under 60 words). Reply with ONLY raw JSON: {"scenes":[...]} in the scene shape above.`;
       try {
-        const answer = await ask(model, system, [{ type: "text" as const, text: shared }], 12000);
+        const answer = await ask(model, system, [...documents, { type: "text" as const, text: shared }], 12000);
         return { scenes: Array.isArray(answer.json.scenes) ? (answer.json.scenes as unknown[]) : [], outputTokens: answer.outputTokens };
       } catch (error) {
         // eslint-disable-next-line no-console
@@ -200,7 +206,7 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     castManifest(input.characters ?? []),
     `IDEA:\n${input.brief.slice(0, 6000)}`,
     answers && `CHOICES:\n${answers}`,
-    input.images?.length ? `REFERENCE IMAGES: ${input.images.length} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
+    input.images?.length ? `REFERENCE IMAGES: ${Math.min(input.images.length, MAX_CONTEXT_PICTURES)} attached (reference pictures, and a frame from each uploaded clip). Describe what must stay consistent from them in "locks".` : "",
     /* The whole plan: cut at 12,000 characters it lost every scene after the
        first few, and a revision quietly dropped them. */
     input.previous ? `CURRENT PLAN (revise it, keep what works, keep every scene the change does not touch):\n${JSON.stringify(input.previous).slice(0, 120_000)}` : "",
@@ -210,7 +216,8 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
     .join("\n\n");
 
   const content: LlmPart[] = [
-    ...(input.images ?? []).slice(0, 3).map((url) => ({ type: "image" as const, url })),
+    ...(input.images ?? []).slice(0, MAX_CONTEXT_PICTURES).map((url) => ({ type: "image" as const, url })),
+    ...(input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : []),
     { type: "text" as const, text },
   ];
 
