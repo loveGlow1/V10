@@ -972,5 +972,11 @@ has(/line-clamp-2 break-words/.test(stSrc) && /flex w-full items-center gap-2 sm
 has(/box\.scrollTop = box\.scrollHeight/.test(stSrc) && !/scrollIntoView\(\{ block: "nearest" \}\)/.test(stSrc) && /Show \{earlier\.length - 3\} earlier/.test(stSrc), "opening the studio never jumps the page to the chat; old versions fold away");
 has(/\.qs-studio select,/.test(cssSrc) && /font-size: 16px/.test(cssSrc) && /qs-studio relative/.test(stSrc) && /qs-studio relative/.test(veSrc3), "every field in the studio and editor is 16px on a phone, so iOS never zooms in");
 
+{
+  const edB = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
+  const apB = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+  has(/if \(attempt > 0 && Date\.now\(\) - began > EDIT_RETRY_BUDGET_MS\) break;/.test(edB) && /Date\.now\(\) - askedAt > EDIT_RETRY_BUDGET_MS \? decided : await ask\(/.test(apB), "the editor's retries stay inside the request's time, so a slow model ends in a sentence, not a timeout");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

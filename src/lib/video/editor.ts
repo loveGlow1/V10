@@ -507,6 +507,9 @@ Reply with ONLY raw JSON, no markdown:
 {"reply":"","replan":false,"cut":{"audio":"voiceover|original|mix|none","captions":true,"endCard":"","muted":[]},"scenes":[{"n":1,"action":"keep|refilm|revoice|remove|duplicate|split","at":2.5,"motionPrompt":"","voiceover":"","onScreenText":"","duration":5,"voiceId":"","characters":[],"trimStart":0,"trimEnd":8,"speed":1,"volume":1,"color":"warm","continues":true}],"order":[1,2,3],"add":[{"assetId":"","after":1}],"continueFrom":[{"assetId":"","prompt":"","seconds":6}],"look":[],"aspect":"9:16","title":"","music":""}
 Omit any field you are not changing.`;
 
+/** After this long, a failed try is not followed by another. */
+export const EDIT_RETRY_BUDGET_MS = 110_000;
+
 /** Asks the editor model for the edits an instruction needs. Server-only. */
 export async function decideEdit(input: {
   plan: ProductionPlan;
@@ -546,7 +549,12 @@ export async function decideEdit(input: {
   let outputTokens = 0;
   let nudge = input.nudge ?? "";
   let lastError: unknown = null;
+  /* Within the time a request has (300s): a slow first answer leaves no room
+     for another, and running out mid-call would end in a bare timeout
+     instead of a sentence the person can read. */
+  const began = Date.now();
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0 && Date.now() - began > EDIT_RETRY_BUDGET_MS) break;
     try {
       const message = await complete(input.model || DIRECTOR_MODEL, withPolicy(SYSTEM), [...context, { type: "text", text: nudge ? `${brief}\n\n${nudge}` : brief }], 32000);
       outputTokens += message.outputTokens;
