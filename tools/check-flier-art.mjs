@@ -22,7 +22,7 @@ writeFileSync(config, JSON.stringify({
     skipLibCheck: true, strict: true, types: ["node"], typeRoots: [join(root, "node_modules", "@types")],
     baseUrl: root, paths: { "@/*": ["src/*"] },
   },
-  files: [join(root, "src/lib/flyers/art.ts"), join(root, "src/lib/flyers/fit.ts"), join(root, "src/lib/flyers/router.ts")],
+  files: [join(root, "src/lib/flyers/art.ts"), join(root, "src/lib/flyers/fit.ts"), join(root, "src/lib/flyers/router.ts"), join(root, "src/lib/flyers/type-styles.ts")],
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -43,6 +43,7 @@ writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
 const A = await import(join(out, "lib/flyers/art.js"));
 const Fit = await import(join(out, "lib/flyers/fit.js"));
 const Router = await import(join(out, "lib/flyers/router.js"));
+const TS = await import(join(out, "lib/flyers/type-styles.js"));
 
 let failed = 0;
 const has = (cond, t, d) => {
@@ -188,6 +189,17 @@ const pthumb = readFileSync(join(root, "src/app/dashboard/components/PageThumbna
 has(/MEDIA_INTENTS\.has\(props\.intent\) \? <MediaCover/.test(pthumb) && /intent=\{project\.intent\}/.test(homeList), "a flier or video tile under Continue working shows its own picture");
 has(/project\.intent === "flier"[\s\S]{0,500}liveOutputs\(job\.outputs\)/.test(cover) && /project\.intent === "video"[\s\S]{0,900}\.eq\("status", "done"\)/.test(cover), "the newest flier image; a video's first landed clip, else its still");
 has(/createSupabaseServerClient/.test(cover) && !/createSupabaseServiceClient/.test(cover), "read under the owner's session only");
+console.log("\ntype styles and layouts");
+has(TS.TYPE_STYLE_IDS.length === 10 && TS.TYPE_STYLE_IDS.every((id) => TS.TYPE_STYLES[id].heading.family && TS.TYPE_STYLES[id].body.family) && new Set(TS.TYPE_STYLE_IDS.map((id) => TS.TYPE_STYLES[id].heading.family)).size === 10, "ten type styles, each a headline and body pair, no two alike");
+has(TS.typeStyleFor({ vibe: "luxury gala dinner" }).id === "elegant" && TS.typeStyleFor({ vibe: "mega sale, bold" }).id === "bold" && TS.typeStyleFor({ vibe: "kids birthday party" }).id === "playful" && TS.typeStyleFor({ vibe: "nightclub, neon" }).id === "neon" && TS.typeStyleFor({ vibe: "wedding" }).id === "romantic" && TS.typeStyleFor({ vibe: "" }).id === "modern", "the style is read from the vibe; nothing to go on is modern");
+has(TS.typeStyleFor({ typeStyle: "retro", vibe: "luxury" }).id === "retro" && TS.typeStyleFor({ headingFont: "Anton" }).id === "bold" && TS.typeStyleFor({ typeStyle: "nonsense", vibe: "" }).id === "modern", "an asked-for style wins, a known heading font picks its style, an unknown one is ignored");
+has(TS.layoutFor(TS.TYPE_STYLES.bold, undefined) === "band" && TS.layoutFor(TS.TYPE_STYLES.elegant, undefined) === "center" && TS.layoutFor(TS.TYPE_STYLES.modern, "top") === "top" && TS.layoutFor(TS.TYPE_STYLES.modern, "sideways") === "bottom", "each style has its own layout; an asked-for layout wins; a made-up one is ignored");
+has(/latin-800-normal\.ttf$/.test(TS.fontUrl(TS.TYPE_STYLES.neon.heading)) && /fontsource\/fonts\/unbounded@latest/.test(TS.fontUrl(TS.TYPE_STYLES.neon.heading)), "fonts are TTF files the renderer can read");
+has(/upper third/.test(TS.calmSpace("top", false)) && /colour band/.test(TS.calmSpace("band", false)) && /left half/.test(TS.calmSpace("center", true)), "the picture leaves calm space where the layout puts the words");
+const typesetSrc = readFileSync(join(root, "src/lib/flyers/typeset.tsx"), "utf8");
+const flierBrief = readFileSync(join(root, "src/lib/flyers/brief.ts"), "utf8");
+has(/typeStyleFor\(/.test(typesetSrc) && /layout === "band"/.test(typesetSrc) && /layout === "center"/.test(typesetSrc) && /name: "Head"/.test(typesetSrc) && /name: "Body"/.test(typesetSrc), "the typesetter sets the style's own faces in all four layouts");
+has(/"type":"modern \| elegant \| bold/.test(flierBrief) && /"layout":"bottom \| top \| center \| band/.test(briefSrc) && /isTypeStyle\(parsed\.type\)/.test(flierBrief) && /isLayout\(parsed\.layout\)/.test(flierBrief), "the brief's model chooses the type style and layout, on a new flier and on a change");
 rmSync(out, { recursive: true, force: true });
 console.log(failed ? `\n${failed} failed.` : "\nAll flier art checks passed.");
 process.exit(failed ? 1 : 0);

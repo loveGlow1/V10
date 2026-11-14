@@ -313,7 +313,7 @@ Changed: a bolder mark with a single vertical stroke.`;
   has(/if \(await agentBusy\(service, owned\.projectId\)\)/.test(route3) && /code: "agent_busy"/.test(route3), "a hand edit is refused while the agent is changing the page, never written under it");
   has(/leased \|\| recent/.test(route3), "a stale job left by a killed request cannot lock hand edits out for good");
   has(/setSaveState\("waiting"\)/.test(bridge3) && /setSaveState\("conflict"\)/.test(bridge3), "typing waits for the agent, then lands on top of its change — or says the agent changed those words first");
-  has(/await settleTypedEdits\(\);\s*const reply = await build\(/.test(chat3) && /export async function settleTypedEdits/.test(ask3), "the chat waits for a typed save before the agent reads the page");
+  has(/await settleTypedEdits\(\);[\s\S]{0,400}?const reply = await build\(/.test(chat3) && !/await settleTypedEdits\(\);[\s\S]{0,400}?await (fetch|postJson)\([\s\S]{0,60}build/.test(chat3) && /export async function settleTypedEdits/.test(ask3), "the chat waits for a typed save before the agent reads the page");
   has(/useHeldWhileTyping\(/.test(sheet3) && /useHeldWhileTyping\(/.test(panel3) && /usingDocument \? "doc" : `addr:/.test(sheet3), "a build landing mid-typing does not replace the page under the fingers");
   has(/Edited by hand in the preview — /.test(route3), "a hand edit is told in the thread, so chat and versions agree");
   const later = applySinglePageText(`<html>\n<body>\n<section><p>New intro from the agent</p></section>\n<h1>Fresh sourdough</h1>\n</body></html>`, { src: "index.html:3:1", tag: "h1", before: "Fresh sourdough", text: "Rye" });

@@ -124,12 +124,18 @@ export function designGate(html: string, dna: DesignDNA | null | undefined): Gat
 
   /* A second webfont. The system allows at most one, and a page that links two
      is carrying a typeface nobody chose. */
-  const webfonts = [...html.matchAll(/fonts\.googleapis\.com\/css2\?family=([^"'&]+)/gi)].map(
-    (match) => decodeURIComponent(match[1].replace(/\+/g, " ")),
+  /* Every family a Google Fonts link asks for — one link may carry several
+     (&family=A&family=B), which is how a system loads its pair. */
+  const webfonts = [...html.matchAll(/fonts\.googleapis\.com\/css2\?([^"']+)/gi)].flatMap((match) =>
+    [...match[1].replace(/&amp;/g, "&").matchAll(/(?:^|&)family=([^&]+)/g)].map((family) => decodeURIComponent(family[1].replace(/\+/g, " "))),
   );
   const families = new Set(webfonts.map((family) => family.split(":")[0]));
-  const permitted = dna.type.webfont ? 1 : 0;
-  if (families.size > permitted) {
+  /* A system may pair a body face with its display face, loaded in the one
+     request; anything beyond the families it names is a typeface nobody chose. */
+  const allowedFonts = new Set(dna.type.webfont ? dna.type.webfont.families ?? [dna.type.webfont.family] : []);
+  const permitted = allowedFonts.size;
+  const strangers = [...families].filter((family) => !allowedFonts.has(family));
+  if (families.size > permitted || strangers.length > 0) {
     issues.push({
       gate: "design",
       severity: "error",
@@ -137,7 +143,7 @@ export function designGate(html: string, dna: DesignDNA | null | undefined): Gat
       message:
         permitted === 0
           ? `This system uses system fonts and the page loads ${families.size}: ${[...families].join(", ")}.`
-          : `This system allows one webfont (${dna.type.webfont?.family}) and the page loads ${families.size}: ${[...families].join(", ")}.`,
+          : `This system loads ${[...allowedFonts].join(" and ")} and nothing else, and the page loads ${families.size}: ${[...families].join(", ")}.`,
     });
   }
 

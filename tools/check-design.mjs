@@ -267,6 +267,21 @@ const CASES = [
   { register: "clear commercial", kind: "webapp", brief: "an AI scheduling tool for dental clinics", expect: "Clinical precision" },
   /* And "ai" inside a word is not AI. */
   { register: "clear commercial", kind: "landing", brief: "a plumbing company in Mumbai and Hawaii", expect: "Modern commercial" },
+  /* The second shelf: each kind of business gets its own look. */
+  { register: "clear commercial", kind: "landing", brief: "a kids birthday party company in Lagos", expect: "Playful bright" },
+  { register: "warm documentary", kind: "landing", brief: "an Italian restaurant with a wine list", expect: "Fine dining" },
+  { register: "clear commercial", kind: "landing", brief: "a crossfit gym with personal trainers", expect: "Athletic energy" },
+  { register: "clear commercial", kind: "landing", brief: "a DJ and nightclub events brand", expect: "Neon nightlife" },
+  { register: "editorial fashion", kind: "landing", brief: "a wedding planner in Accra", expect: "Romantic occasion" },
+  { register: "clear commercial", kind: "landing", brief: "a safari tour operator", expect: "Natural outdoors" },
+  { register: "clear commercial", kind: "landing", brief: "a barbershop downtown", expect: "Retro warm" },
+  { register: "clear commercial", kind: "landing", brief: "a charity that builds wells", expect: "Community warm" },
+  { register: "clear commercial", kind: "portfolio", brief: "a brutalist portfolio for a designer", expect: "Raw brutalist" },
+  { register: "clear commercial", kind: "landing", brief: "a playful landing page for an app", expect: "Playful bright" },
+  /* And none of them catch what is not theirs. */
+  { register: "catalogue-consistent product photography", kind: "ecommerce", brief: "an ecommerce store for phone cases", expect: "Modern commercial" },
+  { register: "clear commercial", kind: "landing", brief: "a pub/sub API for developers", expect: "Technical" },
+  { register: "clear commercial", kind: "webapp", brief: "a dashboard with a side menu for orders", expect: "Modern dashboard" },
   /* And a register nobody recognises still gets a considered answer. */
   { register: "something nobody wrote a rule for", kind: "blog", brief: "a blog", expect: "Press" },
 ];
@@ -284,6 +299,35 @@ for (const testCase of CASES) {
   }
 
   pass(`${testCase.brief} → ${result.dna.name}`);
+}
+
+/* Every system of the second shelf pairs a body face with its display face,
+   loads both in one request, and the page really gets the link. */
+for (const system of SYSTEMS.slice(12)) {
+  const families = system.type.webfont?.families ?? [];
+  const inHref = families.every((family) => system.type.webfont.href.includes(`family=${family.replace(/ /g, "+")}`));
+  const bodyFirst = families[1] && firstFace(system.type.body) === families[1];
+  if (families.length !== 2 || !inHref || !bodyFirst) fail(system.name, "should pair a display and a body webfont, both in the one href, the body face first in the body stack");
+  else pass(`${system.name} — ${families.join(" + ")}`);
+}
+{
+  const page = withTokens("<!doctype html><html><head><title>T</title></head><body></body></html>", systemByName("Fine dining"));
+  const css = tokensCss(systemByName("Fine dining"));
+  const linked = page.includes('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display') && page.includes('rel="preconnect"') && !page.includes("@import url(");
+  const imported = css.startsWith('@import url("https://fonts.googleapis.com/');
+  const pieces = ["qs-btn-primary", "qs-card", "qs-input", "qs-glass", "qs-grid", "qs-display", "qs-grain"].every((name) => css.includes(`.${name}`));
+  const told = /READY-MADE PIECES/.test(designBrief(systemByName("Fine dining"))) && /already linked: Playfair Display \(headings\) and Karla \(body text\)/.test(designBrief(systemByName("Fine dining")));
+  if (!linked) fail("fonts", "a single page does not get its font link (preconnected), or gets an @import instead");
+  else pass("a single page gets its fonts as a preconnected <link> the download inliner carries");
+  if (!imported) fail("fonts", "a project's stylesheet does not import its fonts");
+  else pass("a project's tokens.css imports its fonts first");
+  if (!pieces) fail("pieces", "the ready-made buttons, cards, fields and surfaces are missing from the stylesheet");
+  else pass("buttons, cards, fields, grids and surfaces come built from the tokens");
+  if (!told) fail("brief", "the model is not told the pieces exist or which fonts are linked");
+  else pass("the model is told the pieces, and both fonts by name");
+  const twice = withTokens(page, systemByName("Fine dining"));
+  if (twice !== page) fail("fonts", "a second save adds the fonts or tokens again");
+  else pass("saving again adds nothing twice");
 }
 
 /* The name is what travels between processes, so a round trip has to land on

@@ -73,7 +73,13 @@ export type Typography = {
      design. Null for most: a downloaded page has to carry everything it
      fetches, and a webfont for a heading nobody would notice is weight for
      nothing. See BASE in blueprints/base.ts, which says the same. */
-  webfont: { family: string; href: string } | null;
+  webfont: {
+    /** The display face — first in the display stack. */
+    family: string;
+    href: string;
+    /** Every family the one request loads: the display face, and a body face when the system pairs one. */
+    families?: string[];
+  } | null;
   /** The ratio between steps. 1.2 is calm; 1.333 is dramatic. */
   ratio: number;
   /** Body size in px. Everything else is derived from it and the ratio. */
@@ -243,9 +249,15 @@ const CRAFT: DesignDNA = {
     "Made by somebody. Warm paper ground, a clay accent, softly rounded corners and generous line height. Reads as a person's workshop rather than a brand system.",
   type: {
     display:
-      '"Iowan Old Style", Charter, Georgia, "Times New Roman", serif',
-    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
-    webfont: null,
+      '"Young Serif", "Iowan Old Style", Charter, Georgia, "Times New Roman", serif',
+    body: '"Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* A warm, slightly soft serif and a friendly sans: the same on every
+       visitor's machine, rather than whichever serif it happens to ship. */
+    webfont: {
+      family: "Young Serif",
+      families: ["Young Serif", "Figtree"],
+      href: "https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600;700&display=swap",
+    },
     ratio: 1.25,
     base: 17,
     displayLeading: 1.15,
@@ -529,9 +541,15 @@ const PRESS: DesignDNA = {
   intent:
     "A publication. Serif headlines set tight, a paper-white ground, rules instead of boxes, and one red reserved for what is breaking. Ranked rather than gridded — the lead story is unmistakably the lead.",
   type: {
-    display: 'Charter, "Iowan Old Style", Georgia, "Times New Roman", serif',
-    body: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
-    webfont: null,
+    display: '"Source Serif 4", Charter, "Iowan Old Style", Georgia, "Times New Roman", serif',
+    body: '"Public Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif',
+    /* A newspaper serif built for headlines and long reading, and a plain
+       public-service sans for the furniture around it. */
+    webfont: {
+      family: "Source Serif 4",
+      families: ["Source Serif 4", "Public Sans"],
+      href: "https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&family=Public+Sans:wght@400;500;600&display=swap",
+    },
     ratio: 1.333,
     base: 17,
     displayLeading: 1.06,
@@ -1025,7 +1043,333 @@ const CREATIVE: DesignDNA = {
   },
 };
 
-export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS, LUMINOUS, SANCTUARY, CAPITAL, CORPORATE, DASHBOARD, CREATIVE];
+/* ── The second shelf ─────────────────────────────────────────────────────
+ *
+ * Kinds of site the first twelve did not serve: a children's party business
+ * came out Modern commercial, a restaurant Warm craft, a gym and a nightclub
+ * both Technical, a wedding planner Editorial. Each is its own look, with a
+ * PAIR of webfonts — a display face and a body face, in one request — because
+ * these registers are carried as much by the reading text as by the headings.
+ * Contrast floors as for every other system (tools/check-design.mjs). */
+
+const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif';
+
+const PLAYFUL: DesignDNA = {
+  name: "Playful bright",
+  blueprint: "J · Playful — kids, education, toys, parties, family events, pets",
+  register: "bright and friendly",
+  intent:
+    "Cheerful and warm without being childish: a cream ground, rounded friendly type, one confident violet, sunny yellow and soft shapes. Everything feels safe to touch.",
+  type: {
+    display: `"Fredoka", ${SANS}`,
+    body: `"Nunito", ${SANS}`,
+    webfont: {
+      family: "Fredoka",
+      families: ["Fredoka", "Nunito"],
+      href: "https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap",
+    },
+    ratio: 1.25,
+    base: 17,
+    displayLeading: 1.1,
+    displayTracking: "-0.01em",
+    displayWeight: 600,
+  },
+  color: { ground: "#FFF8EC", surface: "#FFFFFF", ink: "#1D1A33", muted: "#5B5670", line: "#F0E2C8", accent: "#5B3DF5", accentInk: "#FFFFFF", success: "#1F7A3A", danger: "#B42318" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 160],
+  radius: { sm: "12px", md: "20px", lg: "32px", pill: "999px" },
+  shadow: { sm: "0 2px 0 rgba(29,26,51,.08)", md: "0 10px 30px rgba(91,61,245,.14)" },
+  container: "1180px",
+  motion: { fast: "150ms", base: "280ms", slow: "700ms", ease: "cubic-bezier(.34,1.56,.64,1)", easeOut: "cubic-bezier(.22,1.2,.36,1)", stagger: "80ms", distance: "20px", personality: "Bouncy but brief: a little overshoot on entrances and a playful lift on hover. Never so much that reading waits for it." },
+  art: {
+    composition: "Generous, centred and rhythmic: a big friendly headline with a soft blob or sticker shape behind the picture, then alternating rows of picture and text, each in a rounded card, and a bright band that asks for the booking.",
+    components: "Fully rounded buttons and cards, chunky pill tags, icons in soft coloured circles, wavy or curved section dividers, little star or squiggle accents used sparingly.",
+    imagery: "Real children, families, pets or the event itself, bright and natural, smiling but not posed. Illustrations only in a single friendly flat style. Never clip-art, never stock-smile overload.",
+    trust: "Belief through warmth and safety: real reviews from parents, clear prices and what is included, safety and qualifications the brief states, one big friendly call to book.",
+  },
+  inverse: { ground: "#17142A", surface: "#211D3A", ink: "#FBF7FF", muted: "#B9B2D6", line: "#332E55", accent: "#FFC94D", accentInk: "#17142A", success: "#86EFAC", danger: "#FCA5A5" },
+};
+
+const DINING: DesignDNA = {
+  name: "Fine dining",
+  blueprint: "K · Hospitality — restaurants, bars, cafés, bakeries with a dining room, caterers, chefs",
+  register: "candlelit appetite",
+  intent:
+    "Appetite and occasion: a warm linen ground, a high-contrast serif for dish names and headings, a deep wine accent and food photographs shot like a menu cover.",
+  type: {
+    display: `"Playfair Display", Georgia, "Times New Roman", serif`,
+    body: `"Karla", ${SANS}`,
+    webfont: {
+      family: "Playfair Display",
+      families: ["Playfair Display", "Karla"],
+      href: "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Karla:wght@400;500;700&display=swap",
+    },
+    ratio: 1.333,
+    base: 17,
+    displayLeading: 1.08,
+    displayTracking: "-0.01em",
+    displayWeight: 500,
+  },
+  color: { ground: "#F7F1E8", surface: "#FFFDF8", ink: "#1E1712", muted: "#6B5D50", line: "#E4D7C3", accent: "#7A1F1F", accentInk: "#FFF8EE", success: "#2F6B3A", danger: "#A3271F" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 136, 176],
+  radius: { sm: "2px", md: "4px", lg: "8px", pill: "999px" },
+  shadow: { sm: "none", md: "0 12px 40px rgba(30,23,18,.12)" },
+  container: "1200px",
+  motion: { fast: "150ms", base: "300ms", slow: "1000ms", ease: "cubic-bezier(.2,.6,.2,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "100ms", distance: "20px", personality: "Unhurried, like good service: slow fades, photographs that settle into place, nothing that jumps." },
+  art: {
+    composition: "A full-bleed signature dish or the room at night behind the name, then the menu as a real typeset menu — dish, short description, price aligned — the story of the kitchen, the room, opening hours and a reservation band.",
+    components: "Thin rules and centred small-caps section labels, dish lists with dotted leaders to the price, a solid wine-coloured Reserve button, an elegant opening-hours table, a map card. No cards with shadows around dishes.",
+    imagery: "The food close and lit like candlelight, the room, the chef's hands, the drinks. One warm grade across all of it. Never stock buffet photos or bright flat delivery shots.",
+    trust: "Belief through appetite and detail: the real menu with prices, the chef and the sourcing, reviews or press the brief supplies, address and hours always visible, one clear way to book a table.",
+  },
+  inverse: { ground: "#140F0C", surface: "#1E1814", ink: "#F6EEE3", muted: "#B8A994", line: "#33291F", accent: "#E3B26B", accentInk: "#140F0C", success: "#8CC79A", danger: "#F0938A" },
+};
+
+const ATHLETIC: DesignDNA = {
+  name: "Athletic energy",
+  blueprint: "L · Performance — gyms, fitness, coaches, sports clubs, martial arts, sports gear",
+  register: "high-energy performance",
+  intent:
+    "Loud, fast and disciplined: a near-black ground, condensed all-caps headlines that hit like a scoreboard, one acid-lime accent and action photographs with sweat in them.",
+  type: {
+    display: `"Anton", "Arial Narrow", ${SANS}`,
+    body: `"Barlow", ${SANS}`,
+    webfont: {
+      family: "Anton",
+      families: ["Anton", "Barlow"],
+      href: "https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600;700&display=swap",
+    },
+    ratio: 1.5,
+    base: 17,
+    displayLeading: 0.95,
+    displayTracking: "0.01em",
+    displayWeight: 400,
+  },
+  color: { ground: "#0B0B0C", surface: "#151517", ink: "#F7F7F5", muted: "#A6A6A2", line: "#2A2A2D", accent: "#D7FF3A", accentInk: "#0B0B0C", success: "#86EFAC", danger: "#FCA5A5" },
+  space: [4, 8, 12, 16, 24, 32, 48, 72, 104, 144, 192],
+  radius: { sm: "0px", md: "2px", lg: "4px", pill: "999px" },
+  shadow: { sm: "none", md: "0 0 0 1px #2A2A2D" },
+  container: "1280px",
+  motion: { fast: "100ms", base: "200ms", slow: "600ms", ease: "cubic-bezier(.4,0,.2,1)", easeOut: "cubic-bezier(.12,.9,.2,1)", stagger: "60ms", distance: "32px", personality: "Explosive and short: hard, fast entrances, a skewed hover on the main button, numbers that count up once. Never floaty." },
+  art: {
+    composition: "A full-screen action photograph with a huge uppercase headline on top, then stats in big numerals, programmes or classes as bold tiles, the schedule as a timetable, coaches with their speciality, results, and a lime band to start a trial.",
+    components: "All-caps condensed headings, square edges, lime solid buttons with black text, diagonal or skewed section edges used once or twice, numerals at display size, a timetable grid. No soft pastel cards.",
+    imagery: "Real training in motion: sweat, chalk, effort, real members and coaches, hard contrast and a cool grade. Never smiling-at-camera stock gym photos.",
+    trust: "Belief through results and people: member transformations and numbers the brief supplies, coaches' credentials, the timetable and prices up front, and one urgent call — book a free class.",
+  },
+  inverse: { ground: "#F5F5F2", surface: "#FFFFFF", ink: "#0B0B0C", muted: "#55554F", line: "#DADAD3", accent: "#0B0B0C", accentInk: "#D7FF3A", success: "#1F7A3A", danger: "#B42318" },
+};
+
+const NIGHTLIFE: DesignDNA = {
+  name: "Neon nightlife",
+  blueprint: "M · Nightlife and culture — music, DJs, clubs, festivals, concerts, gaming, esports",
+  register: "neon night",
+  intent:
+    "After dark: a deep violet-black ground, wide geometric display type, one hot neon pink, and photographs of light, crowds and stages. It should feel loud even when silent.",
+  type: {
+    display: `"Unbounded", ${SANS}`,
+    body: `"DM Sans", ${SANS}`,
+    webfont: {
+      family: "Unbounded",
+      families: ["Unbounded", "DM Sans"],
+      href: "https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=DM+Sans:wght@400;500;700&display=swap",
+    },
+    ratio: 1.414,
+    base: 16,
+    displayLeading: 1.0,
+    displayTracking: "-0.02em",
+    displayWeight: 700,
+  },
+  color: { ground: "#0A0614", surface: "#140D24", ink: "#F5F0FF", muted: "#B3A6D1", line: "#2A1F45", accent: "#FF3EA5", accentInk: "#0A0614", success: "#7CF0B0", danger: "#FF9AA8" },
+  space: [4, 8, 12, 16, 24, 32, 48, 72, 104, 144, 192],
+  radius: { sm: "6px", md: "14px", lg: "24px", pill: "999px" },
+  shadow: { sm: "0 0 0 1px rgba(255,62,165,.25)", md: "0 0 40px rgba(255,62,165,.28)" },
+  container: "1280px",
+  motion: { fast: "120ms", base: "240ms", slow: "800ms", ease: "cubic-bezier(.4,0,.2,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "70ms", distance: "28px", personality: "Pulse, not chaos: a glow that breathes on the main action, images that slide in on the beat, a marquee for line-ups only when the brief has one." },
+  art: {
+    composition: "A full-screen stage or crowd photograph with the name huge across it, then upcoming dates as a ticket list (date, venue, Get tickets), the line-up or artists as large tiles, a gallery strip, and a newsletter or tickets band.",
+    components: "Glowing outline and solid neon buttons, ticket rows with dashed perforation dividers, glass panels over photographs, small mono labels for dates, a gradient edge used once. No corporate cards.",
+    imagery: "Light and people: stage lights, lasers, crowds, the artist mid-performance, grainy and saturated, magenta and blue. Never a stock DJ silhouette.",
+    trust: "Belief through the scene: real dates, venues, line-ups and past events the brief supplies, sold-out marks only when true, social proof from the community, one clear call — tickets.",
+  },
+  inverse: { ground: "#FAF7FF", surface: "#FFFFFF", ink: "#140B26", muted: "#5A4E73", line: "#E4DCF3", accent: "#B0136E", accentInk: "#FFFFFF", success: "#1F7A3A", danger: "#B42318" },
+};
+
+const ROMANCE: DesignDNA = {
+  name: "Romantic occasion",
+  blueprint: "N · Occasions — weddings, bridal, event planners, florists, photographers of occasions",
+  register: "soft romantic",
+  intent:
+    "Soft and celebratory: a blush-white ground, a fashion-house serif with fine contrast, dusty-rose accents and photographs full of soft daylight. Elegant, never saccharine.",
+  type: {
+    display: `"Bodoni Moda", Didot, Georgia, "Times New Roman", serif`,
+    body: `"Jost", ${SANS}`,
+    webfont: {
+      family: "Bodoni Moda",
+      families: ["Bodoni Moda", "Jost"],
+      href: "https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400;0,500;1,400&family=Jost:wght@300;400;500&display=swap",
+    },
+    ratio: 1.333,
+    base: 17,
+    displayLeading: 1.1,
+    displayTracking: "0em",
+    displayWeight: 400,
+  },
+  color: { ground: "#FBF7F4", surface: "#FFFFFF", ink: "#2A2024", muted: "#6E5F64", line: "#EADFD8", accent: "#8A5A5E", accentInk: "#FFFFFF", success: "#2F6B3A", danger: "#A3271F" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 136, 176],
+  radius: { sm: "2px", md: "6px", lg: "999px", pill: "999px" },
+  shadow: { sm: "none", md: "0 20px 50px rgba(138,90,94,.12)" },
+  container: "1160px",
+  motion: { fast: "160ms", base: "320ms", slow: "1100ms", ease: "cubic-bezier(.2,.6,.2,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "120ms", distance: "16px", personality: "Graceful: slow soft fades, photographs that gently scale into place, nothing sharp or sudden." },
+  art: {
+    composition: "Centred and airy: an arched or oval-cropped photograph with the names or the studio in italic serif, then the story, the services or packages as elegant columns, a gallery of real occasions, kind words, and a gentle enquiry form.",
+    components: "Arched picture frames, thin rules with a small centred ornament, italic serif accents inside headings, outlined buttons that fill softly on hover, an RSVP or enquiry form with soft fields.",
+    imagery: "Soft daylight, real couples and real details — flowers, table settings, hands, fabric — with a light, airy, slightly warm grade. Never staged stock weddings.",
+    trust: "Belief through real occasions and kind words: galleries of real events, testimonials from couples or clients, packages with what is included, and one gentle call — check your date or enquire.",
+  },
+  inverse: { ground: "#171214", surface: "#211A1D", ink: "#F7EFEC", muted: "#BBA9AD", line: "#382C30", accent: "#E8B7B2", accentInk: "#171214", success: "#8CC79A", danger: "#F0938A" },
+};
+
+const NATURE: DesignDNA = {
+  name: "Natural outdoors",
+  blueprint: "O · Nature — outdoor, eco and sustainable brands, farms, gardens, landscaping, travel and tours",
+  register: "natural light outdoors",
+  intent:
+    "Grounded and fresh: a stone-paper ground, a soft characterful serif, a deep forest-green accent and wide landscapes. Feels like breathing out.",
+  type: {
+    display: `"Fraunces", Georgia, "Times New Roman", serif`,
+    body: `"Nunito Sans", ${SANS}`,
+    webfont: {
+      family: "Fraunces",
+      families: ["Fraunces", "Nunito Sans"],
+      href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Nunito+Sans:wght@400;600;700&display=swap",
+    },
+    ratio: 1.3,
+    base: 17,
+    displayLeading: 1.08,
+    displayTracking: "-0.015em",
+    displayWeight: 600,
+  },
+  color: { ground: "#F4F1E8", surface: "#FBFAF5", ink: "#1B2418", muted: "#56614F", line: "#DCD8C8", accent: "#2F5D34", accentInk: "#F7F5EC", success: "#2F6B3A", danger: "#A3271F" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 168],
+  radius: { sm: "6px", md: "12px", lg: "24px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(27,36,24,.06)", md: "0 14px 36px rgba(27,36,24,.10)" },
+  container: "1220px",
+  motion: { fast: "150ms", base: "300ms", slow: "900ms", ease: "cubic-bezier(.25,.6,.3,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "90ms", distance: "22px", personality: "Calm and organic: landscapes that drift slightly as you scroll, soft rises, nothing mechanical." },
+  art: {
+    composition: "A wide landscape with the promise over it, then what you do in three honest blocks with photographs, the place or the process, impact numbers when the brief has them, trips or products as cards with a real photo, and a band to book or shop.",
+    components: "Softly rounded cards with photographs edge to edge, leaf-green solid buttons, small uppercase labels, an organic curved divider used once, simple line icons. No neon, no hard shadows.",
+    imagery: "Real places and real hands: landscapes, soil, plants, trails, the team outdoors, natural light and a warm-green grade. Never generic stock leaves on white.",
+    trust: "Belief through honesty and place: where things come from, certifications the brief supplies, real guests or customers, clear prices and seasons, one call — book, visit or shop.",
+  },
+  inverse: { ground: "#101610", surface: "#182018", ink: "#EEF2E6", muted: "#A9B5A0", line: "#2A3528", accent: "#A8D08D", accentInk: "#101610", success: "#9AD7A6", danger: "#F0938A" },
+};
+
+const RETRO: DesignDNA = {
+  name: "Retro warm",
+  blueprint: "P · Retro — barbers, diners, record shops, vintage stores, coffee roasters, craft beer",
+  register: "vintage warm",
+  intent:
+    "Nostalgic and characterful: a toasted-cream ground, a soft high-contrast display serif, burnt-orange and brown, and badges that look printed. Seventies warmth, made crisp.",
+  type: {
+    display: `"DM Serif Display", Georgia, "Times New Roman", serif`,
+    body: `"Work Sans", ${SANS}`,
+    webfont: {
+      family: "DM Serif Display",
+      families: ["DM Serif Display", "Work Sans"],
+      href: "https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Work+Sans:wght@400;500;600&display=swap",
+    },
+    ratio: 1.333,
+    base: 17,
+    displayLeading: 1.02,
+    displayTracking: "-0.01em",
+    displayWeight: 400,
+  },
+  color: { ground: "#F6EEDC", surface: "#FFF8E8", ink: "#2B1D12", muted: "#6B5440", line: "#E2D2B0", accent: "#C2410C", accentInk: "#FFF8E8", success: "#2F6B3A", danger: "#A3271F" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 168],
+  radius: { sm: "4px", md: "10px", lg: "18px", pill: "999px" },
+  shadow: { sm: "2px 2px 0 #2B1D12", md: "5px 5px 0 #2B1D12" },
+  container: "1180px",
+  motion: { fast: "120ms", base: "240ms", slow: "700ms", ease: "cubic-bezier(.4,0,.2,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "80ms", distance: "18px", personality: "Tactile: buttons that press down onto their hard shadow, stickers that settle with a slight tilt. Charming, never gimmicky." },
+  art: {
+    composition: "A big warm headline beside a round badge or stamp with the year founded, then what is on offer as a printed-menu style list or cards, the people and the place, a strip of photographs with a film grain, and a band to visit or order.",
+    components: "Hard offset shadows that press on click, round stamp badges, two-tone stripes used once, outlined pills, a slightly tilted sticker label for one highlight. No glassy blur.",
+    imagery: "Warm, grainy photographs: the shop, the craft, regulars, close-ups of the product, a film-like grade with faded blacks. Never glossy stock.",
+    trust: "Belief through character and loyalty: the story and the year it started, real regulars' words, prices on the wall, address and hours, one call — come by or order.",
+  },
+  inverse: { ground: "#1C140D", surface: "#261C13", ink: "#F8EEDB", muted: "#C2AE8E", line: "#3E2F20", accent: "#F2A541", accentInk: "#1C140D", success: "#9AD7A6", danger: "#F0938A" },
+};
+
+const BRUTALIST: DesignDNA = {
+  name: "Raw brutalist",
+  blueprint: "Q · Brutalist — avant-garde studios, zines, art spaces, radical brands, portfolios that break rules",
+  register: "raw and unpolished",
+  intent:
+    "Raw on purpose: pure white, pure black, a single primary blue, a heavy grotesque, visible borders and a grid you can see. Honest, loud, instantly memorable.",
+  type: {
+    display: `"Archivo Black", "Arial Black", ${SANS}`,
+    body: `"Space Grotesk", ${SANS}`,
+    webfont: {
+      family: "Archivo Black",
+      families: ["Archivo Black", "Space Grotesk"],
+      href: "https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;700&display=swap",
+    },
+    ratio: 1.5,
+    base: 17,
+    displayLeading: 0.92,
+    displayTracking: "-0.03em",
+    displayWeight: 400,
+  },
+  color: { ground: "#FFFFFF", surface: "#F2F2F2", ink: "#000000", muted: "#4A4A4A", line: "#000000", accent: "#0000FF", accentInk: "#FFFFFF", success: "#006B2E", danger: "#C40000" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192],
+  radius: { sm: "0px", md: "0px", lg: "0px", pill: "0px" },
+  shadow: { sm: "none", md: "6px 6px 0 #000000" },
+  container: "1440px",
+  motion: { fast: "0ms", base: "120ms", slow: "300ms", ease: "steps(3, end)", easeOut: "cubic-bezier(.2,.8,.2,1)", stagger: "40ms", distance: "0px", personality: "Abrupt on purpose: hovers that invert colour instantly, no fades, no float — things are there or not." },
+  art: {
+    composition: "A visible grid with 2px black borders between cells, a giant headline that runs off the edge, content in bordered blocks of different sizes, text set flush left in hard columns, a ticker or index list.",
+    components: "Black-bordered boxes everywhere, buttons that invert on hover, underlined links, monospace labels, numbered index lists, no rounded corners at all, one blue used only for actions.",
+    imagery: "Photographs in black and white or high contrast, cropped hard, sometimes in a bordered cell with a caption number. Never soft lifestyle stock.",
+    trust: "Belief through conviction: a manifesto in plain words, the work or the product shown bluntly, prices and contacts in plain sight, one call to act written as a command.",
+  },
+  inverse: { ground: "#000000", surface: "#111111", ink: "#FFFFFF", muted: "#B5B5B5", line: "#FFFFFF", accent: "#FFFF00", accentInk: "#000000", success: "#5CFF9D", danger: "#FF7A7A" },
+};
+
+const COMMUNITY: DesignDNA = {
+  name: "Community warm",
+  blueprint: "R · Community — nonprofits, charities, churches, schools, local councils, associations, NGOs",
+  register: "hopeful community",
+  intent:
+    "Open and hopeful: a warm white ground, an exceptionally readable rounded sans, a sunrise-orange accent and photographs of real people together. Easy for everyone to read and act on.",
+  type: {
+    display: `"Lexend", ${SANS}`,
+    body: `"Source Sans 3", ${SANS}`,
+    webfont: {
+      family: "Lexend",
+      families: ["Lexend", "Source Sans 3"],
+      href: "https://fonts.googleapis.com/css2?family=Lexend:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap",
+    },
+    ratio: 1.25,
+    base: 18,
+    displayLeading: 1.12,
+    displayTracking: "-0.01em",
+    displayWeight: 600,
+  },
+  color: { ground: "#FFFBF5", surface: "#FFFFFF", ink: "#1A2233", muted: "#556074", line: "#ECE3D6", accent: "#C2410C", accentInk: "#FFFFFF", success: "#1F7A3A", danger: "#B42318" },
+  space: [4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 160],
+  radius: { sm: "8px", md: "14px", lg: "24px", pill: "999px" },
+  shadow: { sm: "0 1px 2px rgba(26,34,51,.06)", md: "0 12px 32px rgba(26,34,51,.10)" },
+  container: "1180px",
+  motion: { fast: "150ms", base: "280ms", slow: "750ms", ease: "cubic-bezier(.25,.6,.3,1)", easeOut: "cubic-bezier(.16,1,.3,1)", stagger: "80ms", distance: "18px", personality: "Warm and steady: gentle rises, a progress bar that fills once, nothing flashy that would distract from the cause." },
+  art: {
+    composition: "A real photograph of people with the mission in one plain sentence, then impact in large numbers, the programmes or ministries as cards, stories of people helped, events or services with dates, and a strong donate, volunteer or join band.",
+    components: "Big readable text, rounded cards, a solid orange Donate or Join button repeated at the top, a fundraising progress bar, event rows with date blocks, simple line icons, high-contrast focus states throughout.",
+    imagery: "Real people from the community, together and in action, natural and dignified, warm grade. Never pity imagery, never stock handshakes.",
+    trust: "Belief through transparency: what the money or time does, real stories, registration numbers and partners the brief supplies, upcoming dates, and one clear action — donate, volunteer, visit or join.",
+  },
+  inverse: { ground: "#121722", surface: "#1A2130", ink: "#F3F5FA", muted: "#AAB3C5", line: "#2A3345", accent: "#FDBA74", accentInk: "#121722", success: "#86EFAC", danger: "#FCA5A5" },
+};
+
+export const SYSTEMS = [EDITORIAL, CRAFT, CLINICAL, TECHNICAL, COMMERCIAL, PRESS, LUMINOUS, SANCTUARY, CAPITAL, CORPORATE, DASHBOARD, CREATIVE, PLAYFUL, DINING, ATHLETIC, NIGHTLIFE, ROMANCE, NATURE, RETRO, BRUTALIST, COMMUNITY];
 
 /* Which system each of the asset planner's registers gets.
  *
@@ -1080,7 +1424,13 @@ const NAMED: { match: RegExp; system: DesignDNA }[] = [
   { match: /\b(newspaper|newsroom|publication|broadsheet)\b/i, system: PRESS },
   { match: /\b(handmade|artisan\w*|rustic|warm|earthy|organic)\b/i, system: CRAFT },
   { match: /\b(clean|minimal|medical|clinical|precise)\b/i, system: CLINICAL },
-  { match: /\b(bold|expressive|experimental|brutalist|avant[- ]garde|playful)\b/i, system: CREATIVE },
+  { match: /\b(brutalist|brutalism|anti[- ]design|raw grid)\b/i, system: BRUTALIST },
+  { match: /\b(retro|vintage|nostalgic|throwback|old[- ]school|70s|80s|seventies|eighties)\b/i, system: RETRO },
+  { match: /\b(neon|cyberpunk|synthwave|vaporwave|glow(ing)?)\b/i, system: NIGHTLIFE },
+  { match: /\b(playful|fun|colou?rful|cheerful|cute|whimsical|kid[- ]friendly)\b/i, system: PLAYFUL },
+  { match: /\b(romantic|blush|dreamy|soft pink)\b/i, system: ROMANCE },
+  { match: /\b(sporty|athletic|high[- ]energy|aggressive)\b/i, system: ATHLETIC },
+  { match: /\b(bold|expressive|experimental|avant[- ]garde)\b/i, system: CREATIVE },
   { match: /\b(corporate)\b/i, system: CORPORATE },
 ];
 
@@ -1105,8 +1455,40 @@ const BY_INDUSTRY: { match: RegExp; system: DesignDNA }[] = [
     system: CAPITAL,
   },
   {
+    match: /\b(weddings?|bridal|brides?|engagements?|event planners?|event planning|wedding planners?|florists?|flower shop|anniversar\w*|vow renewals?)\b/i,
+    system: ROMANCE,
+  },
+  {
     match: /\b(wellness|spa|yoga|pilates|meditation|retreats?|hotels?|resorts?|guest ?house|bed and breakfast|villas?|hospitality|skincare|massage|holistic|mindful\w*)\b/i,
     system: SANCTUARY,
+  },
+  {
+    match: /\b(restaurants?|bistros?|brasseries?|steakhouses?|trattorias?|pizzerias?|sushi|ramen|tapas|fine dining|eatery|eateries|cocktail bars?|wine bars?|rooftop bars?|gastropubs?|(local|village|irish|country) pubs?|caf[eé]s?|coffee shops?|tea rooms?|caterers?|catering|private chefs?|chefs?|supper clubs?)\b/i,
+    system: DINING,
+  },
+  {
+    match: /\b(gyms?|fitness|crossfit|personal trainers?|personal training|boxing|kickboxing|martial arts|karate|taekwondo|jiu[- ]jitsu|mma|bootcamps?|sports? clubs?|football clubs?|soccer|basketball|athletics|running clubs?|cycling clubs?|sportswear|athletes?|coaching for athletes)\b/i,
+    system: ATHLETIC,
+  },
+  {
+    match: /\b(kids?|children'?s?|toddlers?|nurser(y|ies)|daycare|day care|preschools?|kindergartens?|creches?|toys?|toy store|play ?centres?|play ?centers?|birthday part(y|ies)|kids'? part(y|ies)|bouncy castles?|pets?|pet shop|dog grooming|groomers?|tutoring|tutors?)\b/i,
+    system: PLAYFUL,
+  },
+  {
+    match: /\b(non[- ]?profits?|charit(y|ies)|ngos?|charitable foundations?|churches|church|mosques?|temples?|synagogues?|ministr(y|ies)|parish|schools?|academ(y|ies)|colleges?|universit(y|ies)|community (centres?|centers?|groups?)|volunteers?|volunteering|local councils?|residents'? associations?|cooperatives?|co-ops?|fundrais\w*|donations?)\b/i,
+    system: COMMUNITY,
+  },
+  {
+    match: /\b(night ?clubs?|clubs? nights?|djs?|festivals?|concerts?|gigs?|live music|music venues?|record labels?|bands?|rappers?|singers?|artists? (tour|tours)|esports?|e-sports?|gaming|gamers?|game studios?|streamers?|raves?|parties|lounges?)\b/i,
+    system: NIGHTLIFE,
+  },
+  {
+    match: /\b(barbers?|barbershops?|diners?|record (shops?|stores?)|vinyl|thrift|second[- ]hand|antiques?|coffee roasters?|roastery|breweries|brewery|craft beer|tattoo\w*|bike shop)\b/i,
+    system: RETRO,
+  },
+  {
+    match: /\b(farms?|farmers?|gardens?|gardening|garden centres?|landscap\w*|nurseries? for plants|outdoors?|eco[- ](friendly|conscious|brands?|products?|tourism|lodges?|stores?)|ecological|sustainab\w*|camping|campsites?|glamping|hiking|trekking|safaris?|tour operators?|tours?|travel agenc\w*|adventure|national parks?|conservation|solar|renewable)\b/i,
+    system: NATURE,
   },
   {
     match: /\b(developers?|devtools?|dev tools?|api|sdk|cli|open[- ]source|observability|devops)\b/i,
@@ -1224,7 +1606,7 @@ export function typeScale(type: Typography): { name: string; px: number }[] {
  * numbers — it is asked to use the names. A model that has to retype a palette
  * is a model that will get one of the greys wrong.
  */
-export function tokensCss(dna: DesignDNA): string {
+export function tokensCss(dna: DesignDNA, options: { fontImport?: boolean } = {}): string {
   const scale = typeScale(dna.type)
     .map((step) => `  --text-${step.name}: ${step.px}px;`)
     .join("\n");
@@ -1233,7 +1615,13 @@ export function tokensCss(dna: DesignDNA): string {
   const dark = isDark(dna);
   const alternate = dark ? "light" : "dark";
 
-  return `/* ${dna.name} — this project's design system.
+  /* The fonts themselves. A Next.js project's stylesheet imports them; a
+     single page gets a <link> instead (withTokens), which the download
+     inliner can carry. Before this, nothing loaded them at all: every stack
+     fell through to the system face and every project looked alike. */
+  const fontImport = options.fontImport !== false && dna.type.webfont ? `@import url("${dna.type.webfont.href}");\n` : "";
+
+  return `${fontImport}/* ${dna.name} — this project's design system.
  *
  * ${dna.intent}
  *
@@ -1329,6 +1717,61 @@ h1, h2, h3, h4 {
 }
 :where([aria-busy="true"]) { cursor: progress; }
 ::selection { background: var(--accent); color: var(--accent-ink); }
+
+/* ── Ready-made pieces ──────────────────────────────────────────────────
+   Built from the tokens above, so they are this system's buttons and cards,
+   not a generic kit. Zero specificity (:where), so a page's own rules win.
+   Use them; restyle them only where the art direction says so. */
+:where(.qs-container) { width: min(100% - 2 * var(--space-3), var(--container)); margin-inline: auto; }
+:where(.qs-section) { padding-block: clamp(var(--space-6), 9vw, var(--space-9)); }
+:where(.qs-section-alt) { background: var(--surface); }
+:where(.qs-stack) { display: flex; flex-direction: column; gap: var(--space-3); }
+:where(.qs-cluster) { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+:where(.qs-grid) { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+:where(.qs-split) { display: grid; gap: var(--space-6); align-items: center; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+
+:where(.qs-display) { font-family: var(--font-display); font-weight: var(--display-weight); line-height: var(--display-leading); letter-spacing: var(--display-tracking); font-size: clamp(var(--text-2xl), 6.5vw, calc(var(--text-4xl) * 1.35)); text-wrap: balance; }
+:where(.qs-lead) { font-size: var(--text-lg); color: var(--muted); max-width: 62ch; text-wrap: pretty; }
+:where(.qs-eyebrow) { font-size: var(--text-xs); font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+:where(.qs-prose) { max-width: 68ch; }
+:where(.qs-prose) > * + * { margin-top: var(--space-3); }
+:where(.qs-gradient-text) { background: linear-gradient(100deg, var(--ink), var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+:where(.qs-btn) {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-1);
+  min-height: 44px; padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  font: inherit; font-weight: 600; line-height: 1.2; text-decoration: none; cursor: pointer;
+}
+:where(.qs-btn-primary) { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-sm); }
+:where(.qs-btn-primary):hover { background: color-mix(in srgb, var(--accent) 88%, var(--ink)); box-shadow: var(--shadow-md); }
+:where(.qs-btn-ghost) { background: transparent; color: var(--ink); border-color: var(--line); }
+:where(.qs-btn-ghost):hover { border-color: var(--ink); }
+:where(.qs-btn-soft) { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); }
+:where(.qs-btn-soft):hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+:where(.qs-btn-lg) { min-height: 52px; padding: var(--space-3) var(--space-5); font-size: var(--text-lg); }
+
+:where(.qs-card) { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-4); box-shadow: var(--shadow-sm); }
+:where(a.qs-card, .qs-card-hover):hover { box-shadow: var(--shadow-md); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+:where(.qs-badge) { display: inline-flex; align-items: center; gap: var(--space-0); padding: 2px var(--space-2); border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: 600; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--ink); }
+:where(.qs-divider) { height: 1px; border: 0; background: var(--line); margin-block: var(--space-5); }
+
+:where(.qs-field) { display: grid; gap: var(--space-1); }
+:where(.qs-label) { font-size: var(--text-sm); font-weight: 600; }
+:where(.qs-input) { width: 100%; min-height: 44px; padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); color: var(--ink); font: inherit; font-size: max(16px, var(--text-base)); }
+:where(.qs-input):focus { border-color: var(--accent); outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 0; }
+
+/* Surfaces with character — for the systems whose art direction asks. */
+:where(.qs-glass) { background: color-mix(in srgb, var(--surface) 62%, transparent); -webkit-backdrop-filter: blur(16px) saturate(140%); backdrop-filter: blur(16px) saturate(140%); border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent); border-radius: var(--radius-lg); }
+:where(.qs-mesh) { background:
+  radial-gradient(60% 50% at 15% 10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+  radial-gradient(50% 45% at 90% 85%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+  var(--ground); }
+:where(.qs-grain) { position: relative; isolation: isolate; }
+:where(.qs-grain)::after { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none; opacity: .07; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+:where(.qs-frame) { overflow: hidden; border-radius: var(--radius-lg); }
+:where(.qs-frame) > img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 /* Motion, declared by attribute so no script is needed and nothing is hidden
    that a reader without script, or with motion turned off, cannot see:
@@ -1440,7 +1883,7 @@ TYPE
   Sizes, and there are no others: ${scale.map((step) => `var(--text-${step.name}) ${step.px}px`).join(", ")}.
 ${
   dna.type.webfont
-    ? `  This project loads one webfont and only one: ${dna.type.webfont.family}, already linked. Do not add a second.`
+    ? `  This project's fonts are already linked: ${(dna.type.webfont.families ?? [dna.type.webfont.family]).join(" (headings) and ")}${(dna.type.webfont.families?.length ?? 1) > 1 ? " (body text)" : ""}. Use var(--font-display) and var(--font-body); do not add any other font.`
     : `  System fonts only. Do not link a webfont — the page is downloadable and carries everything it fetches.`
 }
 
@@ -1472,6 +1915,14 @@ MOTION — ${dna.motion.personality}
     data-reveal on the blocks of later sections, with --i on siblings.
     data-parallax on the frame around at most two large photographs (the frame holds an <img> directly).
   Reduced motion is already honoured. Animate only transform and opacity; nothing loops or moves on its own.
+
+READY-MADE PIECES — already in the stylesheet, built from these tokens. Use them instead of re-styling the same things by hand:
+  Layout: qs-container, qs-section (qs-section-alt for a surface band), qs-stack, qs-cluster, qs-grid (responsive cards), qs-split (text beside a picture).
+  Type: qs-display (the hero headline, fluid), qs-lead, qs-eyebrow, qs-prose, qs-gradient-text (once, if at all).
+  Actions: qs-btn with qs-btn-primary | qs-btn-ghost | qs-btn-soft, plus qs-btn-lg for the main call.
+  Content: qs-card (qs-card-hover when it is a link), qs-badge, qs-divider, qs-frame around a cropped <img>.
+  Forms: qs-field > qs-label + qs-input (inputs, selects, textareas).
+  Surfaces: qs-glass (over a photograph), qs-mesh (a soft accent wash), qs-grain (film grain) — only where the art direction calls for them.
 
 RHYTHM — this is what separates a designed page from a stack of sections.
   Vary the sections deliberately: alternate their height, their density, their background (var(--ground) against var(--surface)), whether they are full-bleed or held to the container, and where the emphasis sits. Two adjacent sections with the same padding, the same grid and the same background read as one long section.
@@ -1517,7 +1968,14 @@ export function withTokens(html: string, dna: DesignDNA | null | undefined): str
   if (!dna || !html) return html;
   if (html.includes(TOKENS_MARK)) return html;
 
-  const block = `<style ${TOKENS_MARK}>\n${tokensCss(dna)}\n</style>`;
+  /* The fonts as links, ahead of the tokens: preconnected, and in a form the
+     download inliner carries (standalone-page.ts). Skipped when the page
+     already links the same stylesheet. */
+  const fonts =
+    dna.type.webfont && !html.includes(dna.type.webfont.href)
+      ? `<link rel="preconnect" href="https://fonts.googleapis.com">\n<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n<link rel="stylesheet" href="${dna.type.webfont.href}">\n`
+      : "";
+  const block = `${fonts}<style ${TOKENS_MARK}>\n${tokensCss(dna, { fontImport: false })}\n</style>`;
 
   const head = html.match(/<head\b[^>]*>/i);
   if (head?.index !== undefined) {

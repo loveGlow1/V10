@@ -139,8 +139,8 @@ const has = (cond, t, d) => (cond ? ok(t) : fail(t, d));
      main card, every other maker behind "More models". The two filters are
      each other's complement, so nothing falls between them. */
   has(
-    /MODELS\.filter\(\(option\) => option\.provider === "auto" \|\| option\.provider === "claude"\)/.test(composer) &&
-      /MODELS\.filter\(\(option\) => option\.provider !== "auto" && option\.provider !== "claude"\)/.test(composer),
+    /MODELS\.filter\(\(option\) => option\.provider === "auto" \|\| option\.provider === "claude"( \|\| isModelAvailable\(option\))?\)/.test(composer) &&
+      /MODELS\.filter\(\(option\) => option\.provider !== "auto" && option\.provider !== "claude"( && !isModelAvailable\(option\))?\)/.test(composer),
     "the workspace composer still offers every model by name",
     "the agent list is the front door's vocabulary, not a reduction of what the product can do",
   );

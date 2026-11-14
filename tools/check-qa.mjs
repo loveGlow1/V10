@@ -204,6 +204,21 @@ for (const entry of RULES) {
   pass(entry.rule);
 }
 
+/* A system that pairs two fonts may load exactly those two, in one link — and
+   a third family is still a typeface nobody chose. */
+console.log("\nFont pairs");
+{
+  const DINING = systemByName("Fine dining");
+  const pair = CLEAN.replace("<title>T</title>", `<title>T</title><link rel="stylesheet" href="${DINING.type.webfont.href}">`);
+  const third = pair.replace("<title>T</title>", '<title>T</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lobster&display=swap">');
+  const onPair = qa.allIssues(await qa.runQa({ html: pair, manifest: manifest(), design: DINING })).some((issue) => issue.rule === "design/webfont");
+  const onThird = qa.allIssues(await qa.runQa({ html: third, manifest: manifest(), design: DINING })).some((issue) => issue.rule === "design/webfont");
+  if (onPair) fail("design/webfont", "fired on a page loading exactly its system's display and body pair");
+  else pass("a system's own font pair, in one link, is allowed");
+  if (!onThird) fail("design/webfont", "did not fire on a third family beside the pair");
+  else pass("a third family beside the pair is caught");
+}
+
 /* The control itself. Every rule above proves it does not fire; this proves
    that in aggregate the clean page passes, which is the promise the whole
    stage makes. */
