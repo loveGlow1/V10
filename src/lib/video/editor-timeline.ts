@@ -154,6 +154,8 @@ export type Segment = {
   caption: string;
   /** This clip's own filter, when it has one. */
   color?: ProductionPlan["scenes"][number]["color"];
+  /** Not made: its last try failed (nothing charged). Export tries it again. */
+  failed?: boolean;
 };
 
 /** What the preview plays, in order, from the plan, the uploads and what has been made. Pure. */
@@ -186,6 +188,7 @@ export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], rende
       text: scene.onScreenText,
       caption: scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim(),
       ...(scene.color ? { color: scene.color } : {}),
+      ...(!mediaUrl && renders.some((r) => r.scene === scene.n && (r.engine === "video" || r.engine === "avatar") && r.status === "failed") ? { failed: true } : {}),
     };
     at += seconds;
     return segment;

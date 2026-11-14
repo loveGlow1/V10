@@ -218,6 +218,8 @@ export default function VideoEditor({ id }: { id: string }) {
   const posters = useClipPosters(rawSegments.filter((s) => s.kind === "video" && !s.posterUrl).map((s) => s.mediaUrl));
   const segments = rawSegments.map((s) => (!s.posterUrl && s.kind === "video" && s.mediaUrl && posters.get(s.mediaUrl) ? { ...s, posterUrl: posters.get(s.mediaUrl) ?? null } : s));
   const total = timelineLength(segments);
+  /* Generated scenes with no clip yet — never filmed, or failed last time. */
+  const missingScenes = segments.filter((seg) => seg.kind === "pending").length;
   const dirty = Boolean(draft && data?.latest && JSON.stringify(draft) !== JSON.stringify(data.latest.plan));
   const cut = draft ? resolveCut(draft) : null;
   const musicUrl = useMemo(() => {
@@ -409,7 +411,7 @@ export default function VideoEditor({ id }: { id: string }) {
       setNote("It's being made — it appears here when it's done.");
       return;
     }
-    if (fresh.final) {
+    if (fresh.final && !missingScenes) {
       setNote("Your video is ready below.");
       return;
     }
@@ -552,11 +554,11 @@ export default function VideoEditor({ id }: { id: string }) {
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
         <button onClick={() => setLibraryTab("settings")} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> Settings</button>
         <button onClick={() => void save()} disabled={!dirty || busy !== null || rendering} className={chip}>
-          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${total > ONE_RUN_SECONDS ? "up to " : ""}${creditsLabel(cutCredits(total))}` : ""}
+          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? "Save & export" : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
+          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? (missingScenes ? `Make ${missingScenes} missing scene${missingScenes === 1 ? "" : "s"}` : "Save & export") : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
         </button>
         </div>
       </header>
@@ -1123,14 +1125,14 @@ function Timeline(props: {
                         ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined }
                         : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)),
                     }}
-                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? " · made on export" : ""}`}
+                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
                   >
                     <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium text-white">
                       {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
                     </span>
                     {!picture && (
                       <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
-                        {s.kind === "pending" ? <><Sparkles className="h-2.5 w-2.5" /> Made on export</> : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                        {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
                       </span>
                     )}
                     <span className="pointer-events-none absolute bottom-0.5 right-1.5 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">{lengthOf(s).toFixed(1)}s</span>
