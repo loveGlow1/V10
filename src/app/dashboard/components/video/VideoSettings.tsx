@@ -5,7 +5,8 @@
  * draft like any scene edit; saving makes the cut again from what was
  * already made, free — nothing is filmed again. */
 
-import { RotateCcw, SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import {
   ASPECTS,
@@ -91,12 +92,24 @@ export default function VideoSettings({
   const stills = plan.scenes.some((scene) => scene.source && scene.engine === "image");
   const readyAudio = audioAssets.filter((asset) => asset.kind === "audio" && asset.status !== "failed");
   const musicValue = now.music.source === "upload" && now.music.assetId ? `upload:${now.music.assetId}` : now.music.source;
+  /* Folded by default: a summary line until the person opens it. Held here,
+     so a change elsewhere on the page never springs it open again. */
+  const [open, setOpen] = useState(false);
 
   return (
-    <details className="group rounded-[16px] border border-line/[0.08] bg-panel p-4" open>
-      <summary className="flex cursor-pointer select-none list-none items-center justify-between gap-2">
+    <details
+      className="group rounded-[16px] border border-line/[0.08] bg-panel p-4"
+      open={open}
+      onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="flex cursor-pointer select-none list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
         <span className="flex items-center gap-1.5 text-[14px] font-medium text-ink"><SlidersHorizontal className="h-4 w-4" /> Video settings</span>
-        <span className="text-[12px] text-muted">{LABELS.aspect[plan.aspect]} · {now.resolution} · {LABELS.transition[now.transition]}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[12px] text-muted">{LABELS.aspect[plan.aspect]} · {now.resolution} · {LABELS.transition[now.transition]}</span>
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors group-hover:bg-layer/[0.06] group-hover:text-ink">
+            <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+          </span>
+        </span>
       </summary>
       <p className="mt-1 text-[12px] text-muted">Changing these never films anything again. Saving is free; the new cut is made when you export (1 credit per started minute of video).</p>
 
