@@ -33,6 +33,7 @@ import { VOICES, isVoiceId } from "./voices";
 import { castManifest, normalizeSceneCast } from "./cast";
 import { MAX_CLIP_SECONDS, normalizeBrandMark, normalizeCut, referenceClipsOf, withBrand, type Cut, type ProductionPlan, type Scene } from "./plan";
 import { ASPECTS, COLORS, type ColorGrade } from "./cut-settings";
+import { pictureKey, voiceKey } from "./editor-timeline";
 
 export type SceneEdit = {
   n: number;
@@ -327,7 +328,6 @@ export function applyEdit(plan: ProductionPlan, edit: Edit, uploads: Pick<Studio
 export function carryByContent(previous: ProductionPlan, next: ProductionPlan): { carry: Carry[]; refilm: number[]; revoice: number[] } {
   /* A generated picture is the prompt, the engine and who is in it: a
      different cast is a different scene, filmed again from their pictures. */
-  const pictureKey = (scene: Scene) => (scene.source ? `upload:${scene.source.assetId}` : `gen:${scene.engine}:${scene.motionPrompt.trim()}:${(scene.characters ?? []).join(",")}`);
   const usedPicture = new Set<number>();
   const usedVoice = new Set<number>();
   const carry: Carry[] = [];
@@ -338,7 +338,6 @@ export function carryByContent(previous: ProductionPlan, next: ProductionPlan): 
     const line = scene.voiceover.trim();
     /* A line carries when the same words are read by the same voice — or it
        is the same recording. */
-    const voiceKey = (plan: ProductionPlan, s: Scene) => (s.voiceAsset ? `asset:${s.voiceAsset}` : `${s.voiceId ?? plan.cut?.voiceId ?? ""}|${s.voiceover.trim()}`);
     const voice = line || scene.voiceAsset ? previous.scenes.find((old) => !usedVoice.has(old.n) && voiceKey(previous, old) === voiceKey(next, scene)) : undefined;
     /* An upload lip-synced to a line that changed is filed again as it was
        uploaded (free), so it is synced to the new line. */
@@ -489,6 +488,8 @@ What you can do, cheapest first:
    continues on a generated scene — true: starts where the scene before ended (filmed again from its last frame); false: a fresh shot; null: automatic.
    aspect — the video's shape ("9:16" | "1:1" | "16:9" | "4:5"); clips are fitted, not refilmed. title — the video's name.
    music — made music described in words ("calm piano, slow build"), or "none" for no music. (A song the person uploaded is chosen in the studio, or with cut.music {"source":"upload","assetId":"..."}.)
+   ADDING A VOICE-OVER ("add a voice-over", "add narration", "put a voice on it", "I want someone talking over it"): this is an EDIT, never a replan and never a refilm. Write a spoken line for EVERY scene that has none (revoice with the full new line; scenes of 2 seconds or less may stay silent), the lines reading as one continuous script that tells what the video shows, each fitting its scene (about 2.5 words per second). Then set cut.audio so it is heard: "voiceover", or "mix" when the scenes are the person's own clips with sound worth keeping. A scene that already has a line keeps it unless asked. Every clip is reused as it is.
+   REMOVING the voice-over: cut.audio "original" (clips' own sound) or "none" — the lines are kept, so it can come back.
 6. replan: true — ONLY when the person wants a different video altogether (new concept, new product, new length beyond trimming). Everything else is an edit.
 
 Rules:

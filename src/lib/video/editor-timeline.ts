@@ -12,6 +12,19 @@ import { sourceSeconds } from "./plan";
 
 export type TimelineAsset = { id: string; kind: string; durationS: number | null; url?: string | null; posterUrl?: string | null; name?: string };
 export type TimelineRender = { scene: number | null; engine: string; status: string; url: string | null };
+/** Every clip and voice line made for this video in any version, by what it
+ *  shows or says (pictureKey / voiceKey) — so a scene whose picture was
+ *  already made shows it, whatever version or position it was made in. */
+export type MadeLibrary = { pictures: Record<string, string>; voices: Record<string, string> };
+
+/** What a scene's picture is: its upload, or the generated prompt, engine and
+ *  cast. Two scenes with the same key show the same clip. Pure. */
+export const pictureKey = (scene: Scene) =>
+  scene.source ? `upload:${scene.source.assetId}` : `gen:${scene.engine}:${(scene.motionPrompt ?? "").trim()}:${(scene.characters ?? []).join(",")}`;
+
+/** What a scene's voice line is: the same words in the same voice, or the same recording. Pure. */
+export const voiceKey = (plan: Pick<ProductionPlan, "cut">, scene: Scene) =>
+  scene.voiceAsset ? `asset:${scene.voiceAsset}` : `${scene.voiceId ?? plan.cut?.voiceId ?? ""}|${(scene.voiceover ?? "").trim()}`;
 
 /** How long a scene runs on the timeline. Pure. */
 export function sceneLength(scene: Scene, assets: TimelineAsset[]): number {
@@ -144,16 +157,20 @@ export type Segment = {
 };
 
 /** What the preview plays, in order, from the plan, the uploads and what has been made. Pure. */
-export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], renders: TimelineRender[]): Segment[] {
+export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], renders: TimelineRender[], library?: MadeLibrary | null): Segment[] {
   const muted = new Set(plan.cut?.muted ?? []);
-  const made = (n: number, engine: string) => renders.find((r) => r.scene === n && r.engine === engine && r.status === "done" && r.url)?.url ?? null;
+  const byNumber = (n: number, engine: string) => renders.find((r) => r.scene === n && r.engine === engine && r.status === "done" && r.url)?.url ?? null;
+  /* By content first: a draft's scenes may be moved, added or taken from an
+     earlier version, and their numbers no longer match what was made. */
+  const madePicture = (scene: Scene) => (library ? library.pictures[pictureKey(scene)] ?? null : byNumber(scene.n, "avatar") ?? byNumber(scene.n, "video"));
+  const madeVoice = (scene: Scene) => (library ? (scene.voiceover?.trim() ? library.voices[voiceKey(plan, scene)] ?? null : null) : byNumber(scene.n, "voice"));
   let at = 0;
   return plan.scenes.map((scene) => {
     const seconds = sceneLength(scene, assets);
     const asset = scene.source ? assets.find((a) => a.id === scene.source?.assetId) : undefined;
     const voiceAsset = scene.voiceAsset ? assets.find((a) => a.id === scene.voiceAsset) : undefined;
     const still = Boolean(asset && asset.kind !== "video");
-    const mediaUrl = asset ? asset.url ?? null : made(scene.n, "avatar") ?? made(scene.n, "video");
+    const mediaUrl = asset ? asset.url ?? null : madePicture(scene);
     const segment: Segment = {
       n: scene.n,
       start: round(at),
@@ -164,7 +181,7 @@ export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], rende
       from: asset && !still ? scene.source?.trimStart ?? 0 : 0,
       speed: asset && !still ? scene.source?.speed ?? 1 : 1,
       volume: muted.has(scene.n) ? 0 : Math.min(1, (scene.source?.volume ?? 1) * (plan.cut?.originalVolume ?? 1)),
-      voiceUrl: voiceAsset?.url ?? made(scene.n, "voice"),
+      voiceUrl: voiceAsset?.url ?? madeVoice(scene),
       label: asset?.name || scene.shot || scene.visual.slice(0, 40) || `Scene ${scene.n}`,
       text: scene.onScreenText,
       caption: scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim(),

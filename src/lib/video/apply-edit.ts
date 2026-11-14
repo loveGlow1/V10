@@ -24,6 +24,9 @@ import { stopped } from "@/lib/ai/llm";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
 import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
+import { dropsNarration, wantsNarration } from "./director";
+import { pictureKey, voiceKey } from "./editor-timeline";
+import { madeLibrary, type MadeRow } from "./reuse";
 import { SOUND_COMMANDS } from "./sound";
 import { keyframePath } from "./frames";
 import { usesVoice, type Cut, type ProductionPlan } from "./plan";
@@ -119,12 +122,21 @@ export async function editVideo(input: {
   let decided = await ask();
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
+  /* Adding or removing a voice-over is an edit: planning the video again
+     would film every scene again. */
+  if (decided.edit.replan && (wantsNarration(input.instruction) || dropsNarration(input.instruction))) {
+    const again = await ask("This is NOT a new video: the person only wants the voice-over changed. replan must be false. Write the lines (revoice) and set cut.audio; refilm nothing.");
+    if (!("error" in again)) decided = again;
+  }
+  if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
   if (decided.edit.replan) return null;
   /* An answer that changes nothing, though a change was asked for: asked
      once more, plainly. Still nothing — said so, and nothing is charged. */
   if (changesNothing(plan, decided.edit, uploads)) {
     const again = await ask(
-      "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a change. Make the edit they asked for now — on the scene(s) it concerns — using the fields above. Only if it truly cannot be done, keep the scenes unchanged and say why in reply.",
+      wantsNarration(input.instruction)
+        ? "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a VOICE-OVER. Write a spoken line for every scene (action \"revoice\" with the full new line in \"voiceover\") and set cut.audio to \"voiceover\" (or \"mix\" for their own clips with sound). Do not refilm anything."
+        : "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a change. Make the edit they asked for now — on the scene(s) it concerns — using the fields above. Only if it truly cannot be done, keep the scenes unchanged and say why in reply.",
     );
     if (!("error" in again) && !again.edit.replan) decided = again;
     if (stopped()) return { ok: false, message: "Stopped — nothing was changed or charged." };
@@ -185,6 +197,8 @@ export async function saveTimeline(input: { writer: SupabaseClient; userId: stri
     instruction: "Timeline and settings",
     reply: "Saved.",
     charge: 0,
+    reuseEarlier: true,
+    deferRender: true,
   });
 }
 
@@ -202,10 +216,16 @@ async function commitNext(input: Loaded & {
   reply: string;
   charge: number;
   outputTokens?: number;
+  /** A timeline save: scenes made in any earlier version are filed, not filmed again. */
+  reuseEarlier?: boolean;
+  /** A timeline save: only saved. Nothing is filmed, voiced, scored, cut or
+      charged until Export — a word on screen changed is never a new clip. */
+  deferRender?: boolean;
 }): Promise<EditResult> {
   const { writer, userId, videoId, origin, video, version, done, next, carry, refilm, revoice } = input;
   const edit = { reply: input.reply };
   if (!next.scenes.length) return { ok: false, message: "That would leave the video with no scenes, so I've left it as it is." };
+  if (input.deferRender) return saveOnly({ ...input, next, carry });
   /* Every new version is cut again, and the cut is charged: nothing is
      saved unless the AI's answer (if any) and the cut can be paid for. */
   const needed = input.charge + cutCost(next);
@@ -273,7 +293,7 @@ async function commitNext(input: Loaded & {
   const missing = next.scenes.some((scene) => !carried.some((row) => row.scene === scene.n && (row.engine === "video" || row.engine === "avatar")))
     || next.scenes.some((scene) => usesVoice(next.cut) && scene.voiceover.trim() && !carried.some((row) => row.scene === scene.n && row.engine === "voice"));
   if (missing) {
-    const rendered = await startRender(writer, userId, videoId, { onlyMissing: true }, origin);
+    const rendered = await startRender(writer, userId, videoId, { onlyMissing: true, reuseEarlier: input.reuseEarlier === true }, origin);
     const body = (await rendered.json().catch(() => null)) as { error?: string; cost?: number } | null;
     if (!rendered.ok) {
       return { ok: false, message: `${edit.reply} I saved it as version ${nextVersion}, but the new pieces could not be started: ${(body?.error ?? "try again in a moment").replace(/\.+$/, "")}. Say "render it" to try again.` };
@@ -286,6 +306,63 @@ async function commitNext(input: Loaded & {
   await writer.from("video_projects").update({ status: "rendering" }).eq("id", videoId);
   await advance(service, videoId, nextVersion, origin);
   return { ok: true, message: `${edit.reply} Nothing needs re-filming, so the new cut takes about a minute — it lands in the chat when it's done.` };
+}
+
+/* A timeline save: the next version, with every clip and voice line that
+   still fits filed as it is — from the version playing or any earlier one —
+   and nothing else. Free; Export makes whatever is still missing. */
+async function saveOnly(input: Loaded & { writer: SupabaseClient; userId: string; videoId: string; instruction: string; next: ProductionPlan; carry: Carry[] }): Promise<EditResult> {
+  const { writer, userId, videoId, video, version, done, next, carry } = input;
+  const { data: newest } = await writer.from("video_versions").select("version").eq("video_id", videoId).order("version", { ascending: false }).limit(1).maybeSingle();
+  const nextVersion = Math.max(version, (newest?.version as number | undefined) ?? 0) + 1;
+  const { error: saveError } = await writer
+    .from("video_versions")
+    .insert({ video_id: videoId, user_id: userId, version: nextVersion, plan: next, issues: [], note: input.instruction.trim().slice(0, 300) });
+  if (saveError) return { ok: false, message: "Your edit could not be saved. Nothing was charged — try again." };
+
+  const rows: Record<string, unknown>[] = [];
+  const hasPicture = new Set<number>();
+  const hasVoice = new Set<number>();
+  for (const entry of carry) {
+    const picture = done(entry.from, "avatar") ?? done(entry.from, "video");
+    if (entry.clip && picture && !hasPicture.has(entry.to)) {
+      hasPicture.add(entry.to);
+      rows.push({ video_id: videoId, user_id: userId, version: nextVersion, scene: entry.to, engine: picture.engine, provider: picture.provider, status: "done", output_path: picture.output_path });
+    }
+    const voice = done(entry.from, "voice");
+    if (entry.voice && voice && !hasVoice.has(entry.to) && next.scenes.find((s) => s.n === entry.to)?.voiceover.trim()) {
+      hasVoice.add(entry.to);
+      rows.push({ video_id: videoId, user_id: userId, version: nextVersion, scene: entry.to, engine: "voice", provider: voice.provider, status: "done", output_path: voice.output_path });
+    }
+  }
+  /* Made in an earlier version than the one playing: filed too. */
+  const [{ data: versions }, { data: made }] = await Promise.all([
+    writer.from("video_versions").select("version, plan").eq("video_id", videoId).order("version", { ascending: false }).limit(60),
+    writer.from("video_renders").select("version, scene, engine, status, provider, output_path").eq("video_id", videoId).eq("status", "done").in("engine", ["video", "avatar", "voice"]),
+  ]);
+  const library = madeLibrary(new Map((versions ?? []).map((row) => [row.version as number, row.plan as ProductionPlan])), (made ?? []) as MadeRow[], version);
+  for (const scene of next.scenes) {
+    if (!scene.source && !hasPicture.has(scene.n)) {
+      const row = library.pictures.get(pictureKey(scene));
+      if (row) rows.push({ video_id: videoId, user_id: userId, version: nextVersion, scene: scene.n, engine: row.engine, provider: row.provider, status: "done", output_path: row.output_path });
+    }
+    if (scene.voiceover.trim() && !scene.voiceAsset && !hasVoice.has(scene.n)) {
+      const row = library.voices.get(voiceKey(next, scene));
+      if (row) rows.push({ video_id: videoId, user_id: userId, version: nextVersion, scene: scene.n, engine: "voice", provider: row.provider, status: "done", output_path: row.output_path });
+    }
+  }
+  /* The music, when nothing about it changed. */
+  if (input.music && wantsMusic(next) && wantsMusic(input.plan) && (input.plan.music ?? "").trim() === (next.music ?? "").trim()) {
+    rows.push({ video_id: videoId, user_id: userId, version: nextVersion, scene: null, engine: "music", provider: input.music.provider, status: "done", output_path: input.music.output_path });
+  }
+  if (rows.length) await writer.from("video_renders").insert(rows);
+  const service = createSupabaseServiceClient() ?? writer;
+  await service.storage
+    .from("video-assets")
+    .copy(keyframePath(video.user_id as string, videoId, version), keyframePath(video.user_id as string, videoId, nextVersion))
+    .catch(() => null);
+  await writer.from("video_projects").update({ current_version: nextVersion, title: next.title.slice(0, 160), status: "planned" }).eq("id", videoId);
+  return { ok: true, message: "Saved — nothing was filmed or charged. Export makes the final video, filming only scenes that were never made." };
 }
 
 function scenesWord(ns: number[]): string {

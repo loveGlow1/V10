@@ -57,7 +57,7 @@ import {
 
 import { formatSeconds } from "@/lib/video/assets";
 import { COLOR_CSS, LABELS, resolveCut, type ResolvedCut } from "@/lib/video/cut-settings";
-import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type Segment } from "@/lib/video/editor-timeline";
+import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type MadeLibrary, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
@@ -83,6 +83,8 @@ type Loaded = {
   renders: RenderRow[];
   cost: number;
   final: string | null;
+  /** Every clip and voice line made in any version, by content (state.ts). */
+  library?: MadeLibrary;
 };
 type Selection = { type: "scene"; n: number } | { type: "music" } | { type: "voice" } | null;
 type Chat = { who: "you" | "ai"; text: string };
@@ -210,7 +212,7 @@ export default function VideoEditor({ id }: { id: string }) {
   };
 
   const assets = useMemo(() => data?.assets ?? [], [data]);
-  const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? []) : []), [draft, assets, data]);
+  const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? [], data?.library) : []), [draft, assets, data]);
   /* A still from every made clip, so generated scenes show their picture
      in the filmstrip and the scene list like uploads do (useClipPosters). */
   const posters = useClipPosters(rawSegments.filter((s) => s.kind === "video" && !s.posterUrl).map((s) => s.mediaUrl));
@@ -402,13 +404,23 @@ export default function VideoEditor({ id }: { id: string }) {
   async function exportVideo() {
     if (dirty && !(await save())) return;
     const fresh = await load(true);
-    if (fresh && fresh.renders.length && !dirty) {
-      setNote(fresh.final ? "Your video is ready below." : "It's being cut — it appears here when it's done.");
-      if (fresh.video.status === "rendering" || fresh.final) return;
+    if (!fresh) return;
+    if (fresh.video.status === "rendering") {
+      setNote("It's being made — it appears here when it's done.");
+      return;
     }
-    if (fresh?.renders.length) return;
+    if (fresh.final) {
+      setNote("Your video is ready below.");
+      return;
+    }
+    /* Only what was never made is filmed or voiced; every clip and line
+       already made (in any version) is used as it is. */
     setBusy("export");
-    const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).catch(() => null);
+    const response = await fetch(`/api/video/${id}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fresh.renders.length ? { onlyMissing: true, reuseEarlier: true } : {}),
+    }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as { error?: string } | null;
     setBusy(null);
     if (!response?.ok) setError(body?.error ?? "The export could not start.");

@@ -39,6 +39,7 @@ import { awaitProvider, continuityLinks } from "@/lib/video/continuity";
 import { LOOK_NOTE, lookFrames } from "@/lib/video/look";
 import { releaseWaiting } from "@/lib/video/continuity-release";
 import type { ProductionPlan } from "@/lib/video/plan";
+import { madeLibrary, reuseMade, type Library, type MadeRow } from "@/lib/video/reuse";
 import { clipPrompt, dispatchJobs, engineOf, jobCost, jobsFor, languageFor, type RenderJob } from "@/lib/video/render";
 
 
@@ -47,7 +48,7 @@ export async function startRender(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { retryFailed?: unknown; onlyMissing?: unknown },
+  body: { retryFailed?: unknown; onlyMissing?: unknown; /** With onlyMissing: also file what any earlier version made of the same scene (a timeline save, never an asked-for re-take). */ reuseEarlier?: unknown },
   origin: string,
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("id, current_version, answers, status").eq("id", id).maybeSingle();
@@ -91,6 +92,8 @@ export async function startRender(
     firstFrameUrl = data?.signedUrl ?? null;
   }
   let jobs: RenderJob[] = jobsFor(plan, answers, { firstFrameUrl });
+  /* Clips and voice lines filed from what was already made (a fresh render only). */
+  let reused = 0;
 
   const { data: existing } = await supabase.from("video_renders").select("id, scene, engine, status").eq("video_id", id).eq("version", version);
   if (body.retryFailed === true) {
@@ -118,6 +121,18 @@ export async function startRender(
     /* An edit: what carried over is already here; make the rest. */
     const have = new Set((existing ?? []).filter((r) => r.status !== "failed").map((r) => `${r.engine}:${r.scene}`));
     jobs = jobs.filter((job) => !have.has(`${engineOf(job.kind)}:${job.n}`) && !(job.kind === "clip" && have.has(`avatar:${job.n}`)));
+    if (body.reuseEarlier === true && jobs.length) {
+      const { reused: kept, remaining } = reuseMade(plan, jobs, await madeSoFar(supabase, id, version));
+      if (kept.length) {
+        const { error: keepError } = await supabase
+          .from("video_renders")
+          .insert(kept.map((row) => ({ video_id: id, user_id: userId, version, scene: row.scene, engine: row.engine, provider: row.provider, status: "done", output_path: row.output_path })));
+        if (!keepError) {
+          jobs = remaining;
+          reused = kept.length;
+        }
+      }
+    }
     for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose" || r.engine === "part")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
@@ -135,24 +150,38 @@ export async function startRender(
   } else if ((existing ?? []).some((r) => r.status === "queued" || r.status === "running")) {
     return NextResponse.json({ error: "This version is already generating." }, { status: 409 });
   } else {
-    /* A fresh render: nothing of the last one carries over. */
+    /* A fresh render — Export, or a plan the director wrote again. Every
+       clip and voice line already made for exactly this scene, in this
+       version or any earlier one, is filed as it is (reuse.ts): only what is
+       really new is filmed, and only that is charged. */
+    const library = await madeSoFar(supabase, id, version);
     await supabase.from("video_renders").delete().eq("video_id", id).eq("version", version);
+    const { reused: kept, remaining } = reuseMade(plan, jobs, library);
+    if (kept.length) {
+      const { error: keepError } = await supabase
+        .from("video_renders")
+        .insert(kept.map((row) => ({ video_id: id, user_id: userId, version, scene: row.scene, engine: row.engine, provider: row.provider, status: "done", output_path: row.output_path })));
+      if (!keepError) {
+        jobs = remaining;
+        reused = kept.length;
+      }
+    }
   }
 
   /* The person's own clips, pictures and music: filed as they are, free. */
-  if (jobs.length === 0 && body.retryFailed !== true && body.onlyMissing !== true && !(await covers(renderCost(plan, process.env, answers.quality ?? null)))) {
-    return shortOf(renderCost(plan, process.env, answers.quality ?? null));
+  if (jobs.length === 0 && body.retryFailed !== true && body.onlyMissing !== true && !(await covers(reused ? cutCost(plan) : renderCost(plan, process.env, answers.quality ?? null)))) {
+    return shortOf(reused ? cutCost(plan) : renderCost(plan, process.env, answers.quality ?? null));
   }
   const uploaded = body.retryFailed === true ? 0 : body.onlyMissing === true ? 0 : await fileUploads(supabase, { videoId: id, userId, version, plan });
   if (jobs.length === 0) {
-    if (!uploaded) return NextResponse.json({ error: "There is nothing to generate in this plan yet." }, { status: 400 });
+    if (!uploaded && !reused) return NextResponse.json({ error: "There is nothing to generate in this plan yet." }, { status: 400 });
     const service = createSupabaseServiceClient();
     if (service) {
       await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
       await advance(service, id, version, origin);
     }
     await supabase.from("video_projects").update({ status: "rendering" }).eq("id", id);
-    return NextResponse.json({ queued: uploaded, failed: 0, cost: renderCost(plan, process.env, answers.quality ?? null), readiness: ready });
+    return NextResponse.json({ queued: uploaded + reused, failed: 0, reused, cost: reused ? cutCost(plan) : renderCost(plan, process.env, answers.quality ?? null), readiness: ready });
   }
 
   const quality = answers.quality ?? null;
@@ -161,7 +190,7 @@ export async function startRender(
      API until it is worth trying again (lib/video/credit.ts). */
   const n8nPaused = Boolean(await n8nPausedUntil(createSupabaseServiceClient()));
   const skip: ClipEngine[] = n8nPaused ? ["n8n"] : [];
-  const cost = body.retryFailed === true || body.onlyMissing === true ? jobCost(jobs) + cutCost(plan) : renderCost(plan, process.env, quality, skip);
+  const cost = body.retryFailed === true || body.onlyMissing === true || reused > 0 ? jobCost(jobs) + cutCost(plan) : renderCost(plan, process.env, quality, skip);
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
@@ -332,13 +361,31 @@ export async function startRender(
   }
 
   const accepted = sent.filter((entry) => entry.ok).length + uploaded;
-  if (accepted && body.retryFailed !== true && body.onlyMissing !== true) {
+  /* The music: with a fresh render, or an Export of a saved timeline whose
+     music was not kept (a timeline save never starts it). */
+  const musicKept = (existing ?? []).some((r) => r.engine === "music" && r.status !== "failed");
+  if (accepted && body.retryFailed !== true && (body.onlyMissing !== true || (body.reuseEarlier === true && !musicKept))) {
     const service = createSupabaseServiceClient();
     if (service) await startMusic(service, { video_id: id, user_id: userId, version }, origin, plan);
   }
   await supabase.from("video_projects").update({ status: accepted ? "rendering" : "failed" }).eq("id", id);
   if (!accepted) return NextResponse.json({ error: sent[0]?.error ?? "Generating could not be started." }, { status: 502 });
-  return NextResponse.json({ queued: accepted, failed: sent.length - accepted, cost, readiness: ready });
+  return NextResponse.json({ queued: accepted, failed: sent.length - accepted, reused, cost, readiness: ready });
+}
+
+/** Every clip and voice line made for this video so far, by content (reuse.ts). */
+async function madeSoFar(supabase: SupabaseClient, videoId: string, prefer: number): Promise<Library> {
+  const [{ data: versions }, { data: rows }] = await Promise.all([
+    supabase.from("video_versions").select("version, plan").eq("video_id", videoId).order("version", { ascending: false }).limit(60),
+    supabase
+      .from("video_renders")
+      .select("version, scene, engine, status, provider, output_path")
+      .eq("video_id", videoId)
+      .eq("status", "done")
+      .in("engine", ["video", "avatar", "voice"]),
+  ]);
+  const plans = new Map((versions ?? []).map((row) => [row.version as number, row.plan as ProductionPlan]));
+  return madeLibrary(plans, (rows ?? []) as MadeRow[], prefer);
 }
 
 /** Runs `work` over every item, at most `size` at once. */

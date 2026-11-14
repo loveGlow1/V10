@@ -18,6 +18,8 @@ import { releaseWaiting } from "@/lib/video/continuity-release";
 import { announceFinal } from "@/lib/video/announce";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
+import type { MadeLibrary } from "@/lib/video/editor-timeline";
+import { madeLibrary, type MadeRow } from "@/lib/video/reuse";
 import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
 
 
@@ -241,8 +243,13 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
         )
       ).filter(Boolean)
     : [];
+  /* Every clip and voice line made in any version, by content (reuse.ts):
+     a scene whose picture was already made shows it on the timeline, not
+     "Made on export" — and Export files it as it is. */
+  const library = await libraryOf(supabase, id, video.current_version as number);
   return NextResponse.json({
     video: { ...video, status },
+    library,
     latest,
     versions: (versions ?? []).map(({ version, note, created_at }) => ({ version, note, created_at })),
     assets: studioAssets,
@@ -256,4 +263,37 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     parts,
     exports,
   });
+}
+
+/** The made clips and voice lines of every version, by content, each as a short-lived link. */
+async function libraryOf(supabase: SupabaseClient, videoId: string, current: number): Promise<MadeLibrary> {
+  const [{ data: versions }, { data: rows }] = await Promise.all([
+    supabase.from("video_versions").select("version, plan").eq("video_id", videoId).order("version", { ascending: false }).limit(60),
+    supabase
+      .from("video_renders")
+      .select("version, scene, engine, status, provider, output_path")
+      .eq("video_id", videoId)
+      .eq("status", "done")
+      .in("engine", ["video", "avatar", "voice"]),
+  ]);
+  const plans = new Map((versions ?? []).map((row) => [row.version as number, row.plan as ProductionPlan]));
+  const { pictures, voices } = madeLibrary(plans, (rows ?? []) as MadeRow[], current);
+  /* One link per file, signed together: carried clips share their file. */
+  const paths = [...new Set([...pictures.values(), ...voices.values()].map((row) => row.output_path as string).filter((path) => path.startsWith("storage:")).map((path) => path.slice(8)))];
+  const signed = new Map<string, string>();
+  if (paths.length) {
+    const { data } = await supabase.storage.from("video-assets").createSignedUrls(paths, 60 * 60);
+    for (const entry of data ?? []) if (entry.path && entry.signedUrl) signed.set(entry.path, entry.signedUrl);
+  }
+  const link = (path: string | null) => (!path ? null : path.startsWith("storage:") ? signed.get(path.slice(8)) ?? null : path.startsWith("https://") ? path : null);
+  const out: MadeLibrary = { pictures: {}, voices: {} };
+  for (const [key, row] of pictures) {
+    const url = link(row.output_path);
+    if (url) out.pictures[key] = url;
+  }
+  for (const [key, row] of voices) {
+    const url = link(row.output_path);
+    if (url) out.voices[key] = url;
+  }
+  return out;
 }

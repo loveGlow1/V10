@@ -16,7 +16,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { stopped } from "@/lib/ai/llm";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { direct, planChapterCount } from "@/lib/video/director";
+import { direct, dropsNarration, planChapterCount, wantsNarration } from "@/lib/video/director";
 import { contextFiles } from "@/lib/video/context-files";
 import { readiness } from "@/lib/video/engines";
 import { isPipelineId } from "@/lib/video/pipelines";
@@ -192,6 +192,12 @@ export async function planVideo(
       previous: typeof body.note === "string" && current ? (current.plan as ProductionPlan) : null,
     });
     if ("error" in directed) return NextResponse.json({ error: directed.error }, { status: 502 });
+    /* "Add a voice-over" (or "remove it") is the new choice from now on, so
+       the next plan keeps it rather than going back to the first answer. */
+    const asked = typeof body.note === "string" ? body.note : "";
+    const silent = /^(no voiceover|music only|none)$/i.test((answers.voice ?? "").trim());
+    if (asked && wantsNarration(asked) && silent) await supabase.from("video_projects").update({ answers: { ...answers, voice: "Narrator" } }).eq("id", id);
+    else if (asked && dropsNarration(asked) && !silent) await supabase.from("video_projects").update({ answers: { ...answers, voice: "No voiceover" } }).eq("id", id);
     ({ plan, issues, outputTokens } = directed);
     calls = directed.calls ?? 1;
     /* The look the person chose stays chosen when the plan is made again. */
