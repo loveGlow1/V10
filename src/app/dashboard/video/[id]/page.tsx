@@ -73,6 +73,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "plan" | "save" | "render">(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /* Scene cards open in the list (collapsed by default: a long film is a long list). */
+  const [openScenes, setOpenScenes] = useState<Set<number>>(() => new Set());
+  const toggleScene = (n: number) =>
+    setOpenScenes((open) => {
+      const next = new Set(open);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
   const [draft, setDraft] = useState<ProductionPlan | null>(null);
   const [issues, setIssues] = useState<QaIssue[]>([]);
   const [note, setNote] = useState("");
@@ -453,8 +462,18 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             {saved && !dirty && <p className="text-[12.5px] text-emerald-400">{saved}</p>}
             {/* Step 4: scenes — the timeline */}
             <section className="space-y-2.5">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[14px] font-medium text-ink">Scenes <span className="text-[12px] font-normal text-muted">· {formatSeconds(timelineSeconds(shown, data.assets))} · {shown.scenes.length}</span></h2>
+                {shown.scenes.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenScenes(openScenes.size ? new Set() : new Set(shown.scenes.map((x) => x.n)))}
+                    className="ml-auto flex h-8 items-center gap-1 rounded-full px-3 text-[12.5px] text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openScenes.size ? "rotate-180" : ""}`} />
+                    {openScenes.size ? "Collapse all" : "Show all"}
+                  </button>
+                )}
                 {dirty && (
                   <div className="flex gap-2">
                     <button onClick={() => setDraft(data.latest?.plan ?? null)} className="h-8 rounded-full px-3 text-[12.5px] text-muted hover:text-ink">Discard</button>
@@ -466,8 +485,19 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
               </div>
               {shown.scenes.map((scene) => (
                 <article key={scene.n} className="rounded-[14px] border border-line/[0.08] bg-panel p-3.5">
+                  {!openScenes.has(scene.n) ? (
+                    /* Collapsed: one line — the scene, its length and what it shows or says. */
+                    <button type="button" onClick={() => toggleScene(scene.n)} aria-expanded={false} className="flex w-full items-center gap-2 text-left text-[12px]">
+                      <span className="shrink-0 font-semibold text-ink">Scene {scene.n}</span>
+                      <span className="shrink-0 tabular-nums text-muted">{scene.duration}s</span>
+                      <span className="min-w-0 flex-1 truncate text-soft">{scene.onScreenText || scene.voiceover || scene.shot || scene.visual}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+                    </button>
+                  ) : (<>
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                    <span className="font-semibold text-ink">Scene {scene.n}</span>
+                    <button type="button" onClick={() => toggleScene(scene.n)} aria-expanded aria-label={`Collapse scene ${scene.n}`} className="-ml-1 flex items-center gap-1 rounded-md px-1 font-semibold text-ink hover:bg-layer/[0.06]">
+                      <ChevronDown className="h-3.5 w-3.5 rotate-180 text-muted" /> Scene {scene.n}
+                    </button>
                     <span className="ml-auto flex gap-1 sm:order-last">
                       <button onClick={() => moveScene(scene.n, -1)} disabled={scene.n === 1} aria-label={`Move scene ${scene.n} earlier`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                       <button onClick={() => moveScene(scene.n, 1)} disabled={scene.n === shown.scenes.length} aria-label={`Move scene ${scene.n} later`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
@@ -518,6 +548,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     {scene.sound && <p className="mt-1">Sound: {scene.sound}</p>}
                   </details>}
                   <SceneAsk n={scene.n} disabled={busy !== null} onAsk={(text) => void plan({ note: `Change only scene ${scene.n}, keep every other scene exactly as it is: ${text}` })} />
+                  </>)}
                 </article>
               ))}
             </section>
