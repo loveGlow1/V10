@@ -991,5 +991,14 @@ console.log("\nmade once, never again");
   has(/deferRender: true/.test(ae) && /if \(input\.deferRender\) return saveOnly/.test(ae) && !/startRender|startMusic|advance\(|chargeCredits/.test(ae.slice(ae.indexOf("async function saveOnly"), ae.indexOf("function scenesWord"))), "a timeline save films, voices, scores, cuts and charges nothing");
 }
 
+console.log("\nan edit changes what was asked, nothing more");
+{
+  const ae = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+  has(/made, started: rows\.length > 0/.test(ae) && !/Nothing filmed yet: there is nothing to edit/.test(ae), "a plan whose clips failed is still edited, never planned again from scratch");
+  has(/decided\.edit\.replan && !wantsNewVideo\(input\.instruction\)/.test(ae), "the editor's 'new video' is questioned unless a new video was asked for");
+  has(/onlyNamedScenes\(decided\.edit, input\.instruction, made\)/.test(ae), "'change scene 3' touches scene 3 only");
+  has(/onlyScenes: \{ clips, voices \}/.test(ae) && /deferRender: !loaded\.started/.test(ae), "an edit films only the scenes it changed; before Generate it only changes the plan");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
