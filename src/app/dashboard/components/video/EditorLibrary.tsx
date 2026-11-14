@@ -84,7 +84,7 @@ export default function EditorLibrary(props: {
             role="tab"
             aria-selected={props.tab === id}
             onClick={() => props.onTab(id)}
-            className={`flex min-w-[44px] flex-1 shrink-0 flex-col items-center gap-0.5 rounded-[8px] px-0.5 py-1 text-[10px] ${props.tab === id ? "bg-layer/[0.12] text-ink" : "text-muted hover:text-ink"}`}
+            className={`flex min-w-[60px] flex-1 shrink-0 flex-col items-center gap-0.5 whitespace-nowrap rounded-[8px] px-1 py-1 text-[10px] ${props.tab === id ? "bg-layer/[0.12] text-ink" : "text-muted hover:text-ink"}`}
           >
             <Icon className="h-4 w-4" />
             {label}

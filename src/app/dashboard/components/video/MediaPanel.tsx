@@ -331,84 +331,90 @@ export default function MediaPanel({
             const isMusic = musicAssetId === asset.id;
             const visual = asset.kind === "video" || (asset.kind !== "audio" && asset.kind !== "document");
             return (
-              <li key={asset.id} className="flex max-w-full items-center gap-2 rounded-[12px] border border-line/[0.1] bg-layer/[0.03] py-1.5 pl-1.5 pr-2">
+              <li key={asset.id} className="flex w-full flex-wrap items-center gap-x-2 gap-y-2 rounded-[12px] border border-line/[0.1] bg-layer/[0.03] py-2 pl-2 pr-2 sm:w-auto sm:max-w-full sm:flex-nowrap sm:py-1.5 sm:pl-1.5">
+                {/* A phone gets two lines: the file and its remove on top, its
+                    actions underneath at full size; wider screens keep one line. */}
+                <span className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[8px] bg-layer/[0.08] text-soft">
-                  {asset.posterUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={asset.posterUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <Icon className="h-4 w-4" />
-                  )}
-                  {asset.posterUrl && <Icon className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded bg-black/60 p-[1px] text-white" />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block max-w-[160px] truncate text-[12.5px] text-ink" title={asset.name}>{asset.name || (asset.kind === "video" ? "Clip" : asset.kind === "audio" ? "Sound" : "Picture")}</span>
-                  <button
-                    type="button"
-                    onClick={() => void navigator.clipboard?.writeText(refs.get(asset.id) ?? "").catch(() => {})}
-                    title="Use this name in your idea to say how this file is used — click to copy"
-                    className="block max-w-[160px] truncate text-left font-mono text-[10.5px] text-accent hover:underline"
-                  >
-                    {refs.get(asset.id)}
-                  </button>
-                  <span className="block text-[11px] text-muted">
-                    {asset.status === "processing" ? (
-                      <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Preparing…</span>
-                    ) : asset.status === "failed" ? (
-                      <span className="text-danger" title={asset.error ?? undefined}>{asset.error ? asset.error.slice(0, 60) : "Could not be read"}</span>
+                    {asset.posterUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={asset.posterUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      [asset.durationS ? formatSeconds(asset.durationS) : "", asset.width && asset.height ? `${asset.width}×${asset.height}` : "", asset.kind === "video" && asset.hasAudio === false ? "no sound" : "", asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "image" ? asset.kind : ""].filter(Boolean).join(" · ") || asset.kind
+                      <Icon className="h-4 w-4" />
                     )}
+                    {asset.posterUrl && <Icon className="absolute bottom-0.5 right-0.5 h-3 w-3 rounded bg-black/60 p-[1px] text-white" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12.5px] text-ink sm:max-w-[160px]" title={asset.name}>{asset.name || (asset.kind === "video" ? "Clip" : asset.kind === "audio" ? "Sound" : "Picture")}</span>
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard?.writeText(refs.get(asset.id) ?? "").catch(() => {})}
+                      title="Use this name in your idea to say how this file is used — click to copy"
+                      className="block max-w-full truncate text-left font-mono sm:max-w-[160px] text-[10.5px] text-accent hover:underline"
+                    >
+                      {refs.get(asset.id)}
+                    </button>
+                    <span className="block text-[11px] text-muted">
+                      {asset.status === "processing" ? (
+                        <span className="inline-flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Preparing…</span>
+                      ) : asset.status === "failed" ? (
+                        <span className="text-danger" title={asset.error ?? undefined}>{asset.error ? asset.error.slice(0, 60) : "Could not be read"}</span>
+                      ) : (
+                        [asset.durationS ? formatSeconds(asset.durationS) : "", asset.width && asset.height ? `${asset.width}×${asset.height}` : "", asset.kind === "video" && asset.hasAudio === false ? "no sound" : "", asset.kind !== "video" && asset.kind !== "audio" && asset.kind !== "image" ? asset.kind : ""].filter(Boolean).join(" · ") || asset.kind
+                      )}
+                    </span>
                   </span>
                 </span>
-                {visual && onAdd && asset.status !== "failed" && (
-                  <button
-                    type="button"
-                    onClick={() => onAdd(asset)}
-                    title={used ? "In the video — add it again" : "Add to the end of the video"}
-                    className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08]"
-                  >
-                    {used ? <Check className="h-3 w-3 text-emerald-400" /> : <Plus className="h-3 w-3" />} {used ? "In video" : "Add"}
-                  </button>
-                )}
-                {visual && onReference && asset.status !== "failed" && (
-                  <button
-                    type="button"
-                    onClick={() => onReference(asset)}
-                    title="Every generated scene matches this clip's setting, light, colour and people"
-                    className={`flex h-7 items-center gap-1 rounded-full border px-2 text-[11.5px] ${references?.has(asset.id) ? "border-emerald-400/40 text-emerald-400" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
-                  >
-                    {references?.has(asset.id) ? <Check className="h-3 w-3" /> : <Palette className="h-3 w-3" />} {references?.has(asset.id) ? "The look" : "Use as look"}
-                  </button>
-                )}
-                {visual && onContinue && asset.status !== "failed" && (
-                  <button
-                    type="button"
-                    onClick={() => onContinue(asset)}
-                    title="Add a new scene that starts exactly where this ends"
-                    className="flex h-7 items-center gap-1 rounded-full border border-line/[0.1] px-2 text-[11.5px] text-ink hover:bg-layer/[0.08]"
-                  >
-                    <FastForward className="h-3 w-3" /> Continue it
-                  </button>
-                )}
-                {asset.kind === "audio" && onUseMusic && asset.status !== "failed" && (
-                  <button
-                    type="button"
-                    onClick={() => onUseMusic(isMusic ? null : asset)}
-                    className={`flex h-7 items-center gap-1 rounded-full border px-2 text-[11.5px] ${isMusic ? "border-emerald-400/40 text-emerald-400" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
-                  >
-                    {isMusic ? <Check className="h-3 w-3" /> : <Music className="h-3 w-3" />} {isMusic ? "Music" : "Use as music"}
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => void remove(asset)}
                   disabled={removing === asset.id}
                   aria-label={`Remove ${asset.name || "upload"}`}
-                  className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-40"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted sm:order-last hover:bg-layer/[0.08] hover:text-ink disabled:opacity-40"
                 >
                   {removing === asset.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
                 </button>
+                <span className="flex w-full flex-wrap items-center gap-1.5 empty:hidden sm:w-auto sm:flex-nowrap">
+                {visual && onAdd && asset.status !== "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onAdd(asset)}
+                      title={used ? "In the video — add it again" : "Add to the end of the video"}
+                      className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-line/[0.1] px-2.5 text-[12px] text-ink hover:bg-layer/[0.08]"
+                    >
+                      {used ? <Check className="h-3 w-3 text-emerald-400" /> : <Plus className="h-3 w-3" />} {used ? "In video" : "Add"}
+                    </button>
+                  )}
+                  {visual && onReference && asset.status !== "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onReference(asset)}
+                      title="Every generated scene matches this clip's setting, light, colour and people"
+                      className={`flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-[12px] ${references?.has(asset.id) ? "border-emerald-400/40 text-emerald-400" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
+                    >
+                      {references?.has(asset.id) ? <Check className="h-3 w-3" /> : <Palette className="h-3 w-3" />} {references?.has(asset.id) ? "The look" : "Use as look"}
+                    </button>
+                  )}
+                  {visual && onContinue && asset.status !== "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onContinue(asset)}
+                      title="Add a new scene that starts exactly where this ends"
+                      className="flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-line/[0.1] px-2.5 text-[12px] text-ink hover:bg-layer/[0.08]"
+                    >
+                      <FastForward className="h-3 w-3" /> Continue it
+                    </button>
+                  )}
+                  {asset.kind === "audio" && onUseMusic && asset.status !== "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onUseMusic(isMusic ? null : asset)}
+                      className={`flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-[12px] ${isMusic ? "border-emerald-400/40 text-emerald-400" : "border-line/[0.1] text-ink hover:bg-layer/[0.08]"}`}
+                    >
+                      {isMusic ? <Check className="h-3 w-3" /> : <Music className="h-3 w-3" />} {isMusic ? "Music" : "Use as music"}
+                    </button>
+                  )}
+                </span>
               </li>
             );
           })}

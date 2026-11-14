@@ -525,24 +525,25 @@ export default function VideoEditor({ id }: { id: string }) {
   const doneRows = renderRows.filter((r) => r.status === "done").length;
 
   return (
-    <main className="relative z-10 mx-auto w-full max-w-[1400px] flex-1 px-3 pb-16 pt-4 md:px-5">
+    <main className="qs-studio relative z-10 mx-auto w-full max-w-[1400px] flex-1 px-3 pb-16 pt-4 md:px-5">
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-2">
-        <Link href={`/dashboard/video/${id}`} aria-label="Back to the studio" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] text-soft hover:text-ink">
+        <Link href={`/dashboard/video/${id}`} aria-label="Back to the studio" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] text-soft hover:text-ink">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1 basis-[60%] sm:basis-auto">
           <p className="text-[11.5px] text-muted">Editor · {formatSeconds(total)} · {draft?.scenes.length ?? 0} scene{draft?.scenes.length === 1 ? "" : "s"}</p>
           <h1 className="truncate text-[17px] font-semibold text-ink">{draft?.title ?? data.video.title}</h1>
         </div>
-        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+        {/* One row on a phone: undo, redo, settings and save on the left, export on the right. */}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
         <button onClick={undo} disabled={!past.length} aria-label="Undo" title="Undo (⌘Z)" className={chip}><Undo2 className="h-3.5 w-3.5" /></button>
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
-        <button onClick={() => setLibraryTab("settings")} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> Settings</button>
+        <button onClick={() => setLibraryTab("settings")} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Settings</span></button>
         <button onClick={() => void save()} disabled={!dirty || busy !== null || rendering} className={chip}>
           {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${total > ONE_RUN_SECONDS ? "up to " : ""}${creditsLabel(cutCredits(total))}` : ""}
         </button>
-        <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="flex h-8 items-center gap-1.5 rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50">
+        <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="ml-auto flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50 sm:ml-0">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
           {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? "Save & export" : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
         </button>

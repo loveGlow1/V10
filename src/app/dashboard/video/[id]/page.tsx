@@ -258,25 +258,28 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const shown = draft;
 
   return (
-    <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-20 pt-5 md:px-6">
+    <main className="qs-studio relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-20 pt-5 md:px-6">
       <header className="flex flex-wrap items-center gap-3">
-        <Link href="/dashboard" aria-label="Back to Home" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink">
+        <Link href="/dashboard" aria-label="Back to Home" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 text-[12px] text-muted">
+        <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-0">
+          <p className="flex min-w-0 items-center gap-1.5 truncate whitespace-nowrap text-[12px] text-muted">
             {Icon && <Icon className="h-3.5 w-3.5" />} {pipeline.label} · Video Studio
           </p>
-          <h1 className="truncate text-[20px] font-semibold text-ink">{shown?.title ?? data.video.title}</h1>
+          <h1 className="line-clamp-2 break-words text-[19px] font-semibold leading-snug text-ink sm:truncate sm:text-[20px]">{shown?.title ?? data.video.title}</h1>
         </div>
-        <Link href={`/dashboard/video/${id}/edit`} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
-          <Scissors className="h-4 w-4" /> Open editor
-        </Link>
-        {data.versions.length > 0 && (
-          <span className="rounded-full border border-line/[0.08] px-3 py-1 text-[12px] text-muted">
-            Version {data.latest?.version} of {data.versions.length}
-          </span>
-        )}
+        {/* On a phone the actions take their own row under the title, so the title is never squeezed. */}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Link href={`/dashboard/video/${id}/edit`} className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid">
+            <Scissors className="h-4 w-4" /> Open editor
+          </Link>
+          {data.versions.length > 0 && (
+            <span className="ml-auto whitespace-nowrap rounded-full border border-line/[0.08] px-3 py-1 text-[12px] text-muted sm:ml-0">
+              Version {data.latest?.version} of {data.versions.length}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* Steps */}
@@ -1132,11 +1135,17 @@ function DirectorChat(props: {
     );
   };
 
-  const end = useRef<HTMLDivElement>(null);
+  const stream = useRef<HTMLDivElement>(null);
+  /* Older versions folded away: the latest few are what matter. */
+  const [allEarlier, setAllEarlier] = useState(false);
   const failure = props.status !== "rendering" ? renderFailure(props.renders) : null;
   const rendered = props.renders.some((render) => render.status === "done" && render.url);
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "nearest" });
+    /* Only the conversation scrolls to its newest line — never the page.
+       On a phone the chat is part of the page, and scrolling the window
+       threw the person down to it the moment the studio opened. */
+    const box = stream.current;
+    if (box && box.scrollHeight > box.clientHeight) box.scrollTop = box.scrollHeight;
   }, [versions.length, busy, failure, shown.length]);
 
   const send = () => {
@@ -1248,8 +1257,13 @@ function DirectorChat(props: {
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-[13px] leading-relaxed">
-        {earlier.map((turn) => {
+      <div ref={stream} className="max-h-[60vh] flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 text-[13px] leading-relaxed lg:max-h-none">
+        {earlier.length > 3 && !allEarlier && (
+          <button type="button" onClick={() => setAllEarlier(true)} className="text-[12px] text-muted underline-offset-2 hover:text-ink hover:underline">
+            Show {earlier.length - 3} earlier {earlier.length - 3 === 1 ? "version" : "versions"}
+          </button>
+        )}
+        {(allEarlier ? earlier : earlier.slice(-3)).map((turn) => {
           const said = spoken(turn.note);
           return (
             <div key={`v${turn.version}`} className="space-y-2">
@@ -1302,7 +1316,7 @@ function DirectorChat(props: {
         {busy === "plan" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
         )}
-        <div ref={end} />
+
       </div>
 
       <div className="border-t border-line/[0.06] p-3">
