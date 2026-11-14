@@ -119,7 +119,7 @@ has(!/s\.visual/.test(boardShow) && /Filming scene/.test(boardShow), "a scene st
 has(/We couldn\\u2019t film this video just now/.test(boardSrc) && /You haven\\u2019t been charged for the scenes/.test(boardSrc), "a video that could not be made says so plainly, once, and that nothing was charged for it");
 has(!/could not be made/.test(boardSrc) && /\$\('cap'\)\.hidden=!\(clip&&s\.voiceover\)/.test(boardSrc), "no red per-scene alarms, and no caption laid over the waiting card");
 const studioSrc = readFileSync(join(process.cwd(), "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
+has(/failureSummary\(failed\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc) && !/\{r\.error\}|\$\{r\.error\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
 const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/Integrations.tsx"), "utf8");
 const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
 has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");

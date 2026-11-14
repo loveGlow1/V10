@@ -31,7 +31,7 @@ import VideoSettings from "../../components/video/VideoSettings";
 import { PIPELINE_ICON } from "../../components/video/VideoTypeGrid";
 
 type Readiness = { ready: boolean; notes?: string[]; engines: { engine: string; label: string; health: string; required?: boolean }[] } | null;
-type RenderRow = { scene: number | null; engine: string; status: string; error: string | null; url: string | null };
+type RenderRow = { scene: number | null; engine: string; status: string; error: string | null; url: string | null; created_at?: string; updated_at?: string };
 type Loaded = {
   video: { id: string; user_id: string; pipeline: string; title: string; brief: string; answers: Record<string, string>; status: string; current_version: number };
   latest: { version: number; plan: ProductionPlan; issues: QaIssue[]; note: string } | null;
@@ -656,56 +656,136 @@ function Animatic({ plan }: { plan: ProductionPlan }) {
   );
 }
 
-/* Where each scene's clip and voice line stand, one row per scene. */
+/* What is being made, live: one bar for the whole job, the stages (clips,
+   voice, music, the final file), and a tile per scene — each coloured by
+   where it stands, with how long it has been running. The page polls while
+   anything runs, so this moves on its own; failures are said once. */
 function RenderProgress({ renders }: { renders: RenderRow[] }) {
-  const scenes = [...new Set(renders.filter((r) => r.scene !== null).map((r) => r.scene))].sort((a, b) => (a ?? 0) - (b ?? 0)) as number[];
-  const mark = (row?: RenderRow) =>
-    !row ? null : row.status === "done" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : row.status === "failed" ? <X className="h-3.5 w-3.5 text-warn" /> : <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />;
+  /* A clock for the live times: ticks while something runs. */
+  const [now, setNow] = useState(() => Date.now());
+  const running = renders.some((r) => r.status === "running" || r.status === "queued");
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const [seenAt, setSeenAt] = useState(() => Date.now());
+  useEffect(() => setSeenAt(Date.now()), [renders]);
+
+  const total = renders.length;
   const done = renders.filter((r) => r.status === "done").length;
+  const failed = renders.filter((r) => r.status === "failed");
+  const active = renders.filter((r) => r.status === "running").length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const scenes = [...new Set(renders.filter((r) => r.scene !== null).map((r) => r.scene))].sort((a, b) => (a ?? 0) - (b ?? 0)) as number[];
   const music = renders.find((r) => r.engine === "music");
   const compose = renders.find((r) => r.engine === "compose");
   const parts = renders.filter((r) => r.engine === "part");
+  const since = (iso?: string) => (iso ? ago(now - new Date(iso).getTime()) : "");
+
+  const stage = (label: string, rows: RenderRow[]) => {
+    if (!rows.length) return null;
+    const ok = rows.filter((r) => r.status === "done").length;
+    const bad = rows.some((r) => r.status === "failed");
+    const busy = rows.some((r) => r.status === "running" || r.status === "queued");
+    return (
+      <li key={label} className="flex items-center gap-2 rounded-lg bg-layer/[0.04] px-2.5 py-2">
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full ${ok === rows.length ? "bg-emerald-400/15 text-emerald-400" : busy ? "bg-accent/15 text-accent" : bad ? "bg-warn/15 text-warn" : "bg-layer/[0.08] text-muted"}`}>
+          {ok === rows.length ? <Check className="h-3 w-3" /> : busy ? <Loader2 className="h-3 w-3 animate-spin" /> : bad ? <X className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current" />}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-soft">{label}</span>
+        <span className="text-[11.5px] tabular-nums text-muted">{rows.length > 1 ? `${ok}/${rows.length}` : ok ? "done" : busy ? "working" : bad ? "failed" : "waiting"}</span>
+      </li>
+    );
+  };
+
   return (
-    <div className="mt-3">
-      <p className="text-[12px] text-muted">{done} of {renders.length} jobs done</p>
-      <ul className="mt-1.5 space-y-1">
-        {scenes.map((n) => {
-          const clip = renders.find((r) => r.scene === n && r.engine === "video");
-          const voice = renders.find((r) => r.scene === n && r.engine === "voice");
-          const talking = renders.find((r) => r.scene === n && r.engine === "avatar");
-          const failure = [clip, voice, talking].find((r) => r?.status === "failed")?.error;
-          return (
-            <li key={n} className="text-[12px]">
-              <span className="flex flex-wrap items-center gap-x-2 text-soft">
-                Scene {n}
-                {clip && <span className="flex items-center gap-1 text-muted">clip {mark(clip)}</span>}
-                {voice && <span className="flex items-center gap-1 text-muted">voice {mark(voice)}</span>}
-                {talking && <span className="flex items-center gap-1 text-muted">lip sync {mark(talking)}</span>}
-              </span>
-              {failure && <span className="block truncate text-[11.5px] text-muted">{sceneFailure(failure)}</span>}
-            </li>
-          );
-        })}
-        {music && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Music {mark(music)}
-          </li>
-        )}
-        {parts.length > 0 && compose?.status !== "done" && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Cutting the film in {parts.length} parts — {parts.filter((p) => p.status === "done").length} done
-            {parts.some((p) => p.status === "failed") && <X className="h-3.5 w-3.5 text-warn" />}
-          </li>
-        )}
-        {compose && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Final MP4 {mark(compose)}
-            {compose.status === "failed" && compose.error && <span className="truncate text-[11.5px] text-muted" title={compose.error}>{compose.error}</span>}
-          </li>
-        )}
+    <div className="mt-4 space-y-3">
+      {/* The whole job. */}
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[13px] font-medium text-ink">
+            {running ? "Making your video" : failed.length ? "Finished with gaps" : "All made"}
+          </p>
+          <p className="text-[11.5px] tabular-nums text-muted">
+            {done}/{total} · {pct}%
+          </p>
+        </div>
+        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-layer/[0.08]">
+          <span className="h-full bg-emerald-400 transition-all duration-700" style={{ width: `${(done / Math.max(1, total)) * 100}%` }} />
+          <span className="h-full animate-pulse bg-accent/60 transition-all duration-700" style={{ width: `${(active / Math.max(1, total)) * 100}%` }} />
+          <span className="h-full bg-warn/60 transition-all duration-700" style={{ width: `${(failed.length / Math.max(1, total)) * 100}%` }} />
+        </div>
+        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-faint">
+          {running && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
+          {running ? `Live · ${active} working now · updated ${ago(now - seenAt)} ago` : `Last change ${since(renders.map((r) => r.updated_at ?? "").sort().pop())} ago`}
+        </p>
+      </div>
+
+      {/* The stages. */}
+      <ul className="grid grid-cols-2 gap-1.5">
+        {stage("Clips", renders.filter((r) => r.engine === "video" || r.engine === "avatar"))}
+        {stage("Voice-over", renders.filter((r) => r.engine === "voice"))}
+        {music && stage("Music", [music])}
+        {parts.length > 0 && compose?.status !== "done" ? stage("Film parts", parts) : compose && stage("Final MP4", [compose])}
       </ul>
+
+      {/* A tile per scene. */}
+      {scenes.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[11.5px] text-muted">Scenes</p>
+          <ul className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+            {scenes.map((n) => {
+              const rows = renders.filter((r) => r.scene === n);
+              const isDone = rows.every((r) => r.status === "done");
+              const isBad = rows.some((r) => r.status === "failed");
+              const isBusy = rows.some((r) => r.status === "running" || r.status === "queued");
+              const live = rows.find((r) => r.status === "running");
+              const what = rows.map((r) => `${r.engine === "video" ? "clip" : r.engine === "avatar" ? "lip sync" : r.engine}: ${r.status === "done" ? "made" : r.status === "failed" ? "not made" : r.status}`).join(" · ");
+              return (
+                <li
+                  key={n}
+                  title={`Scene ${n} — ${what}${live?.created_at ? ` · running ${since(live.created_at)}` : ""}`}
+                  className={`relative flex h-9 flex-col items-center justify-center rounded-lg border text-[11.5px] tabular-nums transition-colors ${
+                    isDone ? "border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-300" : isBusy ? "border-accent/30 bg-accent/[0.08] text-accent" : isBad ? "border-warn/25 bg-warn/[0.07] text-warn" : "border-line/[0.08] bg-layer/[0.03] text-muted"
+                  }`}
+                >
+                  {n}
+                  {isBusy && <span className="absolute inset-x-1.5 bottom-1 h-0.5 overflow-hidden rounded-full bg-accent/20"><span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" /></span>}
+                  {live?.created_at && <span className="absolute -top-1.5 right-0.5 rounded bg-panel px-0.5 text-[9px] text-muted">{since(live.created_at)}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* What did not work, said once. */}
+      {failed.length > 0 && !running && (
+        <p className="rounded-lg border border-warn/20 bg-warn/[0.06] px-3 py-2 text-[12px] text-soft">
+          {failureSummary(failed)}
+        </p>
+      )}
     </div>
   );
+}
+
+/* "12s", "3m", "1h 5m". Pure. */
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60 ? `${s % 60}s` : ""}`.trim();
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/* The failed jobs in one sentence: which scenes, and that nothing was charged. Pure. */
+function failureSummary(failed: RenderRow[]): string {
+  const scenes = [...new Set(failed.map((r) => r.scene).filter((n): n is number => n !== null))].sort((a, b) => a - b);
+  const declined = failed.some((r) => /sensitive|safety|moderation|policy/i.test(r.error ?? ""));
+  const list = scenes.length > 6 ? `${scenes.length} scenes` : scenes.length === 1 ? `Scene ${scenes[0]}` : `Scenes ${scenes.slice(0, -1).join(", ")} and ${scenes[scenes.length - 1]}`;
+  const extra = failed.some((r) => r.scene === null) ? (scenes.length ? " and the final steps" : "The final steps") : "";
+  return `${scenes.length ? list : ""}${extra} weren't made${declined ? " — the engine declined some of them" : ""}. Nothing was charged for ${failed.length === 1 ? "it" : "them"}. Retry, or ask for a change first.`;
 }
 
 /* Step 7 once clips exist: the cut, played scene by scene — each clip with its
@@ -940,13 +1020,6 @@ function renderFailure(renders: RenderRow[]): string | null {
     return "The video engine declined some scenes. Ask me to tone them down, then generate again.";
   }
   return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
-}
-
-/* One scene that was not made, in a few plain words — the engine's own
-   message is for us (it names keys and providers), not for the person. */
-function sceneFailure(error: string): string {
-  if (/sensitive|safety|moderation|policy/i.test(error)) return "Not made — the engine declined this scene. Nothing was charged.";
-  return "Not made this time. Nothing was charged.";
 }
 
 /* A version's note, as the person said it. */

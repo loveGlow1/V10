@@ -160,7 +160,8 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
       } else if (row.output_path?.startsWith("https://")) {
         url = row.output_path;
       }
-      return { scene: row.scene, engine: row.engine, status: row.status, error: row.error, url };
+      /* When it started and when it last changed: the studio shows live times. */
+      return { scene: row.scene, engine: row.engine, status: row.status, error: row.error, url, created_at: row.created_at, updated_at: row.updated_at };
     }),
   );
 
