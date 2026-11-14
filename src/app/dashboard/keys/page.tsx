@@ -1,8 +1,8 @@
 "use client";
 
+import PageHeader from "../components/PageHeader";
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Check, CircleDashed, KeyRound } from "lucide-react";
+import { Check, CircleDashed, KeyRound } from "lucide-react";
 
 import type { KeyStatus } from "@/lib/keys";
 
@@ -29,13 +29,8 @@ export default function KeysPage() {
   return (
     <main className="min-h-[100dvh] bg-canvas px-4 py-8 text-ink sm:px-6">
       <div className="mx-auto w-full max-w-[760px]">
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
-          <ArrowLeft className="h-3.5 w-3.5" /> Dashboard
-        </Link>
-        <h1 className="mt-4 flex items-center gap-2 text-[22px] font-semibold tracking-tight">
-          <KeyRound className="h-5 w-5 text-muted" /> Keys
-        </h1>
-        <p className="mt-1 text-[14px] leading-relaxed text-muted">
+        <PageHeader title="Keys" icon={<KeyRound className="h-5 w-5 text-muted" />} />
+        <p className="mt-3 text-[14px] leading-relaxed text-muted">
           Add a key in Vercel → Settings → Environment Variables, then redeploy — the feature switches on by itself. Only names are shown here; values never leave Vercel.
         </p>
 

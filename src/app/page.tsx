@@ -958,10 +958,10 @@ export default function LandingPage() {
                 <GoogleIcon className={PROVIDER_ICON_CLASS} />
                 <span>Continue with Google</span>
               </ProviderButton>
-              <div className="grid grid-cols-3 gap-3">
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><Apple className={`${PROVIDER_ICON_CLASS} text-ink`} /><span>Apple</span></ProviderButton>
-                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-2 py-3.5 px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="GitHub" className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap py-3.5 px-2 sm:gap-2 sm:px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><GitHubIcon className={`${PROVIDER_ICON_CLASS} text-brandGreen`} /><span>GitHub</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Apple" className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap py-3.5 px-2 sm:gap-2 sm:px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><Apple className={`${PROVIDER_ICON_CLASS} text-ink`} /><span>Apple</span></ProviderButton>
+                <ProviderButton loadingLabel="Authorization Pending..." onProviderAuth={handleProviderAuth} provider="Facebook" className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap py-3.5 px-2 sm:gap-2 sm:px-3 bg-brandSurface hover:bg-brandSurfaceAccent border border-brandBorder rounded-pill text-sm font-medium transition-all duration-300 hover:scale-[1.02] focus:outline-none focus-visible:ring-1 focus-visible:ring-line/20"><FacebookIcon className={PROVIDER_ICON_CLASS} /><span>Facebook</span></ProviderButton>
               </div>
               <div className="flex items-center gap-3 py-1">
                 <div className="flex-1 h-px bg-layer/15" />
@@ -969,8 +969,8 @@ export default function LandingPage() {
                 <div className="flex-1 h-px bg-layer/15" />
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <button type="button" onClick={() => openAuthModal("email")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Mail className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span>Continue with Email</span></button>
-                <button type="button" onClick={() => openAuthModal("phone")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Phone className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span>Continue with Phone</span></button>
+                <button type="button" onClick={() => openAuthModal("email")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Mail className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span>{/* One line on a phone, like the buttons above it. */}<span className="hidden sm:inline">Continue with </span>Email</span></button>
+                <button type="button" onClick={() => openAuthModal("phone")} className={HERO_SECONDARY_ACTION_BUTTON_CLASS}><Phone className={`${PROVIDER_ICON_CLASS} text-ink/80`} /><span><span className="hidden sm:inline">Continue with </span>Phone</span></button>
               </div>
             </div>
           </div>

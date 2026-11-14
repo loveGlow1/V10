@@ -2063,8 +2063,13 @@ export default function ChatPanel({
         >
           <MessagesSquare className="h-3.5 w-3.5" /> Chats{threads.length ? ` · ${threads.length}` : ""}
         </button>
+        {/* The open chat's own name — only when it has one; an untitled new
+            chat beside a "New chat" button read as the same words twice. */}
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted">
-          {threadId ? threads.find((t) => t.id === threadId)?.title ?? "This chat" : "New chat"}
+          {(() => {
+            const title = threadId ? threads.find((t) => t.id === threadId)?.title : null;
+            return title && title !== "New chat" ? title : "";
+          })()}
         </span>
         <button
           type="button"

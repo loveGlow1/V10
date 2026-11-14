@@ -1,9 +1,10 @@
 "use client";
 
+import PageHeader from "../components/PageHeader";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ExternalLink, Pin, Search } from "lucide-react";
+import { ExternalLink, Pin, Search } from "lucide-react";
 
 import PageThumbnail from "../components/PageThumbnail";
 import ProjectLifecycleMenu from "../components/ProjectLifecycleMenu";
@@ -218,17 +219,7 @@ function ProjectsScreen() {
 
   return (
     <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-4 pb-24 pt-8 md:pt-12">
-      <Link
-        href="/dashboard"
-        className="inline-flex h-8 w-fit items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Dashboard
-      </Link>
-
-      <h1 className="mt-4 px-1 text-2xl font-semibold tracking-tight text-ink md:text-[28px]">
-        Projects
-      </h1>
+      <PageHeader title="Projects" />
 
       <div className="mt-5 flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1 rounded-xl border border-line/[0.07] bg-layer/[0.03] p-1">
