@@ -37,18 +37,24 @@ const field = "w-full rounded-lg border border-line/[0.1] bg-transparent px-2 py
 const heading = "text-[11px] font-medium uppercase tracking-wider text-muted";
 
 /* A tiny picture of each transition: two frames and how one becomes the other. */
+/* Each card shows the move between two scenes in the site's own colours:
+   the outgoing scene in mint (the accent), the incoming one in gold to
+   coral — the same palette as the buttons and chips, light theme included. */
+const SCENE_A = "linear-gradient(135deg, rgb(var(--accent)) 0%, #0f9f8f 100%)";
+const SCENE_B = "linear-gradient(135deg, #F4D96B 0%, #E8915F 100%)";
+const half = (side: "left" | "right" | "top" | "bottom", size: string) => `${side} / ${side === "top" || side === "bottom" ? `100% ${size}` : `${size} 100%`} no-repeat`;
 const TRANSITION_LOOK: Record<Transition, string> = {
-  cut: "linear-gradient(90deg, #6d5dfc 50%, #f2a65a 50%)",
-  dip: "linear-gradient(90deg, #6d5dfc 30%, #111 50%, #f2a65a 70%)",
-  crossfade: "linear-gradient(90deg, #6d5dfc 20%, #f2a65a 80%)",
-  fadeblack: "linear-gradient(90deg, #6d5dfc 15%, #000 50%, #f2a65a 85%)",
-  fadewhite: "linear-gradient(90deg, #6d5dfc 15%, #fff 50%, #f2a65a 85%)",
-  wipeleft: "linear-gradient(100deg, #6d5dfc 48%, #fff 49%, #f2a65a 52%)",
-  slideleft: "linear-gradient(90deg, #6d5dfc 40%, #f2a65a 40%)",
-  slideup: "linear-gradient(180deg, #6d5dfc 45%, #f2a65a 45%)",
-  zoomin: "radial-gradient(circle, #f2a65a 30%, #6d5dfc 31%)",
-  circleopen: "radial-gradient(circle, #f2a65a 38%, #6d5dfc 40%)",
-  dissolve: "repeating-linear-gradient(45deg, #6d5dfc 0 4px, #f2a65a 4px 8px)",
+  cut: `${SCENE_A} ${half("left", "50%")}, ${SCENE_B} ${half("right", "50%")}`,
+  dip: `linear-gradient(90deg, transparent 28%, rgb(12 12 14 / 0.85) 50%, transparent 72%), ${SCENE_A} ${half("left", "50%")}, ${SCENE_B} ${half("right", "50%")}`,
+  crossfade: `linear-gradient(90deg, rgb(var(--accent)) 10%, #9fd88f 42%, #F4D96B 60%, #E8915F 92%)`,
+  fadeblack: `linear-gradient(90deg, transparent 15%, #050506 50%, transparent 85%), ${SCENE_A} ${half("left", "50%")}, ${SCENE_B} ${half("right", "50%")}`,
+  fadewhite: `linear-gradient(90deg, transparent 15%, #ffffff 50%, transparent 85%), ${SCENE_A} ${half("left", "50%")}, ${SCENE_B} ${half("right", "50%")}`,
+  wipeleft: `linear-gradient(105deg, transparent 47%, rgb(255 255 255 / 0.9) 48.5%, transparent 50%), linear-gradient(105deg, rgb(var(--accent)) 0%, #0f9f8f 48.5%, #F4D96B 48.5%, #E8915F 100%)`,
+  slideleft: `linear-gradient(90deg, transparent 38%, rgb(0 0 0 / 0.35) 40%, transparent 43%), ${SCENE_A} ${half("left", "40%")}, ${SCENE_B} ${half("right", "60%")}`,
+  slideup: `linear-gradient(180deg, transparent 43%, rgb(0 0 0 / 0.35) 45%, transparent 49%), ${SCENE_A} ${half("top", "45%")}, ${SCENE_B} ${half("bottom", "55%")}`,
+  zoomin: `radial-gradient(circle at 50% 50%, #F4D96B 0%, #E8915F 30%, transparent 31%), ${SCENE_A}`,
+  circleopen: `radial-gradient(circle at 50% 50%, #F4D96B 0%, #E8915F 38%, rgb(255 255 255 / 0.85) 39%, transparent 41%), ${SCENE_A}`,
+  dissolve: `radial-gradient(circle, #E8915F 1.2px, transparent 1.6px) 0 0 / 6px 6px, radial-gradient(circle, #F4D96B 1.2px, transparent 1.6px) 3px 3px / 6px 6px, ${SCENE_A}`,
 };
 
 export default function EditorLibrary(props: {
@@ -161,9 +167,9 @@ export default function EditorLibrary(props: {
             <p className={heading}>Between every scene</p>
             <div className="mt-1.5 grid grid-cols-3 gap-1.5">
               {TRANSITIONS.map((t) => (
-                <button key={t} type="button" onClick={() => setCut({ transition: t })} className={`rounded-[8px] p-1 text-left ${cut.transition === t ? "bg-layer/[0.12] ring-2 ring-accent" : "hover:bg-layer/[0.06]"}`}>
-                  <span className="block h-9 rounded-[6px]" style={{ background: TRANSITION_LOOK[t] }} />
-                  <span className="mt-0.5 block truncate text-[10.5px] text-soft">{LABELS.transition[t]}</span>
+                <button key={t} type="button" onClick={() => setCut({ transition: t })} aria-pressed={cut.transition === t} className={`group rounded-[10px] p-1 text-left transition-colors ${cut.transition === t ? "bg-accent/[0.1] ring-2 ring-accent" : "hover:bg-layer/[0.06]"}`}>
+                  <span className="block h-10 overflow-hidden rounded-[7px] border border-line/[0.1] shadow-sm shadow-black/20 transition-transform group-hover:scale-[1.03]" style={{ background: TRANSITION_LOOK[t] }} />
+                  <span className={`mt-1 block truncate text-[10.5px] ${cut.transition === t ? "font-medium text-ink" : "text-soft"}`}>{LABELS.transition[t]}</span>
                 </button>
               ))}
             </div>

@@ -48,7 +48,7 @@ export async function startRender(
   supabase: SupabaseClient,
   userId: string,
   id: string,
-  body: { retryFailed?: unknown; onlyMissing?: unknown; /** With onlyMissing: also file what any earlier version made of the same scene (a timeline save, never an asked-for re-take). */ reuseEarlier?: unknown },
+  body: { retryFailed?: unknown; onlyMissing?: unknown; /** With onlyMissing: also file what any earlier version made of the same scene (a timeline save, never an asked-for re-take). */ reuseEarlier?: unknown; /** With onlyMissing: make only these clips and voice lines (an edit makes what it changed, nothing else). */ onlyScenes?: { clips?: number[]; voices?: number[] } },
   origin: string,
 ): Promise<NextResponse> {
   const { data: video } = await supabase.from("video_projects").select("id, current_version, answers, status").eq("id", id).maybeSingle();
@@ -121,6 +121,11 @@ export async function startRender(
     /* An edit: what carried over is already here; make the rest. */
     const have = new Set((existing ?? []).filter((r) => r.status !== "failed").map((r) => `${r.engine}:${r.scene}`));
     jobs = jobs.filter((job) => !have.has(`${engineOf(job.kind)}:${job.n}`) && !(job.kind === "clip" && have.has(`avatar:${job.n}`)));
+    if (body.onlyScenes) {
+      const clips = new Set(body.onlyScenes.clips ?? []);
+      const voices = new Set(body.onlyScenes.voices ?? []);
+      jobs = jobs.filter((job) => (job.kind === "clip" ? clips : voices).has(job.n));
+    }
     if (body.reuseEarlier === true && jobs.length) {
       const { reused: kept, remaining } = reuseMade(plan, jobs, await madeSoFar(supabase, id, version));
       if (kept.length) {
@@ -133,7 +138,9 @@ export async function startRender(
         }
       }
     }
-    for (const row of (existing ?? []).filter((r) => r.status === "failed" || r.engine === "compose" || r.engine === "part")) {
+    const onlyNow = body.onlyScenes ? new Set([...(body.onlyScenes.clips ?? []), ...(body.onlyScenes.voices ?? [])]) : null;
+    /* A failed scene the edit did not touch stays marked failed, for Export to make. */
+    for (const row of (existing ?? []).filter((r) => (r.status === "failed" && (!onlyNow || (r.scene !== null && onlyNow.has(r.scene)))) || r.engine === "compose" || r.engine === "part")) {
       await supabase.from("video_renders").delete().eq("id", row.id);
     }
     if (jobs.length === 0 && !(await covers(cutCost(plan)))) return shortOf(cutCost(plan));
