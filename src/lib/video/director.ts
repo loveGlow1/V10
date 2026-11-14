@@ -22,7 +22,11 @@ export const DIRECTOR_MODEL = "claude-sonnet-5";
 /* Whether the video is narrated, from the Voiceover choice. A narrated video
    is narrated throughout: a voice on the last line only reads as a video
    whose sound broke. Pure. */
-export function narrationRule(voice: string | undefined): string {
+export function narrationRule(voice: string | undefined, note?: string): string {
+  /* A change that asks for narration wins over a "no voiceover" choice made
+     at the start — otherwise "add a voice-over" is planned silent again. */
+  if (note && wantsNarration(note)) voice = voice && /male/i.test(voice) ? voice : undefined;
+  else if (note && dropsNarration(note)) voice = "none";
   if (voice && /^(no voiceover|music only|none)$/i.test(voice.trim())) {
     return "No narration: leave every scene's voiceover empty; the story is told by picture, on-screen text and sound.";
   }
@@ -30,7 +34,19 @@ export function narrationRule(voice: string | undefined): string {
   return `Narrated throughout by ${who}: write a voiceover line for EVERY scene — a title card or beat of 2 seconds or less may stay silent — so the voice carries the video from the first scene to the last. Each line must be speakable within its scene's duration (about 2.5 words per second) and lines read as one continuous script.`;
 }
 
-function systemFor(pipeline: PipelineId, answers: Record<string, string>): string {
+/** Whether a message asks to add (or bring back) a narrated voice-over. Pure. */
+export function wantsNarration(text: string): boolean {
+  const t = text.toLowerCase();
+  if (dropsNarration(t)) return false;
+  return /\b(add|put|include|give|want|need|bring back|use|with|record|generate|make)\b[^.!?]{0,40}\b(voice[\s-]?over|voiceover|vo|narrat\w*|narrator|voice)\b/.test(t) || /\b(voice[\s-]?over|narration)\b[^.!?]{0,20}\b(please|for (every|each|all)|on (every|each|all))/.test(t);
+}
+
+/** Whether a message asks to take the voice-over out. Pure. */
+export function dropsNarration(text: string): boolean {
+  return /\b(remove|no|drop|delete|without|mute|cut|take out|get rid of)\b[^.!?]{0,20}\b(voice[\s-]?over|voiceover|narrat\w*)\b/i.test(text);
+}
+
+function systemFor(pipeline: PipelineId, answers: Record<string, string>, note?: string): string {
   const spec = PIPELINES[pipeline];
   const target = secondsFrom(answers.length);
   return `You are QuickStark's Creative Director. You plan a ${spec.label} video for production by AI generation engines.
@@ -45,7 +61,7 @@ RULES FOR EVERY VIDEO:
 - ATTACHMENTS (before the idea) lists the person's own uploads and is the only truth about them. A scene may use an uploaded clip or picture instead of generating one: set "source": {"assetId": "<an assetId from ATTACHMENTS>", "trimStart": 0, "trimEnd": 8} (seconds; leave the trims out to use it whole). Such a scene runs as long as its trimmed footage, needs no motionPrompt, and its engine is "video" for a clip or "image" for a picture. Never invent an assetId; never say there is footage when ATTACHMENTS says video x0.
 - @NAMES: when the idea calls an upload by its @ref, use it the way the idea says. A clip or picture to SHOW becomes a scene with "source". A photo or clip that sets the LOOK of a place, a world or the film — or a person's photo when CHARACTERS does not already have them — goes in "referenceClips": ["<assetId>"] (up to four), and every generated scene is filmed to match it. A song for the SOUNDTRACK sets "cut":{"music":{"source":"upload","assetId":"<assetId>"}}.
 - Each generated scene is ONE clip of 2 to ${MAX_CLIP_SECONDS} seconds. A longer beat in the idea's timeline becomes consecutive scenes (a 10-second beat is two 5-second scenes), each with its own part of the line and its own shot — a cut, a new angle or a closer framing.
-- ${narrationRule(answers.voice)}
+- ${narrationRule(answers.voice, note)}
 - Every scene's motionPrompt is self-contained: a generation engine sees only that prompt. Name subject, setting, lighting, lens/shot, camera move, motion, mood and aspect ratio.
 - CHARACTERS (before the idea) are the people who recur. Every scene showing one lists their id in "characters" (who is on screen, in order) — as many as the scene has, up to nine; name each one in the visual and motionPrompt (by name) and say where each stands and what each does, so nobody is confused for another. Dialogue is "NAME: line", one speaker per scene (a back-and-forth is consecutive scenes). Their look comes from reference pictures and their locked description, so a prompt names them and says what they DO, never what they look like. Give recurring people only through CHARACTERS; with none set, describe a person fully in each prompt and keep it identical in "locks".
 - A scene that carries straight on from the previous one (same place, same moment, the action continuing — not a cut to somewhere else) sets "continues": true; it is then filmed from the previous scene's last frame. Set "continues": false on a scene that deliberately cuts away. Scenes sharing a character continue by default.
@@ -140,7 +156,7 @@ async function directFilm(input: DirectorInput, target: number): Promise<Directe
      are needed where each chapter is written. */
   const documents: LlmPart[] = input.documents?.length ? [{ type: "text" as const, text: DOCUMENTS_NOTE }, ...input.documents] : [];
 
-  const outlineSystem = `${systemFor(input.pipeline, input.answers)}
+  const outlineSystem = `${systemFor(input.pipeline, input.answers, input.note)}
 
 THIS IS A LONG FILM of ${Math.round(target / 60)} minutes. Do not write scenes yet. Plan it in exactly ${count} chapters that tell one complete story with a beginning, middle and end, and that flow into each other. Reply with ONLY raw JSON:
 {"title":"","concept":"","strategy":"","aspect":"9:16|1:1|16:9|4:5","voice":"","music":"","hooks":[""],"locks":{"style":"","world":""},"cta":"",
@@ -165,7 +181,7 @@ THIS IS A LONG FILM of ${Math.round(target / 60)} minutes. Do not write scenes y
 
   const written = await Promise.all(
     chapters.map(async (chapter, i) => {
-      const system = `${systemFor(input.pipeline, { ...input.answers, length: `${lengths[i]}s` })}
+      const system = `${systemFor(input.pipeline, { ...input.answers, length: `${lengths[i]}s` }, input.note)}
 
 YOU ARE WRITING CHAPTER ${i + 1} OF ${chapters.length} of one film: "${String(outline.title ?? "")}". Concept: ${String(outline.concept ?? "")}
 THE WHOLE FILM:
@@ -227,7 +243,7 @@ export async function direct(input: DirectorInput): Promise<Directed | { error: 
      mid-JSON and the change was refused. Asked once more, shorter, when the
      answer still cannot be read. */
   const model = input.model || DIRECTOR_MODEL;
-  const system = withPolicy(systemFor(input.pipeline, input.answers));
+  const system = withPolicy(systemFor(input.pipeline, input.answers, input.note));
   let lastProblem = "";
   for (const attempt of [0, 1]) {
     try {
