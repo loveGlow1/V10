@@ -1257,13 +1257,16 @@ function DirectorChat(props: {
               <p className="mr-6 text-soft">
                 {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
                 {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
-                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then generate it."}
+                {turn.version === current && !rendered && props.status !== "rendering" && " Generate it when you're happy."}
               </p>
             </div>
           );
         })}
         {active > 1 && shown.length === 0 && (
-          <p className="text-soft">New session. {current ? `Version ${current} is the current one — ` : ""}ask me for anything to change.</p>
+          /* An empty chat: one quiet line, nothing to read through. */
+          <div className="flex h-full min-h-[120px] items-center justify-center">
+            <p className="text-center text-[12.5px] text-muted">What would you like to change?</p>
+          </div>
         )}
         {shown.map((message) => {
           const remove = (
@@ -1298,7 +1301,6 @@ function DirectorChat(props: {
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating the clips — they arrive one by one, usually within a few minutes.</p>
         )}
         {failure && <p className="rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft">{failure}</p>}
-        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and generate again whenever you like.</p>}
         {busy === "plan" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
         )}
