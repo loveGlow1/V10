@@ -30,7 +30,7 @@ export async function prepareAsset(service: SupabaseClient, assetId: string): Pr
   const fail = (error: string) =>
     service.from("video_assets").update({ status: "failed", error: error.slice(0, 500), updated_at: new Date().toISOString() }).eq("id", assetId);
   try {
-    const { data: asset } = await service.from("video_assets").select("id, kind, storage_path, status, user_id, name").eq("id", assetId).maybeSingle();
+    const { data: asset } = await service.from("video_assets").select("id, kind, storage_path, status, user_id, name, video_id").eq("id", assetId).maybeSingle();
     if (!asset) return;
     const { data: signed } = await service.storage.from("video-assets").createSignedUrl(asset.storage_path as string, 60 * 60);
     if (!signed?.signedUrl) {
@@ -162,12 +162,13 @@ export function referenceFrameTimes(seconds: number): number[] {
 }
 
 /* A prepared upload is charged once, by its kind. A failed one never is. */
-async function charge(service: SupabaseClient, asset: { id: unknown; kind: unknown; user_id: unknown; name: unknown }) {
+async function charge(service: SupabaseClient, asset: { id: unknown; kind: unknown; user_id: unknown; name: unknown; video_id?: unknown }) {
   await chargeCredits(service, {
     userId: String(asset.user_id),
     action: "generate",
     cost: prepareCredits(String(asset.kind)),
     description: `Upload prepared: ${String(asset.name || asset.kind).slice(0, 80)}`,
+    videoId: asset.video_id ? String(asset.video_id) : null,
     dedupeKey: `video-prepare:${String(asset.id)}`,
   });
 }

@@ -94,6 +94,7 @@ export async function landResult(service: SupabaseClient, landing: Landing): Pro
       action: "generate",
       cost: kind === "clip" ? clipCost(landing.engine ?? null) : VOICE_COST,
       description: `Video ${kind} ${n}: ${video.title}`,
+      videoId: id,
       dedupeKey: `video-job:${id}:${version}:${kind}:${n}`,
     });
   }

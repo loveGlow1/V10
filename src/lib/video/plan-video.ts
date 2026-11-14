@@ -220,7 +220,7 @@ export async function planVideo(
 
   if (stitched) {
     const service = createSupabaseServiceClient();
-    if (service) await chargeCredits(service, { userId, action: "generate", cost: STITCH_COST, description: `Clips stitched: ${plan.title}`, dedupeKey: `video-stitch:${id}:${version}` });
+    if (service) await chargeCredits(service, { userId, action: "generate", cost: STITCH_COST, description: `Clips stitched: ${plan.title}`, videoId: id, dedupeKey: `video-stitch:${id}:${version}` });
   }
 
   if (outputTokens) {
@@ -232,6 +232,7 @@ export async function planVideo(
         cost: agentCost(PLAN_COST, agent) * calls,
         description: `Video plan (${agent.name}${calls > 1 ? `, ${calls - 1} chapters` : ""}): ${plan.title}`,
         outputTokens,
+        videoId: id,
         dedupeKey: `video-plan:${id}:${version}`,
       });
     }

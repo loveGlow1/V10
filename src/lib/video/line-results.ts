@@ -78,6 +78,7 @@ export async function landLineJob(service: SupabaseClient, landing: LineLanding)
         action: "generate",
         cost: landing.cost,
         description: `Video ${job.engine}${job.scene ? ` ${job.scene}` : ""}: ${video.title}`,
+        videoId: id,
         dedupeKey: landing.dedupeKey,
       });
     }

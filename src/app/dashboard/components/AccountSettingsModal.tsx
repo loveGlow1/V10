@@ -16,6 +16,7 @@ import { createSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabas
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useTheme } from "./ThemeProvider";
 import { PaymentMethod } from "./billing/CardWelcome";
+import { CreditStatement } from "./billing/CreditStatement";
 import { useCredits } from "../useCredits";
 import { PLANS, formatCredits } from "../credits";
 
@@ -316,7 +317,7 @@ export default function AccountSettingsModal({
   const [portalError, setPortalError] = useState<string | null>(null);
 
   const records = useAccountRecords(open && (section === "plans" || section === "credits" || section === "usage"));
-  const purchases = (records.lines ?? []).filter((line) => !SPEND_ACTIONS.includes(line.action) && line.credits !== 0);
+  const purchases = (records.lines ?? []).filter((line) => !SPEND_ACTIONS.includes(line.action) && line.credits !== 0 && line.source !== "plan");
   const spending = (records.lines ?? []).filter((line) => SPEND_ACTIONS.includes(line.action));
   const projectUsed = project
     ? spending.filter((line) => line.project_id === project.id).reduce((sum, line) => sum - line.credits, 0)
@@ -1185,37 +1186,8 @@ export default function AccountSettingsModal({
                       ))}
                     </div>
 
-                    <p className="mt-6 text-[15px] font-medium text-ink">Usage history</p>
-                    <div className="mt-3 rounded-xl border border-line/[0.07] bg-layer/[0.02]">
-                      {records.lines === null ? (
-                        <div className="flex h-[160px] items-center justify-center">
-                          <Loader2 className="h-4 w-4 animate-spin text-muted" />
-                        </div>
-                      ) : spending.length === 0 ? (
-                        <div className="flex h-[160px] flex-col items-center justify-center px-6 text-center">
-                          <Coins className="h-5 w-5 text-faint" />
-                          <p className="mt-3 text-sm text-soft">{records.failed ? "Usage couldn't be loaded" : "No usage yet"}</p>
-                          <p className="mt-1 text-[13px] text-muted">
-                            {records.failed ? "Close and reopen settings to try again." : "Each build, edit and publish appears here with what it cost."}
-                          </p>
-                        </div>
-                      ) : (
-                        <ul className="divide-y divide-line/[0.06]">
-                          {spending.map((line) => (
-                            <li key={line.id} className="flex items-center gap-4 px-4 py-3">
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm text-ink">{line.description || line.action}</p>
-                                <p className="truncate text-[13px] text-muted">
-                                  {shortDate(line.created_at)}
-                                  {line.project_id && projectNames.get(line.project_id) ? ` · ${projectNames.get(line.project_id)}` : ""}
-                                </p>
-                              </div>
-                              <span className="shrink-0 text-sm text-soft">{formatCredits(line.credits)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
+                    {/* Month by month: every charge, purchase and plan credit. */}
+                    <CreditStatement projectNames={projectNames} />
                   </div>
                 )}
 

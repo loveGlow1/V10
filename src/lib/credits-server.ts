@@ -40,6 +40,9 @@ export type ChargeInput = {
   cost: number;
   description: string;
   projectId?: string | null;
+  /** A video's charge: its workspace project is looked up from it, so the
+      history shows which project every clip, voice line and cut was for. */
+  videoId?: string | null;
   outputTokens?: number | null;
   filesTouched?: number | null;
   /* Names this charge, so the same request arriving twice costs once.
@@ -67,16 +70,26 @@ export async function chargeCredits(
   service: SupabaseClient,
   input: ChargeInput,
 ): Promise<ChargeOutcome | null> {
-  const { data, error } = await service.rpc("charge_credits", {
+  let projectId = input.projectId ?? null;
+  if (!projectId && input.videoId) {
+    const { data: video } = await service.from("video_projects").select("project_id").eq("id", input.videoId).maybeSingle();
+    projectId = ((video as { project_id?: string | null } | null)?.project_id as string | null | undefined) ?? null;
+  }
+  const args = {
     p_user_id: input.userId,
     p_action: input.action,
     p_cost: input.cost,
     p_description: input.description.slice(0, 200),
-    p_project_id: input.projectId ?? null,
+    p_project_id: projectId,
     p_output_tokens: input.outputTokens ?? null,
     p_files_touched: input.filesTouched ?? null,
     p_dedupe_key: input.dedupeKey ?? null,
-  });
+  };
+  let { data, error } = await service.rpc("charge_credits", args);
+  /* A charge missing from the history is a charge the person cannot account
+     for: one blip is tried again. With a dedupe key the retry can never take
+     the credits twice. */
+  if (error && input.dedupeKey) ({ data, error } = await service.rpc("charge_credits", args));
 
   if (error) {
     // eslint-disable-next-line no-console
