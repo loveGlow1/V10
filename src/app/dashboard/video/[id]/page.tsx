@@ -1399,7 +1399,7 @@ function DirectorChat(props: {
           </div>
         </div>
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11.5px] text-muted">A change uses 1 credit. Saving your own scene edits makes a new cut: 1 credit per started minute of video.</p>
+          <p className="text-[11.5px] text-muted">Asking for a change: 1 credit. Saving your own edits is free — exporting the video costs 1 credit per started minute.</p>
           {props.current !== null && (
             <button
               type="button"
