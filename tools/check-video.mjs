@@ -721,7 +721,8 @@ has(/jobCost\(jobs\) \+ cutCost\(plan\)/.test(srx) && /return shortOf\(cutCost\(
 has(/STITCH_COST/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /video-stitch:/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "laying out clips is checked and charged");
 has(/prepareCredits\(assetKind\(mime\)\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")) && /video-prepare:/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "an upload is checked before it is sent and charged once it is prepared");
 const videoUi = ["src/app/dashboard/components/video/VideoSettings.tsx", "src/app/dashboard/components/video/VideoEditor.tsx", "src/app/dashboard/video/[id]/page.tsx", "src/app/api/video/[id]/assist/route.ts"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
-has(!/for free|is free\b|— free|\. Free\./.test(videoUi) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
+/* Saving a timeline really is free now (apply-edit.ts saveOnly): only that may say so. */
+has(!/for free|is free\b|— free|\. Free\./.test(videoUi.replace(/[Ss]aving (your own edits )?is free/g, "")) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
 
 console.log("\nthe AI speaks only when it helps");
 has(ED.normalizeReview({ quiet: true }, castPlan).length === 0 && ED.normalizeReview({ quiet: false, suggestions: [] }, castPlan).length === 0, "all is well: the AI stays quiet");
