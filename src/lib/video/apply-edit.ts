@@ -285,6 +285,7 @@ async function commitNext(input: Loaded & {
       cost: input.charge,
       description: `Video edit: ${next.title}`,
       outputTokens: input.outputTokens,
+      videoId,
       dedupeKey: `video-edit:${videoId}:${nextVersion}`,
     });
   }

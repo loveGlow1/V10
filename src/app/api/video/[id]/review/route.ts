@@ -58,7 +58,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const reviewed = await reviewEdit({ plan, made, assets: uploads, model: agent.apiId });
   if ("error" in reviewed) return NextResponse.json({ quiet: true });
   if (service) {
-    await chargeCredits(service, { userId, action: "generate", cost, description: `Video review (${agent.name}): ${video.title}`, outputTokens: reviewed.outputTokens, dedupeKey: `video-review:${id}:${Date.now()}` });
+    await chargeCredits(service, { userId, action: "generate", cost, description: `Video review (${agent.name}): ${video.title}`, outputTokens: reviewed.outputTokens, videoId: id, dedupeKey: `video-review:${id}:${Date.now()}` });
   }
   if (!reviewed.suggestions.length) return NextResponse.json({ quiet: true, charged: cost });
 

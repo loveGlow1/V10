@@ -392,15 +392,18 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             )}
             {/* Step 5: generate */}
             <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
+              {/* Generate is for a video not yet made; changes after that make only what they need. */}
+              {(!data.renders.length || status === "rendering") && (
               <button
                 onClick={() => void render()}
                 disabled={busy !== null || dirty || status === "rendering"}
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
               >
                 {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {status === "rendering" ? "Generating…" : data.renders.length ? "Generate again" : "Generate video"}
+                {status === "rendering" ? "Generating…" : "Generate video"}
                 {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
               </button>
+              )}
               {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
               {data.renders.some((r) => r.status === "failed") && status !== "rendering" && (
                 <button onClick={() => void render(true)} disabled={busy !== null} className="mt-2 flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
@@ -1398,18 +1401,20 @@ function DirectorChat(props: {
             )}
           </div>
         </div>
+        {/* Only before anything is made: after that, every change asked for
+            makes just what it needs — there is no "make it all again". */}
+        {props.current !== null && !rendered && (
         <div className="mt-2 flex items-center justify-end gap-2">
-          {props.current !== null && (
             <button
               type="button"
               onClick={props.onRender}
               disabled={busy !== null || !props.canRender}
               className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40"
             >
-              <Play className="h-3.5 w-3.5" /> {rendered ? "Generate again" : "Generate"} · {props.cost}
+              <Play className="h-3.5 w-3.5" /> Generate · {props.cost}
             </button>
-          )}
         </div>
+        )}
       </div>
     </section>
   );
