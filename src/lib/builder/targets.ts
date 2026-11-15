@@ -30,7 +30,7 @@ export function isCategory(value: unknown): value is Category {
 export const CATEGORY_LABEL: Record<Category, string> = {
   web_app: "Web App",
   website: "Website",
-  fliers: "Fliers",
+  fliers: "Flyers",
   video: "Video",
   mobile_app: "Mobile App",
 };
@@ -190,7 +190,7 @@ export const SUBTYPES: Record<Category, SubType[]> = {
   fliers: [
     {
       id: "event_flyer",
-      label: "Event flier",
+      label: "Event flyer",
       kind: "landing",
       blurb: "Party, concert, webinar or conference poster",
       focus: [
@@ -292,7 +292,7 @@ const CATEGORY_FOCUS: Record<Category, string[]> = {
     "THIS IS A FLIER, NOT A WEBSITE. The page is the artwork: one fixed-size canvas, centred on a neutral backdrop, at the exact pixel size and aspect ratio named below — no navigation, no footer, no sections to scroll, no lead form.",
     "The canvas is built at its exact pixel size and never reflows: give it a fixed width and height in px and the attributes data-width and data-height with those numbers, and set every size inside it in px for that size. The platform scales the whole canvas down to fit a small screen, so do not make it follow the window width yourself.",
     "Poster layout: a strong grid, one dominant headline, high-contrast typography (contrast ratio of at least 7:1 for the key line), at most two typefaces, generous margins.",
-    "Mark the canvas element with the attribute data-qs-flier. Its key visual is ONE image slot inside the canvas, filling it behind the type: <img data-shot=\"…\" data-ratio=\"W/H\" data-weight=\"hero\" alt=\"…\"> positioned absolutely with object-fit: cover, where data-ratio is the canvas's own ratio and data-shot is real art direction for a designer — subject, composition, lighting, palette from the brand colours, and where the calm space is for the headline. Never ask for words, letters or logos in the picture: every word on the flier is HTML text layered above it, with a gradient or solid scrim behind the type so the key line keeps its 7:1 contrast.",
+    "Mark the canvas element with the attribute data-qs-flier. Its key visual is ONE image slot inside the canvas, filling it behind the type: <img data-shot=\"…\" data-ratio=\"W/H\" data-weight=\"hero\" alt=\"…\"> positioned absolutely with object-fit: cover, where data-ratio is the canvas's own ratio and data-shot is real art direction for a designer — subject, composition, lighting, palette from the brand colours, and where the calm space is for the headline. Never ask for words, letters or logos in the picture: every word on the flyer is HTML text layered above it, with a gradient or solid scrim behind the type so the key line keeps its 7:1 contrast.",
     "Under the canvas, outside the artwork, a small \"Download PNG\" button that renders the canvas to an image in the browser (html-to-image from a CDN, or an equivalent), and the canvas size printed beside it.",
   ],
   video: [

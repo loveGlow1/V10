@@ -17,7 +17,7 @@ export type HistoryLine = {
   source: string | null;
 };
 
-export type Category = "Video" | "Websites & apps" | "Fliers" | "Agent" | "Publishing" | "Hosting" | "Chat" | "Credits added" | "Plan credits" | "Other";
+export type Category = "Video" | "Websites & apps" | "Flyers" | "Agent" | "Publishing" | "Hosting" | "Chat" | "Credits added" | "Plan credits" | "Other";
 
 /** What a line was for, in a word the person recognises. Pure. */
 export function categoryOf(line: Pick<HistoryLine, "action" | "credits" | "description" | "dedupe_key" | "source">): Category {
@@ -27,7 +27,7 @@ export function categoryOf(line: Pick<HistoryLine, "action" | "credits" | "descr
   if (line.action === "topup" || (line.action === "grant" && line.credits !== 0)) return "Credits added";
   if (line.action === "grant") return "Plan credits";
   if (key.startsWith("video-") || /^(Video|Clips stitched|Upload prepared|Character:)/.test(text)) return "Video";
-  if (key.startsWith("flyer:") || key.startsWith("flier") || /^(Flyer|Flier)/i.test(text)) return "Fliers";
+  if (key.startsWith("flyer:") || key.startsWith("flier") || /^(Flyer|Flier)/i.test(text)) return "Flyers";
   if (key.startsWith("agent:") || /^Agent session/.test(text)) return "Agent";
   if (line.action === "publish") return "Publishing";
   if (line.action === "runtime") return "Hosting";

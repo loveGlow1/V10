@@ -90,7 +90,7 @@ has(!(await R.reviewEligibility(fake(fresh, { claimed: true }), input, now)).ok,
 
 has(!(await R.reviewEligibility(fake({ ...fresh, qa_issues: [] }), input, now)).ok, "a clean build gets no round");
 const flierRound = await R.reviewEligibility(fake(fresh, { flier: true }), input, now);
-has(!flierRound.ok && /Fliers/.test(flierRound.reason), "a flier never gets the website review round", flierRound);
+has(!flierRound.ok && /Flyers/.test(flierRound.reason), "a flier never gets the website review round", flierRound);
 has(!(await R.reviewEligibility(fake({ ...fresh, prompt: R.reviewPrompt("b0", fresh.qa_issues) }), input, now)).ok, "a round's own build is never reviewed again");
 has(!(await R.reviewEligibility(fake({ ...fresh, created_at: "2026-10-17T09:00:00Z" }), input, now)).ok, "an old build is not reviewed");
 has(!(await R.reviewEligibility(fake(fresh), { ...input, buildId: "b0" }, now)).ok, "only the newest build");

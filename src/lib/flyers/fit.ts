@@ -149,7 +149,7 @@ const SCRIPT = `(function () {
     return rendering;
   }
   function fileName() {
-    var base = (document.title || 'flier').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'flier';
+    var base = (document.title || 'flyer').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'flyer';
     return base + '-' + dim.w + 'x' + dim.h + '.png';
   }
   function phone() { return /iphone|ipad|ipod|android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /macintosh/i.test(navigator.userAgent)); }
@@ -181,7 +181,7 @@ const SCRIPT = `(function () {
     var file = new File([blob], fileName(), { type: 'image/png' });
     if (phone() && navigator.canShare && navigator.canShare({ files: [file] })) {
       /* The share sheet's "Save Image" puts it straight into Photos. */
-      return navigator.share({ files: [file], title: document.title || 'Flier' }).catch(function (error) {
+      return navigator.share({ files: [file], title: document.title || 'Flyer' }).catch(function (error) {
         if (error && error.name === 'AbortError') return;
         /* The tap expired while the image was being made: one more tap. */
         say('Your image is ready.', { label: 'Save image', run: function () { deliver(blob); } });

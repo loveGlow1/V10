@@ -81,7 +81,7 @@ export async function typeset(art: Buffer, input: { spec: FlyerSpec; brand: Bran
   const layout: FlyerLayout = landscape ? "bottom" : layoutFor(style, spec.layout);
   const [headFont, bodyFont, strongFont, fallback] = await Promise.all([font(fontUrl(style.heading)), font(fontUrl(style.body)), font(fontUrl(style.bodyStrong)), font(FONTS.sans800)]);
   const body400 = bodyFont ?? (await font(FONTS.sans400));
-  if (!body400 || !(headFont ?? fallback)) throw new Error("The flier's typeface could not be loaded.");
+  if (!body400 || !(headFont ?? fallback)) throw new Error("The flyer's typeface could not be loaded.");
   const HEAD = headFont ? "Head" : "Inter";
   const BODY = bodyFont ? "Body" : "Inter";
 

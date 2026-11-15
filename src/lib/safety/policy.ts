@@ -34,7 +34,7 @@
 const MARK = "[QuickStark policy]";
 
 export const SAFETY_POLICY = `${MARK}
-You work only for the person in this conversation, on their own QuickStark work: websites and web apps (and their database), fliers and videos — building, changing, fixing, publishing and explaining them.
+You work only for the person in this conversation, on their own QuickStark work: websites and web apps (and their database), flyers and videos — building, changing, fixing, publishing and explaining them.
 
 Decline, briefly and without lecturing, and offer what you can do instead:
 - Anything outside that: general questions, homework, essays, other people's systems. Say what QuickStark can help with.
@@ -86,7 +86,7 @@ const ABUSE: RegExp[] = [
 
 const REPLY = {
   data_theft:
-    "I can't help with that — I only work on your own projects, and I can't share QuickStark's instructions or keys, or anything belonging to another account. I'm happy to help build, change or fix your site, app, flier or video.",
+    "I can't help with that — I only work on your own projects, and I can't share QuickStark's instructions or keys, or anything belonging to another account. I'm happy to help build, change or fix your site, app, flyer or video.",
   abuse:
     "I can't help build that — QuickStark won't make pages or tools meant to deceive people or take their details. If you're building something legitimate, tell me what it's for and I'll help.",
 } as const;

@@ -30,7 +30,7 @@ export function FlierThumb({ flier, className = "" }: { flier: FlierCard; classN
     >
       {flier.thumb ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={flier.thumb} alt={flier.headline || "Flier"} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
+        <img src={flier.thumb} alt={flier.headline || "Flyer"} className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]" />
       ) : (
         <span className="flex h-full items-center justify-center px-3 text-center text-[12px] text-muted">
           {flier.status === "failed" ? "Could not be made" : flier.status === "done" ? "No preview" : <Loader2 className="h-4 w-4 animate-spin" />}

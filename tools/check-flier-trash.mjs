@@ -98,7 +98,7 @@ has(/async function owned[\s\S]{0,700}supabase\.from\('flyer_jobs'\)\.select\('i
 has(/if \(job\.deleted_at\) return NextResponse\.json/.test(one) && /liveOutputs\(outputs\)/.test(one), "a deleted flier or image no longer opens");
 has(/\.is\('deleted_at', null\)/.test(list) && /trash'\) === '1'/.test(list), "Your fliers hides deleted ones; Recently deleted lists them");
 has(/CRON_SECRET/.test(cron) && /purgeFlyerTrash/.test(cron) && /\/api\/cron\/flyer-trash/.test(vercel), "the daily purge is scheduled and gated");
-has(/Delete this version/.test(studio) && /Delete this flier/.test(studio), "the studio can delete a version or the whole flier");
+has(/Delete this version/.test(studio) && /Delete this flyer/.test(studio), "the studio can delete a version or the whole flyer");
 has(/Recently deleted/.test(gallery) && /forever=1/.test(gallery) && /restore: true/.test(gallery), "Recently deleted can restore or delete now");
 
 /* Undo, Redo and Versions on a flier: a move between sets already made. */

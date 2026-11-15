@@ -37,7 +37,7 @@ export default function FliersPage() {
     fetch(trash ? "/api/flyers?trash=1" : "/api/flyers", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(body?.error ?? "Could not load your fliers.");
+        if (!response.ok) throw new Error(body?.error ?? "Could not load your flyers.");
         if (trash) setDeleted(body.items ?? []);
         else setRows(body.fliers ?? []);
       })
@@ -100,11 +100,11 @@ export default function FliersPage() {
         <Link href="/dashboard" aria-label="Back to Home" className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h1 className="text-[20px] font-semibold text-ink">Your fliers</h1>
+        <h1 className="text-[20px] font-semibold text-ink">Your flyers</h1>
       </div>
 
       <div className="mt-4 inline-flex gap-1 rounded-xl border border-line/[0.07] bg-layer/[0.03] p-1">
-        {tab("fliers", "All fliers")}
+        {tab("fliers", "All flyers")}
         {tab("deleted", "Recently deleted")}
       </div>
 
@@ -115,12 +115,12 @@ export default function FliersPage() {
           {!rows && !error && <Loader2 className="mx-auto mt-10 h-5 w-5 animate-spin text-muted" />}
           {rows?.length === 0 && (
             <p className="mt-8 text-center text-soft">
-              No fliers yet. Pick <span className="text-ink">Fliers</span> on <Link href="/dashboard" className="text-accent">Home</Link> and describe one.
+              No flyers yet. Pick <span className="text-ink">Flyers</span> on <Link href="/dashboard" className="text-accent">Home</Link> and describe one.
             </p>
           )}
           {failedIds.length > 0 && (
             <div className="mt-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft">
-              <span>{failedIds.length === 1 ? "1 flier could not be made." : `${failedIds.length} fliers could not be made.`}</span>
+              <span>{failedIds.length === 1 ? "1 flyer could not be made." : `${failedIds.length} flyers could not be made.`}</span>
               <button
                 type="button"
                 onClick={() => void remove(failedIds)}
@@ -146,7 +146,7 @@ export default function FliersPage() {
                 >
                   {busy === flier.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </button>
-                <p className="mt-1.5 truncate text-[13px] text-ink">{flier.headline || "Flier"}</p>
+                <p className="mt-1.5 truncate text-[13px] text-ink">{flier.headline || "Flyer"}</p>
                 <p className="text-[11.5px] text-muted">{new Date(flier.created_at).toLocaleDateString()}</p>
               </li>
             ))}
@@ -156,7 +156,7 @@ export default function FliersPage() {
 
       {view === "deleted" && (
         <>
-          <p className="mt-4 text-[13px] text-muted">Deleted fliers and images stay here for 15 days, then they are gone for good.</p>
+          <p className="mt-4 text-[13px] text-muted">Deleted flyers and images stay here for 15 days, then they are gone for good.</p>
           {!deleted && !error && <Loader2 className="mx-auto mt-10 h-5 w-5 animate-spin text-muted" />}
           {deleted?.length === 0 && <p className="mt-8 text-center text-soft">Nothing deleted.</p>}
           <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
@@ -167,11 +167,11 @@ export default function FliersPage() {
                   <div className="overflow-hidden rounded-2xl border border-line/[0.08] bg-layer/[0.04] opacity-70" style={{ aspectRatio: FLIER_RATIO[item.format] ?? "2 / 3" }}>
                     {item.thumb && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.thumb} alt={item.headline || "Flier"} className="h-full w-full object-cover" />
+                      <img src={item.thumb} alt={item.headline || "Flyer"} className="h-full w-full object-cover" />
                     )}
                   </div>
                   <p className="mt-1.5 truncate text-[13px] text-ink">
-                    {item.headline || "Flier"}
+                    {item.headline || "Flyer"}
                     {item.kind === "image" && <span className="text-muted"> · one version</span>}
                   </p>
                   <p className="text-[11.5px] text-muted">

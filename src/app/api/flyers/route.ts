@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in to see your fliers.' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Sign in to see your flyers.' }, { status: 401 });
   const sign = async (path: string | null | undefined) =>
     path ? ((await supabase.storage.from('flyers').createSignedUrl(path, 60 * 60)).data?.signedUrl ?? null) : null;
 
@@ -98,7 +98,7 @@ export async function GET(req: Request) {
     .order('created_at', { ascending: false })
     .limit(60)
     .returns<Row[]>();
-  if (error) return NextResponse.json({ error: 'Could not load your fliers.' }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Could not load your flyers.' }, { status: 500 });
 
   const ids = (drafts ?? []).map((row) => row.id);
   const { data: finals } = ids.length
@@ -148,10 +148,10 @@ export async function POST(req: Request) {
   const supabase = await createSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in to make a flier.' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Sign in to make a flyer.' }, { status: 401 });
 
   const raw = (await req.json().catch(() => null)) as Body | null;
-  if (!raw) return NextResponse.json({ error: 'Say what the flier is for.' }, { status: 400 });
+  if (!raw) return NextResponse.json({ error: 'Say what the flyer is for.' }, { status: 400 });
   /* Refused before any model runs or anything is charged — lib/safety/policy.ts. */
   const screened = screenRequest(typeof raw.brief === 'string' ? raw.brief : JSON.stringify(raw));
   if (!screened.ok) return NextResponse.json({ error: screened.reply, code: 'refused', reason: screened.kind }, { status: 422 });
@@ -161,7 +161,7 @@ export async function POST(req: Request) {
     /* Four more drafts of a brief already read: its request again, as new
        drafts. RLS returns only the caller's own jobs, so this proves it too. */
     const { data: earlier } = await supabase.from('flyer_jobs').select('id, request').eq('id', raw.again).maybeSingle();
-    if (!earlier) return NextResponse.json({ error: 'That flier is not yours or no longer exists.' }, { status: 403 });
+    if (!earlier) return NextResponse.json({ error: 'That flyer is not yours or no longer exists.' }, { status: 403 });
     body = { ...(earlier.request as FlyerRequest), stage: 'preview', variants: 4, parentJobId: undefined, selectedPreviewPath: undefined };
   } else if (raw.stage === 'final' && typeof raw.parentJobId === 'string') {
     /* A final is the chosen draft, made again at full quality from the same
@@ -177,7 +177,7 @@ export async function POST(req: Request) {
   }
 
   if (!body?.spec?.headline || !body?.spec?.format || !body.brand) {
-    return NextResponse.json({ error: 'Say what the flier is for — the offer or the event, and anything it must show.' }, { status: 400 });
+    return NextResponse.json({ error: 'Say what the flyer is for — the offer or the event, and anything it must show.' }, { status: 400 });
   }
   const stage = body.stage ?? 'preview';
   if (stage !== 'preview' && stage !== 'final') {
@@ -192,7 +192,7 @@ export async function POST(req: Request) {
   if (providerChain({ ...body, stage }).length === 0) {
     return NextResponse.json(
       {
-        error: 'No image model is connected yet. Add MINIMAX_API_KEY, OPENAI_API_KEY, IDEOGRAM_API_KEY or GEMINI_API_KEY to the deployment to make fliers.',
+        error: 'No image model is connected yet. Add MINIMAX_API_KEY, OPENAI_API_KEY, IDEOGRAM_API_KEY or GEMINI_API_KEY to the deployment to make flyers.',
         code: 'no_image_model',
       },
       { status: 503 },
@@ -222,7 +222,7 @@ export async function POST(req: Request) {
     })
     .select('id')
     .single();
-  if (error) return NextResponse.json({ error: 'The flier could not be started. Try again.' }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'The flyer could not be started. Try again.' }, { status: 500 });
 
   after(() => runFlyerJob(job.id, user.id, { ...body, stage, variants: n }));
   return NextResponse.json({ jobId: job.id, id: job.id, stage, cost: needed }, { status: 202 });

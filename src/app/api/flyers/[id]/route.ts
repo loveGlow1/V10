@@ -27,15 +27,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const supabase = await createSupabaseServerClient();
   if (!supabase) return NextResponse.json({ error: 'Sessions are unavailable.' }, { status: 503 });
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Sign in to see this flier.' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'Sign in to see this flyer.' }, { status: 401 });
 
   const { data: job } = await supabase
     .from('flyer_jobs')
     .select('id, status, stage, request, outputs, error, parent_job_id, created_at, deleted_at')
     .eq('id', id)
     .maybeSingle();
-  if (!job) return NextResponse.json({ error: 'No such flier.' }, { status: 404 });
-  if (job.deleted_at) return NextResponse.json({ error: 'This flier was deleted. It is in Recently deleted on Your fliers.' }, { status: 404 });
+  if (!job) return NextResponse.json({ error: 'No such flyer.' }, { status: 404 });
+  if (job.deleted_at) return NextResponse.json({ error: 'This flyer was deleted. It is in Recently deleted on Your flyers.' }, { status: 404 });
 
   const sign = async (outputs: Output[]) =>
     Promise.all(
@@ -93,7 +93,7 @@ async function owned(id: string) {
   const service = createSupabaseServiceClient();
   if (!service) return { failure: NextResponse.json({ error: 'Deleting is unavailable right now.' }, { status: 503 }) };
   const { data: job } = await supabase.from('flyer_jobs').select('id, outputs, deleted_at').eq('id', id).maybeSingle();
-  if (!job) return { failure: NextResponse.json({ error: 'No such flier.' }, { status: 404 }) };
+  if (!job) return { failure: NextResponse.json({ error: 'No such flyer.' }, { status: 404 }) };
   const { data: finals } = await supabase.from('flyer_jobs').select('id, outputs, deleted_at').eq('parent_job_id', id);
   return { service, job: job as { id: string; outputs: Output[] | null; deleted_at: string | null }, finals: (finals ?? []) as { id: string; outputs: Output[] | null; deleted_at: string | null }[] };
 }

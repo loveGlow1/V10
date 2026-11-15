@@ -131,7 +131,7 @@ export async function startFlierTurn(input: {
     .insert({ user_id: userId, site_id: project.id, stage: "preview", parent_job_id: null, request })
     .select("id")
     .single<{ id: string }>();
-  if (error || !job) return { ok: false, status: 500, error: "The flier could not be started. Try again." };
+  if (error || !job) return { ok: false, status: 500, error: "The flyer could not be started. Try again." };
 
   const writer = service ?? supabase;
   const named = !project.name || /^new project$/i.test(project.name.trim());
@@ -143,7 +143,7 @@ export async function startFlierTurn(input: {
       /* The new set is the one showing once it lands. */
       flier_current_job: null,
       prompt: prompt.slice(0, 2000),
-      ...(named && request.spec.headline ? { name: `Flier: ${request.spec.headline}`.slice(0, 80) } : {}),
+      ...(named && request.spec.headline ? { name: `Flyer: ${request.spec.headline}`.slice(0, 80) } : {}),
     })
     .eq("id", project.id);
 
@@ -182,7 +182,7 @@ export async function startFlierTurn(input: {
   return {
     ok: true,
     jobId: job.id,
-    message: latest ? "Making four new versions with that change — usually 20–40 seconds…" : "Designing four versions of your flier — usually 20–40 seconds…",
+    message: latest ? "Making four new versions with that change — usually 20–40 seconds…" : "Designing four versions of your flyer — usually 20–40 seconds…",
   };
 }
 
@@ -252,9 +252,9 @@ export function flierBoardHtml(versions: BoardVersion[]): string {
     `<button class="card" style="aspect-ratio:${ratio}" data-src="${escape(image.url)}" data-name="${escape(image.name)}" data-download="${escape(image.download)}" aria-label="${escape(alt)}"><img src="${escape(image.url)}" alt="${escape(alt)}" loading="lazy"></button>`;
   const working = current && (current.status === "queued" || current.status === "running");
   const body = !current
-    ? `<p class="empty">Describe your flier in the chat and four versions appear here.</p>`
+    ? `<p class="empty">Describe your flyer in the chat and four versions appear here.</p>`
     : `
-<header><p class="eyebrow">${current.number ? `Version ${current.number} · ` : "Flier · "}${current.images.length || 4} images</p><h1>${escape(current.headline || "Your flier")}</h1>
+<header><p class="eyebrow">${current.number ? `Version ${current.number} · ` : "Flyer · "}${current.images.length || 4} images</p><h1>${escape(current.headline || "Your flyer")}</h1>
 <p class="hint">${working ? "Designing four versions — usually 20–40 seconds…" : current.status === "failed" ? "These could not be made. Try again from the chat." : "Tap a version to see it full size and save it. Ask in the chat for any change."}</p></header>
 <section class="grid">${
         current.images.length
@@ -276,7 +276,7 @@ ${
 }`;
 
   return `<!doctype html><html lang="en" data-qs-flier-board><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escape(current?.headline || "Flier")}</title>
+<title>${escape(current?.headline || "Flyer")}</title>
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0b0b0d;color:#f4f4f5;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:20px 16px 48px}
 header{max-width:1100px;margin:0 auto 16px}.eyebrow{margin:0;color:#a1a1aa;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
@@ -293,7 +293,7 @@ h2{max-width:1100px;margin:32px auto 6px;font-size:15px}.sub{max-width:1100px;ma
 .save{background:#f97316;color:#111}.close{background:rgba(255,255,255,.12);color:#fff}#note{color:#a1a1aa;font-size:13px;min-height:18px;margin:0}
 </style></head><body>
 ${body}
-<div id="view" role="dialog" aria-modal="true" aria-label="Flier, full size"><img alt="Flier, full size"><div class="row"><button class="btn save" id="save" type="button">Download</button><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
+<div id="view" role="dialog" aria-modal="true" aria-label="Flyer, full size"><img alt="Flyer, full size"><div class="row"><button class="btn save" id="save" type="button">Download</button><button class="btn close" id="close">Close</button></div><p id="note"></p></div>
 <script>
 (function(){
   var view=document.getElementById('view'),img=view.querySelector('img'),note=document.getElementById('note'),current=null;
