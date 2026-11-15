@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts", "reuse.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts", "reuse.ts", "suggest.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -875,7 +875,7 @@ has(/contextFiles\(supabase, uploads, marked\)/.test(readFileSync(join(root, "sr
 has(/contextFiles\(input\.writer/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")) && /contextFiles\(supabase, uploads/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")) && /DOCUMENTS_NOTE/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "so does the AI editor, from the chat and from the editor");
 has(/asset\.kind === "document"[\s\S]{0,200}status: "ready"/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "a document is ready as soon as it is uploaded");
 const ctxStudioSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /"Add images", ImagePlus, imageInput/.test(ctxStudioSrc) && /"Add files", Paperclip, fileInput/.test(ctxStudioSrc), "the studio's change box has a + menu (Add images, Add files), and the message names what was attached");
+has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /<AddMenu accept=\{ACCEPT_ATTRIBUTE\}[^>]*onFiles=\{\(files\) => void attach\(files\)\}/.test(ctxStudioSrc), "the studio's change box has a + menu (Add images, Add files), and the message names what was attached");
 const ctxChatSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
 has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(ctxChatSrc) && /uploadStudioFile\(videoId, file\)/.test(ctxChatSrc) && /project\?\.intent === "video" \? VIDEO_ACCEPT : ACCEPT/.test(ctxChatSrc), "a file attached in the workspace chat of a video goes into the video's media, and its @name into the message");
 
@@ -1052,6 +1052,34 @@ console.log("\nthe timeline: a still playhead, tracks that slide, filmstrips");
   has(/if \(Math\.abs\(el\.scrollLeft - target\) > 0\.5\) el\.scrollLeft = target;/.test(ve) && /props\.onSeek\(Math\.max\(0, Math\.min\(total, e\.currentTarget\.scrollLeft \/ pps\)\)\)/.test(ve), "playing slides the tracks; dragging the tracks scrubs");
   has(/export function useClipStrips/.test(cp) && /useClipStrips\(segments\.filter/.test(ve) && /Math\.floor\(\(\(i \+ 0\.5\) \/ tiles\) \* frames\.length\)/.test(ve), "each clip is a filmstrip of its own frames, not one frame repeated");
   has(/<Plus className="h-3\.5 w-3\.5" \/> Add audio/.test(ve) && /<Plus className="h-3\.5 w-3\.5" \/> Add text/.test(ve) && /aria-label="Add media"/.test(ve), "empty tracks offer Add audio and Add text; a + at the end adds media");
+}
+
+console.log("\nsuggestions only when the video calls for one");
+{
+  const SG = await import(join(dir, "suggest.js"));
+  const sc = (n, extra = {}) => ({ n, duration: 6, shot: "s", visual: "v", onScreenText: "", voiceover: "A line.", motionPrompt: "p", sound: "", engine: "video", ...extra });
+  const done = { scenes: [sc(1), sc(2, { onScreenText: "Book now" })], target: 12, music: "calm piano", cut: {} };
+  has(SG.suggestionsFor(done, [{ scene: 1, engine: "video", status: "done" }, { scene: 2, engine: "video", status: "done" }]).length === 0, "a finished video with voice, music, an ending and the right length gets no suggestions");
+  const failedTake = SG.suggestionsFor(done, [{ scene: 1, engine: "video", status: "done" }, { scene: 2, engine: "video", status: "failed", error: "timeout" }]);
+  has(failedTake[0]?.id === "refilm" && failedTake[0].label === "Re-film scene 2", "a failed scene is suggested for a re-film, first");
+  has(!SG.suggestionsFor(done, [{ scene: 2, engine: "video", status: "failed", error: "the Runware account is out of credit." }]).some((x) => x.id === "refilm"), "not when the engine is out of credit — asking cannot fix that");
+  const long = { ...done, scenes: [sc(1), sc(2), sc(3), sc(4, { onScreenText: "End" })] };
+  has(SG.suggestionsFor(long).some((x) => x.id === "trim" && x.label === "Trim to 12s"), "too long for its length: trim it");
+  const bare = { scenes: [sc(1, { voiceover: "" }), sc(2, { voiceover: "" })], music: "", cut: { music: { source: "none" } } };
+  const ids = SG.suggestionsFor(bare).map((x) => x.id);
+  has(ids.includes("voice") && ids.includes("music") && ids.includes("end") && ids.length <= 3, "nothing said, no music, no ending: those are offered, three at most");
+  const page = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+  has(!/const QUICK = \[/.test(page) && !/Funnier hook/.test(page) && /suggestionsFor\(props\.plan, props\.renders\)/.test(page) && /suggestions\.length > 0 && props\.status !== "rendering"/.test(page), "the Director shows these instead of a fixed list, and nothing when there is nothing to suggest");
+}
+
+console.log("\none + in every composer");
+{
+  const am = readFileSync(join(root, "src/app/dashboard/components/AddMenu.tsx"), "utf8");
+  const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
+  const ws = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+  const dir = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+  has(/\["Add images", ImagePlus, imageInput\]/.test(am) && /\["Add files", Paperclip, fileInput\]/.test(am) && /<Plus className=/.test(am), "the + opens Add images and Add files");
+  has([home, ws, dir].every((src) => /<AddMenu /.test(src)) && !/aria-label="Attach images"/.test(home) && !/aria-label="Upload file or assets"/.test(ws), "Home, the workspace chat and the Creative Director all use that same +");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

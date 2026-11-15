@@ -1,5 +1,6 @@
 "use client";
 
+import AddMenu from "./components/AddMenu";
 import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import Link from "next/link";
 import React, { useState, useRef, useEffect, useMemo } from "react";
@@ -355,7 +356,6 @@ export default function DashboardPage() {
   const previews = useMemo(() => files.map((file) => URL.createObjectURL(file)), [files]);
   useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
   const popoverRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   /* A screenshot pasted, or files dropped on the box, attach like the paperclip. */
   const fileDrop = useFileDrop((files) => addFiles(files));
 
@@ -775,27 +775,8 @@ export default function DashboardPage() {
                       is the picker. A desktop gets its file dialog; a phone
                       gets its native sheet — Photo Library, Take Photo, Choose
                       File — which `image/*` without `capture` asks for. */}
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    multiple
-                    accept={videoMode ? VIDEO_ACCEPT : ACCEPT}
-                    className="sr-only"
-                    tabIndex={-1}
-                    onChange={(e) => {
-                      if (e.target.files) addFiles(e.target.files);
-                      /* Cleared so picking the same file again still fires. */
-                      e.target.value = "";
-                    }}
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    aria-label="Attach images"
-                    title="Attach images"
-                    className="qs-control flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition-all hover:border-line/[0.12] hover:bg-layer/[0.08] active:scale-[0.98] sm:h-10 sm:w-10 md:bg-layer/[0.03]"
-                  >
-                    <Paperclip className="h-4 w-4" />
-                  </button>
+                  {/* The same + as every composer: Add images, Add files. */}
+                  <AddMenu size="responsive" accept={videoMode ? VIDEO_ACCEPT : ACCEPT} onFiles={(files) => addFiles(files)} />
 
                   {/* Import from GitHub: a new project from a repository —
                       connecting GitHub first when it is not. */}

@@ -11,9 +11,10 @@
  *
  * One page for all ten pipelines: what differs is in lib/video/pipelines.ts. */
 
+import AddMenu from "../../components/AddMenu";
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, ImagePlus, MessageSquare, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, MessageSquare, Loader2, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
 import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
@@ -21,6 +22,7 @@ import { uploadStudioFile } from "@/lib/video/upload-client";
 import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import type { VideoMessage } from "@/app/api/video/[id]/messages/route";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
+import { suggestionsFor } from "@/lib/video/suggest";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 
@@ -441,6 +443,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <DirectorChat
+            plan={shown}
             versions={data.versions}
             current={data.latest?.version ?? null}
             title={shown.title}
@@ -1066,12 +1069,6 @@ function spoken(note: string): string | null {
   return note;
 }
 
-const QUICK = [
-  { label: "Variation", note: "Create a variation: a different hook and fresh visuals, keeping the same product, message, locks and length." },
-  { label: "Shorter", note: "Make it shorter and punchier — cut it to about 15 seconds, keeping the hook and the CTA." },
-  { label: "Funnier hook", note: "Make the opening hook funnier and more scroll-stopping." },
-  { label: "Different creator", note: "Use a different creator — a different look and voice — and keep them identical in every shot." },
-];
 
 /* The sessions of a video's chat, newest first, each named by its first request. Pure. */
 type SessionItem = { session: number; title: string; when: string; group: string; count: number };
@@ -1099,6 +1096,8 @@ function sessionList(messages: VideoMessage[], active: number): SessionItem[] {
 /* The Director's chat: every version as a turn of the conversation, the
    render's outcome said plainly, and a box to ask for the next change. */
 function DirectorChat(props: {
+  /** The plan as shown, for the suggestions (lib/video/suggest.ts). */
+  plan: ProductionPlan | null;
   versions: { version: number; note: string; created_at: string }[];
   current: number | null;
   title: string;
@@ -1120,25 +1119,9 @@ function DirectorChat(props: {
   onUploaded: () => void;
 }) {
   const { versions, current, busy, note, setNote, onAsk } = props;
+  const suggestions = useMemo(() => suggestionsFor(props.plan, props.renders), [props.plan, props.renders]);
   /* Files attached to this message: uploaded into the video's media, and
      named in the message so the director knows they are for this change. */
-  const fileInput = useRef<HTMLInputElement>(null);
-  const imageInput = useRef<HTMLInputElement>(null);
-  /* The + menu: Add images, Add files. */
-  const [addOpen, setAddOpen] = useState(false);
-  const addMenu = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!addOpen) return;
-    const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : !addMenu.current?.contains(event.target as Node)) setAddOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [addOpen]);
   /* Grows with what is typed, up to a third of a phone screen, then scrolls. */
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -1445,20 +1428,23 @@ function DirectorChat(props: {
       </div>
 
       <div className="border-t border-line/[0.06] p-3">
+        {/* Suggestions only when the video calls for one — none otherwise. */}
+        {suggestions.length > 0 && props.status !== "rendering" && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {QUICK.map((quick) => (
+          {suggestions.map((quick) => (
             <button
-              key={quick.label}
+              key={quick.id}
               type="button"
               onClick={() => void ask(quick.note)}
               disabled={busy !== null}
-              /* A warm clay, like Claude's own: only these quick-ask chips. */
+              /* A warm clay, like Claude's own: only these suggestion chips. */
               className="h-7 rounded-full border border-[#E8915F]/40 bg-[#E8915F]/[0.12] px-2.5 text-[12px] font-medium text-[#F0A274] transition hover:border-[#E8915F]/70 hover:bg-[#E8915F]/[0.2] hover:text-[#F7B58C] active:scale-[0.98] disabled:opacity-40"
             >
               {quick.label}
             </button>
           ))}
         </div>
+        )}
         {(attached.length > 0 || uploading || attachError) && (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             {attached.map((a) => (
@@ -1480,8 +1466,6 @@ function DirectorChat(props: {
           className="relative flex w-full flex-col rounded-[22px] border-[1.5px] border-line/[0.11] bg-sunken p-3 transition-colors focus-within:border-line/[0.22]"
         >
           <DropHint show={fileDrop.dragging} />
-          <input ref={fileInput} type="file" multiple accept={ACCEPT_ATTRIBUTE} className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
-          <input ref={imageInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
           <textarea
             ref={composer}
             rows={2}
@@ -1500,44 +1484,8 @@ function DirectorChat(props: {
             className="max-h-60 min-h-[52px] w-full resize-none bg-transparent px-1 text-base leading-relaxed text-ink outline-none placeholder:text-faint sm:text-[14.5px]"
           />
           <div className="mt-2 flex items-center justify-between gap-2">
-            <div ref={addMenu} className="relative">
-              <button
-                type="button"
-                onClick={() => setAddOpen((open) => !open)}
-                disabled={busy !== null || Boolean(uploading)}
-                aria-label="Add images or files"
-                aria-haspopup="menu"
-                aria-expanded={addOpen}
-                title="Add images or files — or paste a screenshot, or drop files here"
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-layer/[0.14] active:scale-[0.97] disabled:opacity-40 ${addOpen ? "bg-layer/[0.14]" : "bg-layer/[0.08]"}`}
-              >
-                <Plus className={`h-[18px] w-[18px] transition-transform ${addOpen ? "rotate-45" : ""}`} />
-              </button>
-              {addOpen && (
-                <div role="menu" className="absolute bottom-11 left-0 z-20 w-48 overflow-hidden rounded-xl border border-line/[0.1] bg-panel p-1 shadow-xl shadow-black/30">
-                  {(
-                    [
-                      ["Add images", ImagePlus, imageInput],
-                      ["Add files", Paperclip, fileInput],
-                    ] as const
-                  ).map(([label, Icon, input]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setAddOpen(false);
-                        input.current?.click();
-                      }}
-                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.08] focus-visible:bg-layer/[0.08] focus-visible:outline-none"
-                    >
-                      <Icon className="h-4 w-4 text-soft" />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* The same + as every composer: Add images, Add files. */}
+            <AddMenu accept={ACCEPT_ATTRIBUTE} disabled={busy !== null || Boolean(uploading)} onFiles={(files) => void attach(files)} />
             {busy === "plan" ? (
               /* Working: a stop sign inside a turning ring — pressing it stops
                  the change for real (nothing saved, nothing charged). */
