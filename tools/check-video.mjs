@@ -8,7 +8,7 @@
  * Offline. No model, no network, no key. */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const out = join(process.cwd(), "node_modules", ".cache", "quickstark-video");
@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts", "reuse.ts", "suggest.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts", "reuse.ts", "suggest.ts", "filmstrip.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -892,8 +892,19 @@ has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(
 console.log("\nthumbnails for every scene");
 const vePosters = readFileSync(join(root, "src/app/dashboard/components/video/useClipPosters.ts"), "utf8");
 const veSrc2 = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
-has(/crossOrigin = "anonymous"/.test(vePosters) && /toDataURL\("image\/jpeg"/.test(vePosters) && /running >= 2/.test(vePosters) && /split\("\?"\)\[0\]/.test(vePosters), "a still is taken from each made clip in the browser, two at a time, kept for the tab whatever its signed link");
-has(/useClipPosters\(rawSegments/.test(veSrc2) && /placeholderStyle\(`\$\{scene\?\.shot/.test(veSrc2) && /placeholderStyle\(`\$\{scene\.shot\}\$\{scene\.visual\}`\)/.test(veSrc2), "the filmstrip and the scene list show it; a scene still to be made gets its own colour, not stripes");
+const fsLib = readFileSync(join(root, "src/lib/video/filmstrip.ts"), "utf8");
+const fsRoute = readFileSync(join(root, "src/app/api/video/[id]/strip/route.ts"), "utf8");
+has(!/crossOrigin|toDataURL|document\.createElement\("video"\)/.test(vePosters) && /\/api\/video\/\$\{videoId\}\/strip\?/.test(vePosters), "stills and filmstrips are made on the server, not in the browser (an iPhone loads no video it is not playing)");
+has(/stripUrl\(id, s\.mediaUrl, \{ count: 1/.test(veSrc2) && /placeholderStyle\(`\$\{scene\?\.shot/.test(veSrc2) && /placeholderStyle\(`\$\{scene\.shot\}\$\{scene\.visual\}`\)/.test(veSrc2), "the filmstrip and the scene list show it; a scene still to be made gets its own colour, not stripes");
+has(/startsWith\(`\$\{video\.user_id\}\/\$\{id\}\/`\)/.test(fsRoute) && /\.eq\("output_path", plain\)/.test(fsRoute) && /from\("video_projects"\)/.test(fsRoute), "a strip is only made of the person's own video's clips");
+has(/download\(kept\)/.test(fsRoute) && /upload\(kept, bytes/.test(fsRoute) && /"\/api\/video\/\[id\]\/strip": \["\.\/node_modules\/ffmpeg-static\/ffmpeg"\]/.test(readFileSync(join(root, "next.config.mjs"), "utf8")), "a strip is made once and kept; the route carries ffmpeg");
+{
+  const FS = await import(join(dir, "filmstrip.js"));
+  const t = FS.stripTimes(8, 2, 4);
+  has(t.length === 8 && t[0] === 2.25 && t[7] === 5.75 && FS.stripTimes(99, 0, 3).length === FS.MAX_STRIP_FRAMES, "the frames sit along the part of the clip on screen");
+  has(FS.storagePathOf("https://x.supabase.co/storage/v1/object/sign/video-assets/u1/v1/a%20b.mp4?token=t") === "u1/v1/a b.mp4" && FS.storagePathOf("https://cdn.example.com/a.mp4") === null, "a storage link is read back to its file");
+  has(FS.stripPath("u", "v", "storage:x", [1]) === FS.stripPath("u", "v", "storage:x", [1]) && FS.stripPath("u", "v", "storage:x", [1]) !== FS.stripPath("u", "v", "storage:x", [2]), "the same clip and moments give the same kept strip");
+}
 
 console.log("\nthe editor opens from the workspace and plays smoothly");
 const wsSrc = readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8");
@@ -1060,7 +1071,7 @@ console.log("\nthe timeline: a still playhead, tracks that slide, filmstrips");
   const cp = readFileSync(join(root, "src/app/dashboard/components/video/useClipPosters.ts"), "utf8");
   has(/left-1\/2 top-0 z-20 w-0\.5 -translate-x-1\/2/.test(ve) && /paddingLeft: half, paddingRight: half/.test(ve), "the playhead stays in the middle; the tracks run from under it at 0:00 to under it at the end");
   has(/if \(Math\.abs\(el\.scrollLeft - target\) > 0\.5\) el\.scrollLeft = target;/.test(ve) && /props\.onSeek\(Math\.max\(0, Math\.min\(total, e\.currentTarget\.scrollLeft \/ pps\)\)\)/.test(ve), "playing slides the tracks; dragging the tracks scrubs");
-  has(/export function useClipStrips/.test(cp) && /useClipStrips\(segments\.filter/.test(ve) && /Math\.floor\(\(\(i \+ 0\.5\) \/ tiles\) \* frames\.length\)/.test(ve), "each clip is a filmstrip of its own frames, not one frame repeated");
+  has(/export function spriteFrame/.test(cp) && /stripUrl\(props\.videoId, s\.mediaUrl, \{ from: s\.from/.test(ve) && /spriteFrame\(frames, Math\.floor\(\(\(i \+ 0\.5\) \/ tiles\) \* STRIP_FRAMES\), STRIP_FRAMES\)/.test(ve), "each clip is a filmstrip of its own frames along the part on screen, not one frame repeated");
   has(/<Plus className="h-3\.5 w-3\.5" \/> Add audio/.test(ve) && /<Plus className="h-3\.5 w-3\.5" \/> Add text/.test(ve) && /aria-label="Add media"/.test(ve), "empty tracks offer Add audio and Add text; a + at the end adds media");
 }
 
@@ -1088,10 +1099,8 @@ console.log("\none + in every composer");
   const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
   const ws = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
   const dir = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-  const gd = readFileSync(join(root, "src/lib/google-drive.ts"), "utf8");
-  has(/label: "Photo Library"/.test(am) && /label: "Take Photo or Video"/.test(am) && /label: "Choose Files"/.test(am) && /label: "Google Drive"/.test(am) && /<Plus className=/.test(am), "the + lists Photo Library, Take Photo or Video, Choose Files and Google Drive");
-  has(/capture="environment"/.test(am) && /\(pointer: coarse\)/.test(am) && /takesVideo \? "image\/\*,video\/\*" : "image\/\*"/.test(am), "the camera opens straight away on phones; videos only where the composer takes them");
-  has(/export const driveReady = Boolean\(CLIENT_ID && API_KEY\)/.test(gd) && /\.\.\.\(driveReady \?/.test(am) && /drive\.readonly/.test(gd) && /export\?mimeType=application\/pdf/.test(gd), "Google Drive appears once the Google keys are set; read-only, Google Docs come as PDFs");
+  has(/onClick=\{\(\) => input\.current\?\.click\(\)\}/.test(am) && !/role="menu"/.test(am) && /type="file"/.test(am) && /multiple/.test(am) && /accept=\{accept\}/.test(am) && /<Plus className=/.test(am), "the + opens the device's own picker straight away (Photo Library, Take Photo, Choose Files, Drive on an iPhone), with no menu of ours in front");
+  has(!existsSync(join(root, "src/lib/google-drive.ts")), "no separate Google Drive picker: the system picker already offers Drive");
   has([home, ws, dir].every((src) => /<AddMenu /.test(src)) && !/aria-label="Attach images"/.test(home) && !/aria-label="Upload file or assets"/.test(ws), "Home, the workspace chat and the Creative Director all use that same +");
 }
 

@@ -39,6 +39,8 @@ const nextConfig = {
        to its scene (src/lib/video/scene-stills.ts). */
     "/api/video/[id]/plan": ["./node_modules/ffmpeg-static/ffmpeg"],
     "/api/build": ["./node_modules/ffmpeg-static/ffmpeg"],
+    /* The timeline's filmstrips (src/lib/video/filmstrip.ts). */
+    "/api/video/[id]/strip": ["./node_modules/ffmpeg-static/ffmpeg"],
   },
   /* The code editor runs a real terminal — Node.js in the tab, through the
      WebContainer API — which needs the page to be cross-origin isolated. Only
