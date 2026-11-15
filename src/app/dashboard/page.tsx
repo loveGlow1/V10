@@ -770,7 +770,7 @@ export default function DashboardPage() {
               <div className="relative mt-3 flex min-w-0 items-center justify-between gap-2 sm:mt-4">
                 {/* The left side gives way, never the right: a long agent name
                     truncates rather than pushing send out of the box. */}
-                <div className="relative flex min-w-0 shrink items-center gap-[3px] sm:gap-2">
+                <div className="relative flex min-w-0 shrink items-center gap-2.5 sm:gap-2">
                   {/* One input, opened straight away: the device's own picker
                       is the picker. A desktop gets its file dialog; a phone
                       gets its native sheet — Photo Library, Take Photo, Choose
