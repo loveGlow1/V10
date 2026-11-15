@@ -40,6 +40,7 @@ import {
   Music,
   Pause,
   Play,
+  Plus,
   Redo2,
   Scissors,
   SkipBack,
@@ -54,6 +55,11 @@ import {
   X,
   ZoomIn,
   ZoomOut,
+  Captions,
+  Image as ImageIcon,
+  Palette,
+  Shuffle,
+  Type as TypeIcon,
 } from "lucide-react";
 
 import { formatSeconds } from "@/lib/video/assets";
@@ -71,7 +77,7 @@ import { continuesFrom } from "@/lib/video/continuity";
 
 import CharactersPanel from "./CharactersPanel";
 import EditorLibrary, { type LibraryTab } from "./EditorLibrary";
-import { placeholderStyle, useClipPosters } from "./useClipPosters";
+import { placeholderStyle, useClipPosters, useClipStrips } from "./useClipPosters";
 import MediaPanel, { ASSET_DRAG, type PanelAsset } from "./MediaPanel";
 import TimelineClip from "./TimelineClip";
 import VideoSettings from "./VideoSettings";
@@ -105,10 +111,22 @@ export default function VideoEditor({ id }: { id: string }) {
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [pps, setPps] = useState(40);
+  /* The phone's bottom tools bring their panel into view. */
+  const libraryRef = useRef<HTMLElement>(null);
+  const inspectRef = useRef<HTMLElement>(null);
   const [busy, setBusy] = useState<null | "save" | "export" | "assist" | "music" | "voice" | "stitch">(null);
   /* Which library tab is open, and whether the right column shows the selection or the AI. */
   const [libraryTab, setLibraryTab] = useState<LibraryTab>("media");
   const [rightTab, setRightTab] = useState<"inspect" | "ai">("inspect");
+  const openTool = (tab: LibraryTab) => {
+    setLibraryTab(tab);
+    window.requestAnimationFrame(() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  const openInspect = (next: Selection) => {
+    setSelection(next);
+    setRightTab("inspect");
+    window.requestAnimationFrame(() => inspectRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
   const [locked, setLocked] = useState<Set<TrackId>>(new Set());
   const [chat, setChat] = useState<Chat[]>([]);
   const [ask, setAsk] = useState("");
@@ -540,7 +558,7 @@ export default function VideoEditor({ id }: { id: string }) {
   const doneRows = renderRows.filter((r) => r.status === "done").length;
 
   return (
-    <main className="qs-studio relative z-10 mx-auto w-full max-w-[1400px] flex-1 px-3 pb-16 pt-4 md:px-5">
+    <main className="qs-studio relative z-10 mx-auto w-full max-w-[1400px] flex-1 px-3 pb-28 pt-4 md:px-5 lg:pb-16">
       {/* Top bar */}
       <header className="flex flex-wrap items-center gap-2">
         <Link href={`/dashboard/video/${id}`} aria-label="Back to the studio" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] text-soft hover:text-ink">
@@ -586,7 +604,7 @@ export default function VideoEditor({ id }: { id: string }) {
         <>
           <div className="mt-4 flex flex-col gap-3 lg:grid lg:grid-cols-[360px_minmax(0,1fr)_340px] lg:grid-rows-[min(64vh,680px)_auto]">
             {/* Library: what goes into the video */}
-            <section className="order-3 flex min-h-[320px] min-w-0 flex-col rounded-[16px] border border-line/[0.08] bg-panel p-3 lg:order-none lg:min-h-0">
+            <section ref={libraryRef} className="order-3 flex min-h-[320px] min-w-0 scroll-mt-4 flex-col rounded-[16px] border border-line/[0.08] bg-panel p-3 lg:order-none lg:min-h-0">
               <EditorLibrary
                 tab={libraryTab}
                 onTab={setLibraryTab}
@@ -656,7 +674,7 @@ export default function VideoEditor({ id }: { id: string }) {
             </section>
 
             {/* Right: the selection, or the AI editor */}
-            <aside className="order-4 flex min-w-0 flex-col rounded-[16px] border border-line/[0.08] bg-panel p-3 lg:order-none lg:min-h-0">
+            <aside ref={inspectRef} className="order-4 flex min-w-0 scroll-mt-4 flex-col rounded-[16px] border border-line/[0.08] bg-panel p-3 lg:order-none lg:min-h-0">
               <div className="flex gap-1 rounded-full bg-layer/[0.06] p-0.5 text-[12px]" role="tablist">
                 <button role="tab" aria-selected={rightTab === "inspect"} onClick={() => setRightTab("inspect")} className={`h-7 flex-1 rounded-full ${rightTab === "inspect" ? "bg-layer/[0.16] text-ink" : "text-muted"}`}>
                   {selection?.type === "scene" && selected ? `Clip ${draft.scenes.findIndex((s) => s.n === selected.n) + 1}` : selection ? "Sound" : "Edit"}
@@ -814,6 +832,30 @@ export default function VideoEditor({ id }: { id: string }) {
           </div>
         </>
       )}
+      {/* On a phone: the tools along the bottom, one tap from anywhere. Each
+          opens its panel and brings it into view; the timeline stays put. */}
+      {draft && (
+        <nav aria-label="Editing tools" className="fixed inset-x-0 bottom-0 z-40 border-t border-line/[0.08] bg-canvas/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-xl items-stretch justify-between px-1">
+            {(
+              [
+                { label: "Edit", icon: Scissors, go: () => openTool("scenes") },
+                { label: "Audio", icon: Music, go: () => openInspect({ type: "music" }) },
+                { label: "Text", icon: TypeIcon, go: () => openTool("text") },
+                { label: "Effects", icon: Shuffle, go: () => openTool("transitions") },
+                { label: "Media", icon: ImageIcon, go: () => openTool("media") },
+                { label: "Captions", icon: Captions, go: () => openTool("settings") },
+                { label: "Filters", icon: Palette, go: () => openTool("filters") },
+              ] as const
+            ).map(({ label, icon: Icon, go }) => (
+              <button key={label} type="button" onClick={go} className="flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-[10.5px] text-soft active:text-ink">
+                <Icon className="h-5 w-5" strokeWidth={1.6} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
     </main>
   );
 }
@@ -949,6 +991,11 @@ function Storyboard(props: {
 /* ── Timeline ────────────────────────────────────────────────────────── */
 type TrackId = "video" | "filter" | "words" | "voice" | "music";
 
+/* The timeline, laid out the way the phone editors people know are: the
+ * playhead stays still in the middle and the tracks slide under it. Playing
+ * scrolls them; dragging the tracks left and right scrubs. Each clip is a
+ * filmstrip of its own frames, with a plain marker between clips; empty
+ * tracks offer "Add audio" and "Add text" instead of blank rows. */
 function Timeline(props: {
   plan: ProductionPlan;
   segments: Segment[];
@@ -979,24 +1026,73 @@ function Timeline(props: {
   onLocked: (next: Set<TrackId>) => void;
 }) {
   const { segments, pps, total, cut } = props;
-  const width = Math.max(320, total * pps + 80);
+  const length = Math.max(1, total * pps);
   const scroller = useRef<HTMLDivElement>(null);
+  /* Half the visible width: the empty run before 0:00 and after the end, so
+     the first and last frame can both sit under the centred playhead. */
+  const [half, setHalf] = useState(160);
   const [drag, setDrag] = useState<{ n: number; edge: "start" | "end"; x0: number; delta: number } | null>(null);
   const [snap, setSnap] = useState(true);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const dragging = useRef<number | null>(null);
+  /* Whether the person is moving the tracks (then the scroll sets the time)
+     or the time is moving them (then the time sets the scroll). */
+  const scrubbing = useRef(false);
+  const settle = useRef<number | null>(null);
   const step = pps >= 60 ? 1 : pps >= 25 ? 2 : pps >= 12 ? 5 : pps >= 4 ? 30 : 60;
-  const isLocked = (track: TrackId) => locked.has(track);
   const locked = props.locked;
+  const isLocked = (track: TrackId) => locked.has(track);
   const toggleLock = (track: TrackId) => {
     const next = new Set(locked);
     if (next.has(track)) next.delete(track);
     else next.add(track);
     props.onLocked(next);
   };
+  const strips = useClipStrips(segments.filter((s) => s.kind === "video" && s.mediaUrl).map((s) => s.mediaUrl), 8);
+
+  /* The run before and after: half of whatever width the timeline has. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const measure = () => setHalf(Math.max(40, Math.round(el.clientWidth / 2)));
+    measure();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
+
+  /* The time moves the tracks — unless the person is moving them. */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || scrubbing.current) return;
+    const target = Math.round(props.time * pps);
+    if (Math.abs(el.scrollLeft - target) > 0.5) el.scrollLeft = target;
+  }, [props.time, pps, half]);
+
+  const startScrub = () => {
+    scrubbing.current = true;
+    if (settle.current) window.clearTimeout(settle.current);
+  };
+  /* The time as of now, for the re-sync below. */
+  const timeNow = useRef(props.time);
+  timeNow.current = props.time;
+  const endScrubSoon = () => {
+    if (settle.current) window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => {
+      scrubbing.current = false;
+      /* A press that was a click (the ruler, a clip) moved the time without
+         moving the tracks: line them back up under the playhead. */
+      const el = scroller.current;
+      if (el) {
+        const target = Math.round(timeNow.current * pps);
+        if (Math.abs(el.scrollLeft - target) > 0.5) el.scrollLeft = target;
+      }
+    }, 160);
+  };
+
   const seekFrom = (event: React.MouseEvent) => {
     const box = event.currentTarget.getBoundingClientRect();
-    props.onSeek((event.clientX - box.left) / pps);
+    props.onSeek(Math.max(0, Math.min(total, (event.clientX - box.left) / pps)));
   };
   const lengthOf = (s: Segment) => (drag && drag.n === s.n ? Math.max(0.3, s.seconds + (drag.edge === "end" ? drag.delta : -drag.delta)) : s.seconds);
   const leftOf = (s: Segment) => (drag && drag.n === s.n && drag.edge === "start" ? s.start + drag.delta : s.start);
@@ -1017,9 +1113,14 @@ function Timeline(props: {
     return at < 0 ? segments.length : at;
   };
   const color = cut?.color ?? "none";
+  const anyFilter = color !== "none" || segments.some((s) => s.color && s.color !== color);
+  const anyText = segments.some((s) => s.text);
+  const anyVoice = segments.some((s) => s.caption || sceneOf(s.n)?.voiceAsset);
+  const mmss = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const TILE = 56;
 
-  const header = (track: TrackId, label: string, tall: boolean, sound?: { on: boolean; toggle: () => void; what: string }) => (
-    <div className={`flex items-center gap-0.5 ${tall ? "h-16" : "h-6"}`}>
+  const header = (track: TrackId, label: string, height: string, sound?: { on: boolean; toggle: () => void; what: string }) => (
+    <div className={`flex items-center gap-0.5 ${height}`}>
       <span className="w-[46px] truncate text-[10.5px] font-medium text-muted">{label}</span>
       <button type="button" onClick={() => toggleLock(track)} aria-label={`${isLocked(track) ? "Unlock" : "Lock"} the ${label} track`} title={isLocked(track) ? "Locked — click to edit again" : "Lock this track"} className="flex h-5 w-5 items-center justify-center rounded text-muted hover:text-ink">
         {isLocked(track) ? <Lock className="h-3 w-3 text-amber-300" /> : <Unlock className="h-3 w-3" />}
@@ -1033,240 +1134,314 @@ function Timeline(props: {
   );
 
   return (
-    <section className="rounded-[16px] border border-line/[0.08] bg-panel p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-1.5">
-        <button onClick={props.onSplit} disabled={isLocked("video")} title="Split at the playhead (S)" className={chip}><Scissors className="h-3.5 w-3.5" /> Split</button>
-        <button onClick={props.onDuplicate} disabled={!props.canEditSelected || isLocked("video")} className={chip}><Copy className="h-3.5 w-3.5" /> Duplicate</button>
-        <button onClick={props.onDelete} disabled={!props.canEditSelected || isLocked("video")} className={chip}><Trash2 className="h-3.5 w-3.5" /> Delete</button>
-        <button onClick={() => setSnap((v) => !v)} aria-pressed={snap} title="Snap edges to the playhead and to other clips" className={`${chip} ${snap ? "border-accent/50 text-accent" : ""}`}><Magnet className="h-3.5 w-3.5" /> Snap</button>
-        <span className="ml-auto flex items-center gap-1">
-          <span className="hidden text-[11px] text-muted sm:inline">Drag media here from the library</span>
-          <button onClick={() => props.onZoom(pps / 1.5)} aria-label="Zoom out" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><ZoomOut className="h-4 w-4" /></button>
-          <button onClick={() => props.onZoom(pps * 1.5)} aria-label="Zoom in" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><ZoomIn className="h-4 w-4" /></button>
+    <section className="rounded-[16px] border border-line/[0.08] bg-panel py-3">
+      <div className="mb-1 flex flex-nowrap items-center gap-1 px-3 sm:gap-1.5">
+        <span className="mr-1 shrink-0 whitespace-nowrap font-mono text-[12.5px] tabular-nums text-ink">
+          {mmss(props.time)} <span className="text-muted">/ {mmss(total)}</span>
+        </span>
+        <button onClick={props.onSplit} disabled={isLocked("video")} title="Split at the playhead (S)" className={chip}><Scissors className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Split</span></button>
+        <button onClick={props.onDuplicate} disabled={!props.canEditSelected || isLocked("video")} title="Duplicate" className={chip}><Copy className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Duplicate</span></button>
+        <button onClick={props.onDelete} disabled={!props.canEditSelected || isLocked("video")} title="Delete" className={chip}><Trash2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Delete</span></button>
+        <button onClick={() => setSnap((v) => !v)} aria-pressed={snap} title="Snap edges to the playhead and to other clips" className={`${chip} ${snap ? "border-accent/50 text-accent" : ""}`}><Magnet className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Snap</span></button>
+        <span className="ml-auto flex shrink-0 items-center">
+          <button onClick={() => props.onZoom(pps / 1.5)} aria-label="Zoom out" className="flex h-8 w-7 items-center justify-center rounded-full text-soft hover:text-ink sm:w-8"><ZoomOut className="h-4 w-4" /></button>
+          <button onClick={() => props.onZoom(pps * 1.5)} aria-label="Zoom in" className="flex h-8 w-7 items-center justify-center rounded-full text-soft hover:text-ink sm:w-8"><ZoomIn className="h-4 w-4" /></button>
         </span>
       </div>
       <div className="flex">
-        {/* Track headers */}
-        <div className="w-[96px] shrink-0 select-none border-r border-line/[0.08] pr-1">
-          <div className="h-5" />
-          <div className="mt-1.5">{header("video", "Video", true, cut ? { on: cut.originalVolume > 0, toggle: () => props.onCut({ originalVolume: cut.originalVolume > 0 ? 0 : 1 }), what: "the clips' own sound" } : undefined)}</div>
-          <div className="mt-1">{header("filter", "Filter", false)}</div>
-          <div className="mt-1">{header("words", "Text", false)}</div>
-          <div className="mt-1">{header("voice", "Voice", false, cut ? { on: cut.voiceVolume > 0, toggle: () => props.onCut({ voiceVolume: cut.voiceVolume > 0 ? 0 : 1 }), what: "the voice-over" } : undefined)}</div>
-          <div className="mt-1">{header("music", "Music", false, cut ? { on: cut.musicVolume > 0, toggle: () => props.onCut({ musicVolume: cut.musicVolume > 0 ? 0 : 1 }), what: "the music" } : undefined)}</div>
+        {/* Track headers: lock and mute — on a phone the tracks get the full width. */}
+        <div className="hidden w-[92px] shrink-0 select-none border-r border-line/[0.06] pl-3 pr-1 sm:block">
+          <div className="h-7" />
+          {header("video", "Video", "h-16", cut ? { on: cut.originalVolume > 0, toggle: () => props.onCut({ originalVolume: cut.originalVolume > 0 ? 0 : 1 }), what: "the clips' own sound" } : undefined)}
+          {anyFilter && <div className="mt-1.5">{header("filter", "Filter", "h-7")}</div>}
+          {anyVoice && <div className="mt-1.5">{header("voice", "Voice", "h-7", cut ? { on: cut.voiceVolume > 0, toggle: () => props.onCut({ voiceVolume: cut.voiceVolume > 0 ? 0 : 1 }), what: "the voice-over" } : undefined)}</div>}
+          <div className="mt-1.5">{header("music", "Audio", "h-9", cut ? { on: cut.musicVolume > 0, toggle: () => props.onCut({ musicVolume: cut.musicVolume > 0 ? 0 : 1 }), what: "the music" } : undefined)}</div>
+          <div className="mt-1.5">{header("words", "Text", "h-9")}</div>
         </div>
-        <div ref={scroller} className="min-w-0 flex-1 overflow-x-auto pb-1 pl-1">
-          <div className="relative select-none" style={{ width }}>
-            {/* Ruler */}
-            <div className="relative h-5 cursor-pointer border-b border-line/[0.08]" onClick={seekFrom}>
-              {Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step).map((t) => (
-                <span key={t} className="absolute top-0 text-[10px] tabular-nums text-muted" style={{ left: t * pps }}>
-                  <span className="absolute left-0 top-3 h-2 w-px bg-line/[0.25]" />
-                  {formatSeconds(t)}
-                </span>
-              ))}
-            </div>
-            {/* Video track */}
-            <div
-              className={`relative mt-1.5 h-16 rounded-[8px] ${dropAt !== null ? "bg-accent/[0.06]" : ""}`}
-              onClick={(e) => e.target === e.currentTarget && seekFrom(e)}
-              onDragOver={(e) => {
-                if (!e.dataTransfer.types.includes(ASSET_DRAG) || isLocked("video")) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "copy";
-                setDropAt(indexAt(e.clientX - e.currentTarget.getBoundingClientRect().left));
-              }}
-              onDragLeave={(e) => e.currentTarget === e.target && setDropAt(null)}
-              onDrop={(e) => {
-                const assetId = e.dataTransfer.getData(ASSET_DRAG);
-                setDropAt(null);
-                if (!assetId || isLocked("video")) return;
-                e.preventDefault();
-                props.onDropAsset(assetId, indexAt(e.clientX - e.currentTarget.getBoundingClientRect().left));
-              }}
-            >
-              {segments.map((s, index) => {
-                const scene = sceneOf(s.n);
-                const picture = s.posterUrl ?? (s.kind === "image" ? s.mediaUrl : null);
-                return (
-                  <div
-                    key={s.n}
-                    draggable={!isLocked("video")}
-                    onDragStart={(e) => {
-                      dragging.current = s.n;
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragOver={(e) => {
-                      if (dragging.current !== null) e.preventDefault();
-                    }}
-                    onDrop={(e) => {
-                      const from = dragging.current;
-                      dragging.current = null;
-                      if (from === null) return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      if (from === s.n) return;
-                      const box = e.currentTarget.getBoundingClientRect();
-                      const after = e.clientX > box.left + box.width / 2;
-                      const fromIndex = segments.findIndex((x) => x.n === from);
-                      let to = index + (after ? 1 : 0);
-                      if (fromIndex < to) to -= 1;
-                      props.onMove(from, to);
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onSelect({ type: "scene", n: s.n });
-                      props.onSeek(s.start + Math.min(s.seconds - 0.05, (e.clientX - e.currentTarget.getBoundingClientRect().left) / pps));
-                    }}
-                    className={`group absolute top-0 h-16 overflow-hidden rounded-[8px] border ${isLocked("video") ? "cursor-default" : "cursor-grab"} ${isSel(s.n) ? "border-accent ring-2 ring-accent/40" : "border-line/[0.15]"} bg-layer/[0.08]`}
-                    style={{
-                      left: leftOf(s) * pps,
-                      width: Math.max(14, lengthOf(s) * pps - 2),
-                      /* A filmstrip: the clip's frame repeated along its length. */
-                      ...(picture
-                        ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined }
-                        : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)),
-                    }}
-                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.fallback ? (s.failed ? " · the latest re-film failed (nothing charged) — showing the last clip that worked; Export tries the new one again" : " · showing the last clip that worked until the new one is made") : s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
-                  >
-                    <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium text-white">
-                      {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
+
+        <div className="relative min-w-0 flex-1">
+          <div
+            ref={scroller}
+            className="overflow-x-auto overscroll-x-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            onPointerDown={startScrub}
+            onPointerUp={endScrubSoon}
+            onPointerCancel={endScrubSoon}
+            onTouchStart={startScrub}
+            onTouchEnd={endScrubSoon}
+            onWheel={() => {
+              startScrub();
+              endScrubSoon();
+            }}
+            onScroll={(e) => {
+              if (!scrubbing.current) return;
+              props.onSeek(Math.max(0, Math.min(total, e.currentTarget.scrollLeft / pps)));
+              endScrubSoon();
+            }}
+          >
+            <div className="relative select-none" style={{ width: length + half * 2, paddingLeft: half, paddingRight: half }}>
+              <div className="relative" style={{ width: length }}>
+                {/* Ruler: times, with a dot between them */}
+                <div className="relative h-7 cursor-pointer" onClick={seekFrom}>
+                  {Array.from({ length: Math.floor(total / step) + 1 }, (_, i) => i * step).map((t) => (
+                    <span key={t}>
+                      <span className="absolute top-1.5 -translate-x-1/2 text-[10.5px] tabular-nums text-muted" style={{ left: t * pps }}>{mmss(t)}</span>
+                      {t + step / 2 <= total && <span className="absolute top-[13px] h-[3px] w-[3px] -translate-x-1/2 rounded-full bg-muted/60" style={{ left: (t + step / 2) * pps }} />}
                     </span>
-                    {s.fallback && (
-                      /* The card still shows a working clip; this only says the newer one did not come out. */
-                      <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex max-w-[calc(100%-3.5rem)] items-center gap-1 truncate rounded bg-black/55 px-1 text-[9.5px] text-amber-300">
-                        <AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Last good take
-                      </span>
-                    )}
-                    {!picture && !s.fallback && (
-                      <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
-                        {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-                      </span>
-                    )}
-                    <span className="pointer-events-none absolute bottom-0.5 right-1.5 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">{lengthOf(s).toFixed(1)}s</span>
-                    {!isLocked("video") && (["start", "end"] as const).map((edge) => (
-                      <span
-                        key={edge}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                          setDrag({ n: s.n, edge, x0: e.clientX, delta: 0 });
-                        }}
-                        onPointerMove={(e) => drag && drag.n === s.n && drag.edge === edge && setDrag({ ...drag, delta: snapped(s, edge, (e.clientX - drag.x0) / pps) })}
-                        onPointerUp={() => {
-                          if (drag && drag.n === s.n && Math.abs(drag.delta) > 0.02) props.onTrim(s.n, edge, drag.delta);
-                          setDrag(null);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className={`absolute top-0 h-full w-2.5 cursor-ew-resize bg-white/0 hover:bg-white/40 ${edge === "start" ? "left-0 rounded-l-[8px]" : "right-0 rounded-r-[8px]"} ${isSel(s.n) ? "bg-white/30" : ""}`}
-                        aria-label={edge === "start" ? "Trim the start" : "Trim the end"}
-                      />
-                    ))}
-                  </div>
-                );
-              })}
-              {/* Transition markers: between every pair of clips */}
-              {cut && cut.transition !== "cut" && segments.slice(1).map((s) => (
-                <button
-                  key={`t-${s.n}`}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onOpenTab("transitions");
+                  ))}
+                </div>
+
+                {/* Video track: each clip a filmstrip of its own frames */}
+                <div
+                  className={`relative h-16 ${dropAt !== null ? "rounded-[6px] bg-accent/[0.06]" : ""}`}
+                  onClick={(e) => e.target === e.currentTarget && seekFrom(e)}
+                  onDragOver={(e) => {
+                    if (!e.dataTransfer.types.includes(ASSET_DRAG) || isLocked("video")) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "copy";
+                    setDropAt(indexAt(e.clientX - e.currentTarget.getBoundingClientRect().left));
                   }}
-                  title={`${LABELS.transition[cut.transition]} · ${cut.transitionSeconds.toFixed(1)}s`}
-                  aria-label="Transition"
-                  className="absolute top-1/2 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-panel text-accent shadow ring-1 ring-accent/50"
-                  style={{ left: s.start * pps }}
+                  onDragLeave={(e) => e.currentTarget === e.target && setDropAt(null)}
+                  onDrop={(e) => {
+                    const assetId = e.dataTransfer.getData(ASSET_DRAG);
+                    setDropAt(null);
+                    if (!assetId || isLocked("video")) return;
+                    e.preventDefault();
+                    props.onDropAsset(assetId, indexAt(e.clientX - e.currentTarget.getBoundingClientRect().left));
+                  }}
                 >
-                  <Diamond className="h-2.5 w-2.5" />
-                </button>
-              ))}
-              {/* Where a dragged upload will land */}
-              {dropAt !== null && (
-                <span className="pointer-events-none absolute bottom-0 top-0 w-0.5 bg-accent" style={{ left: (segments[dropAt]?.start ?? total) * pps }} />
-              )}
-            </div>
-            {/* Filter track: the video's look, and any clip with its own */}
-            <div className="relative mt-1 h-6">
-              <button
-                type="button"
-                onClick={() => props.onOpenTab("filters")}
-                className="absolute top-0 h-6 truncate rounded-[6px] bg-indigo-500/25 px-1.5 text-left text-[10.5px] text-indigo-100"
-                style={{ left: 0, width: Math.max(140, total * pps - 2) }}
-                title="The whole video's filter — click to change"
-              >
-                ◐ {LABELS.color[color]}
-              </button>
-              {segments.map((s) =>
-                s.color && s.color !== color ? (
-                  <button
-                    key={`f-${s.n}`}
-                    type="button"
-                    onClick={() => {
-                      props.onSelect({ type: "scene", n: s.n });
-                      props.onOpenTab("filters");
-                    }}
-                    className="absolute top-0 h-6 truncate rounded-[6px] bg-fuchsia-500/40 px-1.5 text-left text-[10.5px] text-white ring-1 ring-fuchsia-300/40"
-                    style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}
-                    title="This clip's own filter"
-                  >
-                    ◐ {LABELS.color[s.color]}
-                  </button>
-                ) : null,
-              )}
-            </div>
-            {/* Text track */}
-            <div className="relative mt-1 h-6">
-              {segments.map((s) =>
-                s.text ? (
-                  <span key={s.n} className="group/text absolute top-0 flex h-6 items-center rounded-[6px] bg-pink-500/35" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
-                    <button disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="h-6 min-w-0 flex-1 truncate px-1.5 text-left text-[10.5px] text-pink-50" title="Edit these words">
-                      T · {s.text}
-                    </button>
-                    {!isLocked("words") && (
-                      <button
-                        type="button"
+                  {segments.map((s, index) => {
+                    const scene = sceneOf(s.n);
+                    const picture = s.posterUrl ?? (s.kind === "image" ? s.mediaUrl : null);
+                    const frames = s.mediaUrl ? strips.get(s.mediaUrl) : undefined;
+                    const w = Math.max(14, lengthOf(s) * pps - 1);
+                    const tiles = Math.max(1, Math.ceil(w / TILE));
+                    const filter = COLOR_CSS[s.color ?? color] || undefined;
+                    return (
+                      <div
+                        key={s.n}
+                        draggable={!isLocked("video")}
+                        onDragStart={(e) => {
+                          dragging.current = s.n;
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => {
+                          if (dragging.current !== null) e.preventDefault();
+                        }}
+                        onDrop={(e) => {
+                          const from = dragging.current;
+                          dragging.current = null;
+                          if (from === null) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (from === s.n) return;
+                          const box = e.currentTarget.getBoundingClientRect();
+                          const after = e.clientX > box.left + box.width / 2;
+                          const fromIndex = segments.findIndex((x) => x.n === from);
+                          let to = index + (after ? 1 : 0);
+                          if (fromIndex < to) to -= 1;
+                          props.onMove(from, to);
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          props.onClearText(s.n);
+                          props.onSelect({ type: "scene", n: s.n });
+                          props.onSeek(s.start + Math.min(s.seconds - 0.05, (e.clientX - e.currentTarget.getBoundingClientRect().left) / pps));
                         }}
-                        aria-label={`Remove the words on clip ${s.n}`}
-                        title="Remove these words from the video"
-                        className="mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-pink-50/80 hover:bg-black/30 hover:text-white"
+                        className={`group absolute top-0 flex h-16 overflow-hidden ${isLocked("video") ? "cursor-default" : "cursor-grab"} ${isSel(s.n) ? "z-[5] rounded-[4px] outline outline-2 outline-white" : ""} bg-layer/[0.08]`}
+                        style={{ left: leftOf(s) * pps, width: w, ...(frames || picture ? {} : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)) }}
+                        title={`${s.label} · ${s.seconds.toFixed(1)}s${s.fallback ? (s.failed ? " · the latest re-film failed (nothing charged) — showing the last clip that worked; Export tries the new one again" : " · showing the last clip that worked until the new one is made") : s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </span>
-                ) : null,
-              )}
-            </div>
-            {/* Voice track */}
-            <div className={`relative mt-1 h-6 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
-              {segments.map((s) =>
-                s.caption || sceneOf(s.n)?.voiceAsset ? (
-                  <button key={s.n} disabled={isLocked("voice")} onClick={() => props.onSelect({ type: "scene", n: s.n })} className={`absolute top-0 h-6 truncate rounded-[6px] px-1.5 text-left text-[10.5px] ${s.voiceUrl ? "bg-violet-500/30 text-violet-100" : "bg-violet-500/15 text-violet-200/70"}`} style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }} title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}>
-                    🎙 {s.caption || "Recording"}
+                        {/* The strip: one tile per 56px, each showing the frame from its part of the clip */}
+                        {(frames || picture) &&
+                          Array.from({ length: tiles }, (_, i) => {
+                            const src = frames ? frames[Math.min(frames.length - 1, Math.floor(((i + 0.5) / tiles) * frames.length))] : picture;
+                            return (
+                              <span
+                                key={i}
+                                aria-hidden
+                                className="h-full shrink-0 border-r border-black/40 bg-cover bg-center last:border-r-0"
+                                style={{ width: i === tiles - 1 ? w - TILE * (tiles - 1) : TILE, backgroundImage: `url(${src})`, filter }}
+                              />
+                            );
+                          })}
+                        <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/60 to-transparent px-1.5 pb-1 pt-0.5 text-[10px] font-medium text-white/90">
+                          {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
+                        </span>
+                        {s.fallback && (
+                          /* The card still shows a working clip; this only says the newer one did not come out. */
+                          <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex max-w-[calc(100%-3.5rem)] items-center gap-1 truncate rounded bg-black/55 px-1 text-[9.5px] text-amber-300">
+                            <AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Last good take
+                          </span>
+                        )}
+                        {!picture && !frames && !s.fallback && (
+                          <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
+                            {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                          </span>
+                        )}
+                        <span className="pointer-events-none absolute bottom-0.5 right-1 rounded bg-black/60 px-1 text-[9.5px] tabular-nums text-white">{lengthOf(s).toFixed(1)}s</span>
+                        {!isLocked("video") && (["start", "end"] as const).map((edge) => (
+                          <span
+                            key={edge}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+                              setDrag({ n: s.n, edge, x0: e.clientX, delta: 0 });
+                            }}
+                            onPointerMove={(e) => drag && drag.n === s.n && drag.edge === edge && setDrag({ ...drag, delta: snapped(s, edge, (e.clientX - drag.x0) / pps) })}
+                            onPointerUp={() => {
+                              if (drag && drag.n === s.n && Math.abs(drag.delta) > 0.02) props.onTrim(s.n, edge, drag.delta);
+                              setDrag(null);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`absolute top-0 flex h-full w-3 cursor-ew-resize items-center justify-center ${edge === "start" ? "left-0" : "right-0"} ${isSel(s.n) ? "bg-white" : "bg-transparent hover:bg-white/40"}`}
+                            aria-label={edge === "start" ? "Trim the start" : "Trim the end"}
+                          >
+                            {isSel(s.n) && <span className="h-5 w-0.5 rounded-full bg-black/70" />}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  {/* Between clips: a small white marker — the transition */}
+                  {segments.slice(1).map((s) => (
+                    <button
+                      key={`t-${s.n}`}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.onOpenTab("transitions");
+                      }}
+                      title={cut ? `${LABELS.transition[cut.transition]}${cut.transition !== "cut" ? ` · ${cut.transitionSeconds.toFixed(1)}s` : ""} — change` : "Transition"}
+                      aria-label="Transition"
+                      className="absolute top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[5px] bg-white shadow-md ring-1 ring-black/20"
+                      style={{ left: s.start * pps }}
+                    >
+                      {cut && cut.transition !== "cut" ? <Diamond className="h-3 w-3 text-black" /> : <span className="h-3 w-[2px] rounded-full bg-black" />}
+                    </button>
+                  ))}
+                  {/* Add more, at the end of the clips */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onOpenTab("media");
+                    }}
+                    aria-label="Add media"
+                    title="Add clips, pictures or music"
+                    className="absolute top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-[8px] bg-white text-black shadow-md"
+                    style={{ left: length + 10 }}
+                  >
+                    <Plus className="h-5 w-5" />
                   </button>
-                ) : null,
-              )}
-            </div>
-            {/* Music track */}
-            <div className={`relative mt-1 h-6 ${cut && cut.musicVolume === 0 ? "opacity-40" : ""}`}>
-              <button disabled={isLocked("music")} onClick={() => props.onSelect({ type: "music" })} className={`absolute top-0 h-6 truncate rounded-[6px] px-1.5 text-left text-[10.5px] ${props.hasMusic ? "bg-emerald-500/25 text-emerald-100" : "border border-dashed border-line/[0.2] text-muted"} ${props.selection?.type === "music" ? "ring-2 ring-accent/50" : ""}`} style={{ left: 0, width: Math.max(140, total * pps - 2) }}>
-                ♪ {props.hasMusic ? props.musicLabel : "Add music"}
-              </button>
-            </div>
-            {/* Playhead */}
-            <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-accent" style={{ left: props.time * pps }}>
-              <span className="absolute -left-1 -top-0.5 h-2 w-2 rounded-full bg-accent" />
+                  {/* Where a dragged upload will land */}
+                  {dropAt !== null && (
+                    <span className="pointer-events-none absolute bottom-0 top-0 w-0.5 bg-accent" style={{ left: (segments[dropAt]?.start ?? total) * pps }} />
+                  )}
+                </div>
+
+                {/* Filter track: only when there is a look on the video or a clip */}
+                {anyFilter && (
+                  <div className="relative mt-1.5 h-7">
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenTab("filters")}
+                      className="absolute top-0 h-7 truncate rounded-[6px] bg-indigo-500/25 px-2 text-left text-[11px] text-indigo-100"
+                      style={{ left: 0, width: length }}
+                      title="The whole video's filter — click to change"
+                    >
+                      ◐ {LABELS.color[color]}
+                    </button>
+                    {segments.map((s) =>
+                      s.color && s.color !== color ? (
+                        <button
+                          key={`f-${s.n}`}
+                          type="button"
+                          onClick={() => {
+                            props.onSelect({ type: "scene", n: s.n });
+                            props.onOpenTab("filters");
+                          }}
+                          className="absolute top-0 h-7 truncate rounded-[6px] bg-fuchsia-500/40 px-2 text-left text-[11px] text-white ring-1 ring-fuchsia-300/40"
+                          style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}
+                          title="This clip's own filter"
+                        >
+                          ◐ {LABELS.color[s.color]}
+                        </button>
+                      ) : null,
+                    )}
+                  </div>
+                )}
+
+                {/* Voice track: only when something is spoken */}
+                {anyVoice && (
+                  <div className={`relative mt-1.5 h-7 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
+                    {segments.map((s) =>
+                      s.caption || sceneOf(s.n)?.voiceAsset ? (
+                        <button key={s.n} disabled={isLocked("voice")} onClick={() => props.onSelect({ type: "scene", n: s.n })} className={`absolute top-0 h-7 truncate rounded-[6px] px-2 text-left text-[11px] ${s.voiceUrl ? "bg-violet-500/30 text-violet-100" : "bg-violet-500/15 text-violet-200/70"}`} style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }} title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}>
+                          🎙 {s.caption || "Recording"}
+                        </button>
+                      ) : null,
+                    )}
+                  </div>
+                )}
+
+                {/* Audio track: the music, or a place to add it */}
+                <div className={`relative mt-1.5 h-9 ${cut && cut.musicVolume === 0 ? "opacity-40" : ""}`}>
+                  <button
+                    disabled={isLocked("music")}
+                    onClick={() => props.onSelect({ type: "music" })}
+                    className={`absolute top-0 flex h-9 items-center gap-1.5 truncate rounded-[6px] px-3 text-left text-[12px] ${props.hasMusic ? "bg-emerald-500/25 text-emerald-100" : "bg-layer/[0.07] text-soft hover:bg-layer/[0.1]"} ${props.selection?.type === "music" ? "ring-2 ring-white/70" : ""}`}
+                    style={{ left: 0, width: props.hasMusic ? length : Math.min(length, 240) }}
+                  >
+                    {props.hasMusic ? <>♪ {props.musicLabel}</> : <><Plus className="h-3.5 w-3.5" /> Add audio</>}
+                  </button>
+                </div>
+
+                {/* Text track: the words on screen, or a place to add them */}
+                <div className="relative mt-1.5 h-9">
+                  {anyText ? (
+                    segments.map((s) =>
+                      s.text ? (
+                        <span key={s.n} className="group/text absolute top-0 flex h-9 items-center rounded-[6px] bg-pink-500/35" style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}>
+                          <button disabled={isLocked("words")} onClick={() => { props.onSelect({ type: "scene", n: s.n }); props.onOpenTab("text"); }} className="h-9 min-w-0 flex-1 truncate px-2 text-left text-[11px] text-pink-50" title="Edit these words">
+                            T · {s.text}
+                          </button>
+                          {!isLocked("words") && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                props.onClearText(s.n);
+                              }}
+                              aria-label={`Remove the words on clip ${s.n}`}
+                              title="Remove these words from the video"
+                              className="mr-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded text-pink-50/80 hover:bg-black/30 hover:text-white"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      ) : null,
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={isLocked("words")}
+                      onClick={() => props.onOpenTab("text")}
+                      className="absolute top-0 flex h-9 items-center gap-1.5 rounded-[6px] bg-layer/[0.07] px-3 text-[12px] text-soft hover:bg-layer/[0.1]"
+                      style={{ left: 0, width: Math.min(length, 240) }}
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add text
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
+          {/* The playhead: still, in the middle — the tracks move under it */}
+          <div aria-hidden className="pointer-events-none absolute bottom-0 left-1/2 top-0 z-20 w-0.5 -translate-x-1/2 rounded-full bg-white shadow-[0_0_6px_rgba(0,0,0,0.6)]" />
         </div>
       </div>
-      <p className="mt-1.5 flex items-center gap-1 text-[10.5px] text-muted"><Eye className="h-3 w-3" /> Striped clips are made on export. Lock a track to keep it from being changed; the speaker mutes that sound in the cut.</p>
+      <p className="mt-1.5 flex items-center gap-1 px-3 text-[10.5px] text-muted"><Eye className="h-3 w-3" /> Drag the timeline to scrub; the white line is the frame on screen. Tap a clip to edit it, drag its edges to trim.</p>
     </section>
   );
 }

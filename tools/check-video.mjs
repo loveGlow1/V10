@@ -1040,8 +1040,18 @@ console.log("\na failed scene falls back to its last working clip");
   const ve = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
   const cl = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
   const st = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
-  has(/Last good take/.test(ve) && /the latest re-film failed/.test(ve) && /!picture && !s\.fallback/.test(ve), "the card shows the clip with a small note, not 'Not made'");
+  has(/Last good take/.test(ve) && /the latest re-film failed/.test(ve) && /!picture && !frames && !s\.fallback/.test(ve), "the card shows the clip with a small note, not 'Not made'");
   has(/lastWorking\(plans, \(earlier \?\? \[\]\) as MadeRow\[\], version\)/.test(cl) && /lastWorking\(plans, \(rows \?\? \[\]\) as MadeRow\[\], current\)/.test(st), "the finished video uses the same stand-in, instead of dropping the scene");
+}
+
+console.log("\nthe timeline: a still playhead, tracks that slide, filmstrips");
+{
+  const ve = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+  const cp = readFileSync(join(root, "src/app/dashboard/components/video/useClipPosters.ts"), "utf8");
+  has(/left-1\/2 top-0 z-20 w-0\.5 -translate-x-1\/2/.test(ve) && /paddingLeft: half, paddingRight: half/.test(ve), "the playhead stays in the middle; the tracks run from under it at 0:00 to under it at the end");
+  has(/if \(Math\.abs\(el\.scrollLeft - target\) > 0\.5\) el\.scrollLeft = target;/.test(ve) && /props\.onSeek\(Math\.max\(0, Math\.min\(total, e\.currentTarget\.scrollLeft \/ pps\)\)\)/.test(ve), "playing slides the tracks; dragging the tracks scrubs");
+  has(/export function useClipStrips/.test(cp) && /useClipStrips\(segments\.filter/.test(ve) && /Math\.floor\(\(\(i \+ 0\.5\) \/ tiles\) \* frames\.length\)/.test(ve), "each clip is a filmstrip of its own frames, not one frame repeated");
+  has(/<Plus className="h-3\.5 w-3\.5" \/> Add audio/.test(ve) && /<Plus className="h-3\.5 w-3\.5" \/> Add text/.test(ve) && /aria-label="Add media"/.test(ve), "empty tracks offer Add audio and Add text; a + at the end adds media");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

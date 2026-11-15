@@ -105,6 +105,113 @@ export function useClipPosters(urls: (string | null | undefined)[]): Map<string,
   return out;
 }
 
+/* ── Filmstrips ──────────────────────────────────────────────────────────
+ * Several stills along each clip, so a clip on the timeline reads as a strip
+ * of film — the picture changing from its start to its end — rather than one
+ * frame repeated. Taken in one pass per clip (seek, draw, seek on), one clip
+ * at a time, cached for the tab like the single stills. */
+
+const strips = new Map<string, string[] | null>();
+const stripsInFlight = new Set<string>();
+const stripQueue: (() => Promise<void>)[] = [];
+let stripRunning = false;
+
+async function drainStrips() {
+  if (stripRunning) return;
+  stripRunning = true;
+  while (stripQueue.length) await stripQueue.shift()!().catch(() => {});
+  stripRunning = false;
+}
+
+function seekTo(video: HTMLVideoElement, at: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => done(false), 8000);
+    const done = (ok: boolean) => {
+      window.clearTimeout(timer);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+      resolve(ok);
+    };
+    const onSeeked = () => done(true);
+    const onError = () => done(false);
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError);
+    video.currentTime = at;
+  });
+}
+
+async function captureStrip(url: string, count: number): Promise<string[] | null> {
+  const video = document.createElement("video");
+  video.crossOrigin = "anonymous";
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  try {
+    const ready = await new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => resolve(false), 20_000);
+      video.addEventListener("loadedmetadata", () => { window.clearTimeout(timer); resolve(true); }, { once: true });
+      video.addEventListener("error", () => { window.clearTimeout(timer); resolve(false); }, { once: true });
+      video.src = url;
+    });
+    if (!ready || !(video.duration > 0)) return null;
+    const height = 120;
+    const width = Math.max(1, Math.round((video.videoWidth / Math.max(1, video.videoHeight)) * height));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    const frames: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      /* Centred in each slice, and never the very first frame (often black). */
+      const at = Math.min(video.duration - 0.05, Math.max(0.15, ((i + 0.5) / count) * video.duration));
+      if (!(await seekTo(video, at))) break;
+      context.drawImage(video, 0, 0, width, height);
+      frames.push(canvas.toDataURL("image/jpeg", 0.68));
+    }
+    return frames.length ? frames : null;
+  } catch {
+    return null;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+  }
+}
+
+/** Several stills along each clip, keyed by the clip's url. Missing until ready. */
+export function useClipStrips(urls: (string | null | undefined)[], count = 8): Map<string, string[]> {
+  const [, setVersion] = useState(0);
+  const wanted = [...new Set(urls.filter((u): u is string => Boolean(u)))];
+  const signature = wanted.map(keyOf).join("|");
+
+  useEffect(() => {
+    let alive = true;
+    for (const url of wanted) {
+      const key = keyOf(url);
+      if (strips.has(key) || stripsInFlight.has(key)) continue;
+      stripsInFlight.add(key);
+      stripQueue.push(async () => {
+        const frames = await captureStrip(url, count);
+        strips.set(key, frames);
+        stripsInFlight.delete(key);
+        if (alive) setVersion((v) => v + 1);
+      });
+    }
+    void drainStrips();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature, count]);
+
+  const out = new Map<string, string[]>();
+  for (const url of wanted) {
+    const frames = strips.get(keyOf(url));
+    if (frames?.length) out.set(url, frames);
+  }
+  return out;
+}
+
 /** A soft colour for a scene still being made, the same for the same scene every time. Pure. */
 export function placeholderStyle(seed: string): React.CSSProperties {
   let hash = 0;
