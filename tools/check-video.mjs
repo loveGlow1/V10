@@ -909,7 +909,7 @@ has(/download\(kept\)/.test(fsRoute) && /upload\(kept, bytes/.test(fsRoute) && /
 console.log("\nthe editor opens from the workspace and plays smoothly");
 const wsSrc = readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8");
 const ppSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/PreviewPanel.tsx"), "utf8");
-has(/state:'open-editor'/.test(wsSrc) && /data\.state === "open-editor"/.test(ppSrc) && /window\.open\(path, "_blank", "noopener"\)/.test(ppSrc), "the board's Open the editor is opened by the workspace, signed in — not as a sandboxed tab that cannot load the video");
+has(/state:'open-editor'/.test(wsSrc) && /data\.state === "open-editor"/.test(ppSrc) && /router\.push\(path\)/.test(ppSrc) && !/window\.open\(path/.test(ppSrc), "the board's Open the editor is opened by the workspace, signed in, in the same tab — a phone blocks a new tab opened from a message");
 const playSrc = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
 has(/if \(stalled\.current\) \{/.test(playSrc) && /v\.readyState >= 3 && !v\.seeking\) stalled\.current = false/.test(playSrc), "the clock waits while a clip loads and goes on as soon as it can play");
 has(/!video\.seeking && video\.readyState >= 1 && Math\.abs\(video\.currentTime - expected\) > \(playing \? 0\.75 : 0\.12\)/.test(playSrc), "a clip is not re-seeked while it is loading or catching up");
