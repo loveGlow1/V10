@@ -2765,7 +2765,7 @@ export default function ChatPanel({
           </div>
           <div aria-hidden className="qs-edge-glow rounded-[26px]" />
 
-          <div {...fileDrop.zone} className="qs-composer relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
+          <div {...fileDrop.zone} className="qs-composer relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5 md:bg-panel">
             <DropHint show={fileDrop.dragging} />
             <div className="relative">
               <textarea
