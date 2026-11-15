@@ -21,6 +21,7 @@ import { uploadStudioFile } from "@/lib/video/upload-client";
 import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import type { VideoMessage } from "@/app/api/video/[id]/messages/route";
 import { PIPELINES, isPipelineId } from "@/lib/video/pipelines";
+import { suggestionsFor } from "@/lib/video/suggest";
 import { scriptText, sourceSeconds, totalSeconds, type ProductionPlan, type QaIssue, type Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 
@@ -441,6 +442,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
           </div>
 
           <DirectorChat
+            plan={shown}
             versions={data.versions}
             current={data.latest?.version ?? null}
             title={shown.title}
@@ -1066,12 +1068,6 @@ function spoken(note: string): string | null {
   return note;
 }
 
-const QUICK = [
-  { label: "Variation", note: "Create a variation: a different hook and fresh visuals, keeping the same product, message, locks and length." },
-  { label: "Shorter", note: "Make it shorter and punchier — cut it to about 15 seconds, keeping the hook and the CTA." },
-  { label: "Funnier hook", note: "Make the opening hook funnier and more scroll-stopping." },
-  { label: "Different creator", note: "Use a different creator — a different look and voice — and keep them identical in every shot." },
-];
 
 /* The sessions of a video's chat, newest first, each named by its first request. Pure. */
 type SessionItem = { session: number; title: string; when: string; group: string; count: number };
@@ -1099,6 +1095,8 @@ function sessionList(messages: VideoMessage[], active: number): SessionItem[] {
 /* The Director's chat: every version as a turn of the conversation, the
    render's outcome said plainly, and a box to ask for the next change. */
 function DirectorChat(props: {
+  /** The plan as shown, for the suggestions (lib/video/suggest.ts). */
+  plan: ProductionPlan | null;
   versions: { version: number; note: string; created_at: string }[];
   current: number | null;
   title: string;
@@ -1120,6 +1118,7 @@ function DirectorChat(props: {
   onUploaded: () => void;
 }) {
   const { versions, current, busy, note, setNote, onAsk } = props;
+  const suggestions = useMemo(() => suggestionsFor(props.plan, props.renders), [props.plan, props.renders]);
   /* Files attached to this message: uploaded into the video's media, and
      named in the message so the director knows they are for this change. */
   const fileInput = useRef<HTMLInputElement>(null);
@@ -1445,20 +1444,23 @@ function DirectorChat(props: {
       </div>
 
       <div className="border-t border-line/[0.06] p-3">
+        {/* Suggestions only when the video calls for one — none otherwise. */}
+        {suggestions.length > 0 && props.status !== "rendering" && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {QUICK.map((quick) => (
+          {suggestions.map((quick) => (
             <button
-              key={quick.label}
+              key={quick.id}
               type="button"
               onClick={() => void ask(quick.note)}
               disabled={busy !== null}
-              /* A warm clay, like Claude's own: only these quick-ask chips. */
+              /* A warm clay, like Claude's own: only these suggestion chips. */
               className="h-7 rounded-full border border-[#E8915F]/40 bg-[#E8915F]/[0.12] px-2.5 text-[12px] font-medium text-[#F0A274] transition hover:border-[#E8915F]/70 hover:bg-[#E8915F]/[0.2] hover:text-[#F7B58C] active:scale-[0.98] disabled:opacity-40"
             >
               {quick.label}
             </button>
           ))}
         </div>
+        )}
         {(attached.length > 0 || uploading || attachError) && (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             {attached.map((a) => (
