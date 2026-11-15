@@ -32,10 +32,12 @@ import {
   Copy,
   Diamond,
   Download,
+  Film,
   Eye,
   Lock,
   Magnet,
   Loader2,
+  Mic,
   Music,
   Pause,
   Play,
@@ -683,11 +685,37 @@ export default function VideoEditor({ id }: { id: string }) {
       {error && <p role="alert" className="mt-3 rounded-[10px] border border-danger/30 bg-danger/[0.08] px-3 py-2 text-[12.5px] text-danger">{error}</p>}
       {note && !error && <p className="mt-3 text-[12.5px] text-emerald-400">{note}</p>}
       {data.final && !rendering && (
-        <p className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-soft">
-          Finished video:
-          <a href={`/api/video/${id}/file?v=${data.video.current_version}`} target="_blank" rel="noopener" className="text-accent underline">play</a>
-          <a href={`/api/video/${id}/file?v=${data.video.current_version}&download=1`} className="text-accent underline">download MP4</a>
-        </p>
+        /* The finished video as a card of its own: what it is on the left,
+           Play and Download as real buttons on the right — not two links in a line. */
+        <section aria-label="Finished video" className="qs-final-card mt-3 flex flex-wrap items-center gap-3 rounded-[16px] p-2.5 pr-3 sm:flex-nowrap">
+          <span aria-hidden className="qs-final-badge flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px]">
+            <Film className="h-5 w-5 text-white" strokeWidth={2} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-white">
+              Finished video <span className="h-1.5 w-1.5 rounded-full bg-[#7CF2B8] shadow-[0_0_6px_#7CF2B8]" aria-hidden />
+            </span>
+            <span className="block truncate text-[11.5px] text-white/55">
+              Version {data.video.current_version} · {`${Math.floor(total / 60)}:${String(Math.round(total % 60)).padStart(2, "0")}`} · MP4
+            </span>
+          </span>
+          <span className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+            <a
+              href={`/api/video/${id}/file?v=${data.video.current_version}`}
+              target="_blank"
+              rel="noopener"
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 text-[12.5px] font-semibold text-black shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)] transition hover:bg-white/90 active:scale-[0.98] sm:flex-none"
+            >
+              <Play className="h-3.5 w-3.5 fill-current" /> Play
+            </a>
+            <a
+              href={`/api/video/${id}/file?v=${data.video.current_version}&download=1`}
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.08] px-4 text-[12.5px] font-semibold text-white transition hover:bg-white/[0.14] active:scale-[0.98] sm:flex-none"
+            >
+              <Download className="h-3.5 w-3.5" /> Download MP4
+            </a>
+          </span>
+        </section>
       )}
 
       {!draft ? (
@@ -1482,11 +1510,26 @@ function Timeline(props: {
 
                 {/* Voice track: only when something is spoken */}
                 {anyVoice && (
-                  <div className={`relative mt-1.5 h-7 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
+                  <div className={`relative mt-1.5 h-8 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
                     {segments.map((s) =>
                       s.caption || sceneOf(s.n)?.voiceAsset ? (
-                        <button key={s.n} disabled={isLocked("voice")} onClick={() => props.onSelect({ type: "scene", n: s.n })} className={`absolute top-0 h-7 truncate rounded-[6px] px-2 text-left text-[11px] ${s.voiceUrl ? "bg-violet-500/30 text-violet-100" : "bg-violet-500/15 text-violet-200/70"}`} style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }} title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}>
-                          🎙 {s.caption || "Recording"}
+                        /* A studio voice clip: a dark, lit card with its waveform
+                           behind the words, a glowing mic badge, and a dot that
+                           says whether the line is recorded yet (globals.css
+                           .qs-voice-clip). */
+                        <button
+                          key={s.n}
+                          disabled={isLocked("voice")}
+                          onClick={() => props.onSelect({ type: "scene", n: s.n })}
+                          className={`qs-voice-clip group/voice absolute top-0 flex h-8 items-center gap-1.5 overflow-hidden rounded-[8px] pl-1 pr-2 text-left ${s.voiceUrl ? "" : "qs-voice-clip--pending"} ${isSel(s.n) ? "qs-voice-clip--selected" : ""}`}
+                          style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}
+                          title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}
+                        >
+                          <span aria-hidden className="qs-voice-badge relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                            <Mic className="h-3.5 w-3.5 text-white" strokeWidth={2.25} />
+                          </span>
+                          <span className="relative min-w-0 flex-1 truncate text-[11.5px] font-medium tracking-[0.01em] text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{s.caption || "Recording"}</span>
+                          <span aria-hidden className={`relative h-1.5 w-1.5 shrink-0 rounded-full ${s.voiceUrl ? "bg-[#7CF2B8] shadow-[0_0_6px_#7CF2B8]" : "bg-white/35"}`} />
                         </button>
                       ) : null,
                     )}

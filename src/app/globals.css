@@ -1439,3 +1439,84 @@ html.qs-scrolling .metal-shimmer {
     font-size: 16px;
   }
 }
+
+
+/* ── The editor's voice clips: a dark, cinematic studio card ─────────────
+ * Deep ink with a faint violet light from above, the line's waveform drawn
+ * low behind the words, a hairline edge and a soft drop shadow; the mic in a
+ * warm glowing badge. Its own dark ground in both themes, so the white words
+ * and icons always read. A line not yet recorded is dimmer, with a dashed
+ * edge; the selected one is ringed. (VideoEditor.tsx Timeline.) */
+.qs-voice-clip {
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='32' viewBox='0 0 48 32'><g fill='%23b9a6ff' fill-opacity='0.22'><rect x='1' y='14' width='2' height='4' rx='1'/><rect x='5' y='10' width='2' height='12' rx='1'/><rect x='9' y='12' width='2' height='8' rx='1'/><rect x='13' y='6' width='2' height='20' rx='1'/><rect x='17' y='11' width='2' height='10' rx='1'/><rect x='21' y='8' width='2' height='16' rx='1'/><rect x='25' y='13' width='2' height='6' rx='1'/><rect x='29' y='9' width='2' height='14' rx='1'/><rect x='33' y='5' width='2' height='22' rx='1'/><rect x='37' y='12' width='2' height='8' rx='1'/><rect x='41' y='10' width='2' height='12' rx='1'/><rect x='45' y='14' width='2' height='4' rx='1'/></g></svg>") left center / 48px 100% repeat-x,
+    radial-gradient(120% 140% at 50% -40%, rgba(139, 92, 246, 0.32), transparent 60%),
+    linear-gradient(180deg, #1d1830 0%, #13101f 55%, #0d0b16 100%);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 6px 16px -6px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.qs-voice-clip:hover {
+  border-color: rgba(196, 181, 253, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(139, 92, 246, 0.15),
+    0 8px 22px -8px rgba(139, 92, 246, 0.55);
+}
+.qs-voice-clip--pending {
+  border-style: dashed;
+  border-color: rgba(167, 139, 250, 0.32);
+  background-blend-mode: normal;
+  filter: saturate(0.75) brightness(0.92);
+}
+.qs-voice-clip--selected {
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    0 8px 24px -8px rgba(139, 92, 246, 0.7);
+}
+.qs-voice-clip:disabled {
+  cursor: default;
+}
+.qs-voice-badge {
+  background: radial-gradient(circle at 35% 30%, #ffb489 0%, #e8915f 45%, #b8572d 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 10px rgba(232, 145, 95, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.qs-voice-clip--pending .qs-voice-badge {
+  background: radial-gradient(circle at 35% 30%, #8b8b96 0%, #5a5a66 60%, #3c3c46 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .qs-voice-clip {
+    transition: none;
+  }
+}
+
+/* ── The editor's finished-video card ─────────────────────────────────────
+ * A solid dark card, lit faintly from the top left, with the film badge in
+ * the studio's warm accent. Its own dark ground in both themes, like the
+ * voice clips, so the white words always read. (VideoEditor.tsx) */
+.qs-final-card {
+  background:
+    radial-gradient(120% 160% at 0% 0%, rgba(232, 145, 95, 0.16), transparent 55%),
+    linear-gradient(180deg, #1c1c21 0%, #141418 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 12px 30px -14px rgba(0, 0, 0, 0.8);
+}
+.qs-final-badge {
+  background: radial-gradient(circle at 30% 25%, #ffb489 0%, #e8915f 45%, #a94e27 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 6px 16px -4px rgba(232, 145, 95, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
