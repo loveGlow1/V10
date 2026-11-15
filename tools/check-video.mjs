@@ -875,7 +875,7 @@ has(/contextFiles\(supabase, uploads, marked\)/.test(readFileSync(join(root, "sr
 has(/contextFiles\(input\.writer/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")) && /contextFiles\(supabase, uploads/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")) && /DOCUMENTS_NOTE/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "so does the AI editor, from the chat and from the editor");
 has(/asset\.kind === "document"[\s\S]{0,200}status: "ready"/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "a document is ready as soon as it is uploaded");
 const ctxStudioSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /"Add images", ImagePlus, imageInput/.test(ctxStudioSrc) && /"Add files", Paperclip, fileInput/.test(ctxStudioSrc), "the studio's change box has a + menu (Add images, Add files), and the message names what was attached");
+has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /<AddMenu accept=\{ACCEPT_ATTRIBUTE\}[^>]*onFiles=\{\(files\) => void attach\(files\)\}/.test(ctxStudioSrc), "the studio's change box has a + menu (Add images, Add files), and the message names what was attached");
 const ctxChatSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
 has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(ctxChatSrc) && /uploadStudioFile\(videoId, file\)/.test(ctxChatSrc) && /project\?\.intent === "video" \? VIDEO_ACCEPT : ACCEPT/.test(ctxChatSrc), "a file attached in the workspace chat of a video goes into the video's media, and its @name into the message");
 
@@ -1070,6 +1070,16 @@ console.log("\nsuggestions only when the video calls for one");
   has(ids.includes("voice") && ids.includes("music") && ids.includes("end") && ids.length <= 3, "nothing said, no music, no ending: those are offered, three at most");
   const page = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
   has(!/const QUICK = \[/.test(page) && !/Funnier hook/.test(page) && /suggestionsFor\(props\.plan, props\.renders\)/.test(page) && /suggestions\.length > 0 && props\.status !== "rendering"/.test(page), "the Director shows these instead of a fixed list, and nothing when there is nothing to suggest");
+}
+
+console.log("\none + in every composer");
+{
+  const am = readFileSync(join(root, "src/app/dashboard/components/AddMenu.tsx"), "utf8");
+  const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
+  const ws = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
+  const dir = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+  has(/\["Add images", ImagePlus, imageInput\]/.test(am) && /\["Add files", Paperclip, fileInput\]/.test(am) && /<Plus className=/.test(am), "the + opens Add images and Add files");
+  has([home, ws, dir].every((src) => /<AddMenu /.test(src)) && !/aria-label="Attach images"/.test(home) && !/aria-label="Upload file or assets"/.test(ws), "Home, the workspace chat and the Creative Director all use that same +");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

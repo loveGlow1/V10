@@ -1,5 +1,6 @@
 "use client";
 
+import AddMenu from "../AddMenu";
 import { DropHint, useFileDrop } from "@/lib/use-file-drop";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -526,7 +527,6 @@ export default function ChatPanel({
   const [greeting, setGreeting] = useState("Welcome back");
   useEffect(() => setGreeting(greetingFor()), []);
   const streamRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   /* A screenshot pasted, or files dropped on the box, attach like the paperclip. */
   const fileDrop = useFileDrop((files) => void attachFiles(files));
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -2807,29 +2807,8 @@ export default function ChatPanel({
                   model, Plan mode, GitHub and Fork — which is what keeps the
                   row inside the box on a narrow panel. */}
               <div className="flex shrink-0 items-center gap-1">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  multiple
-                  accept={project?.intent === "video" ? VIDEO_ACCEPT : ACCEPT}
-                  className="sr-only"
-                  onChange={(event) => {
-                    const files = event.target.files;
-                    if (files?.length) void attachFiles(files);
-                    /* Cleared so choosing the same file twice still fires a
-                       change — which is what happens when the first attempt was
-                       rejected and the second is the same file. */
-                    event.target.value = "";
-                  }}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Upload file or assets"
-                  title="Upload file or assets"
-                  className={ghost}
-                >
-                  <Paperclip className="h-[18px] w-[18px]" />
-                </button>
+                {/* The same + as every composer: Add images, Add files. */}
+                <AddMenu accept={project?.intent === "video" ? VIDEO_ACCEPT : ACCEPT} onFiles={(files) => void attachFiles(files)} />
 
                 <button
                   onClick={() => {
