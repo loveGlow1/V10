@@ -54,7 +54,7 @@ export default function AddMenu({
         disabled={disabled}
         aria-label="Add images or files"
         title="Add photos, videos or files — or paste a screenshot, or drop files here"
-        className={`flex ${box} items-center justify-center rounded-full bg-layer/[0.08] text-ink transition hover:bg-layer/[0.14] active:scale-[0.97] disabled:opacity-40`}
+        className={`qs-control flex ${box} items-center justify-center rounded-full bg-layer/[0.08] text-ink transition hover:bg-layer/[0.14] active:scale-[0.97] disabled:opacity-40`}
       >
         <Plus className="h-[18px] w-[18px]" />
       </button>

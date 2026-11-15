@@ -2765,7 +2765,7 @@ export default function ChatPanel({
           </div>
           <div aria-hidden className="qs-edge-glow rounded-[26px]" />
 
-          <div {...fileDrop.zone} className="relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
+          <div {...fileDrop.zone} className="qs-composer relative z-30 flex min-h-[128px] w-full flex-col justify-between overflow-visible rounded-[26px] border-[1.5px] border-line/[0.11] bg-sunken bg-clip-padding p-3.5">
             <DropHint show={fileDrop.dragging} />
             <div className="relative">
               <textarea
@@ -2847,7 +2847,7 @@ export default function ChatPanel({
                   title={chosen.name}
                   /* The model's name on a filled pill, nothing else — the way
                      the picker it opens names them. */
-                  className="flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full bg-layer/[0.09] pl-2.5 pr-3.5 text-[13.5px] font-medium tracking-tight text-ink/90 transition-colors hover:bg-layer/[0.13] hover:text-ink active:scale-[0.98]"
+                  className="qs-control flex h-8 min-w-0 shrink items-center gap-1.5 rounded-full bg-layer/[0.09] pl-2.5 pr-3.5 text-[13.5px] font-medium tracking-tight text-ink/90 transition-colors hover:bg-layer/[0.13] hover:text-ink active:scale-[0.98]"
                 >
                   {/* The maker's mark, as on Home's chip. On Auto it is the
                       maker of the model Auto runs, not a router symbol. */}
