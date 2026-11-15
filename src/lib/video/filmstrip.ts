@@ -26,9 +26,20 @@ export function stripTimes(count: number, from: number, seconds: number): number
   return Array.from({ length: n }, (_, i) => Math.round((a + Math.max(0.1, ((i + 0.5) / n) * d)) * 100) / 100);
 }
 
-/** ffmpeg: one frame at a moment, `STRIP_HEIGHT` tall, its own width. Pure. */
-export function frameArgs(input: { url: string; at: number; out: string }): string[] {
-  return ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", input.at.toFixed(2), "-i", input.url, "-frames:v", "1", "-vf", `scale=-2:${STRIP_HEIGHT}`, "-q:v", "6", input.out];
+/** The tallest still asked for (the player's own, at full size). */
+export const MAX_STILL_HEIGHT = 720;
+
+/** A strip's height in pixels: STRIP_HEIGHT unless a single still asks for more, up to MAX_STILL_HEIGHT. Pure. */
+export function stripHeight(asked: unknown, count: number): number {
+  const h = Math.round(Number(asked));
+  if (count !== 1 || !(h > STRIP_HEIGHT)) return STRIP_HEIGHT;
+  return Math.min(MAX_STILL_HEIGHT, h);
+}
+
+/** ffmpeg: one frame at a moment, `height` tall (STRIP_HEIGHT by default), its own width. Pure. */
+export function frameArgs(input: { url: string; at: number; out: string; height?: number }): string[] {
+  const q = (input.height ?? STRIP_HEIGHT) > STRIP_HEIGHT ? "3" : "6";
+  return ["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", input.at.toFixed(2), "-i", input.url, "-frames:v", "1", "-vf", `scale=-2:${input.height ?? STRIP_HEIGHT}`, "-q:v", q, input.out];
 }
 
 /** ffmpeg: numbered frames side by side, one row. Pure. */
@@ -48,7 +59,7 @@ export function storagePathOf(url: string): string | null {
 }
 
 /** Where a strip is kept: the same clip, moment and frame count give the same file. Pure. */
-export function stripPath(userId: string, videoId: string, source: string, times: number[]): string {
-  const hash = createHash("sha1").update(`${source}|${times.join(",")}`).digest("hex").slice(0, 24);
+export function stripPath(userId: string, videoId: string, source: string, times: number[], height = STRIP_HEIGHT): string {
+  const hash = createHash("sha1").update(`${source}|${times.join(",")}${height === STRIP_HEIGHT ? "" : `|h${height}`}`).digest("hex").slice(0, 24);
   return `${userId}/${videoId}/strips/${hash}.jpg`;
 }

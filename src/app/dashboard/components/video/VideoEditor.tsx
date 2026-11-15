@@ -25,7 +25,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -336,20 +335,45 @@ export default function VideoEditor({ id }: { id: string }) {
   const voiceRef = useRef<HTMLAudioElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
   const loaded = useRef<{ video?: string; voice?: string; music?: string; next?: string }>({});
-  const nextRef = useRef<HTMLVideoElement>(null);
+  /* Two players taking turns, like an editor's A/B decks: the one on screen
+     plays the clip under the playhead while the other already holds the
+     next clip, loaded and paused on its first frame. At the cut they swap —
+     no new download starting at the cut, so no blurry still, no stall and no
+     crackle from the sound stopping and starting. (One player changing its
+     src at every cut was all three; and an iPhone ignores preload, so the
+     old hidden "next" player never loaded anything there.) */
+  const slotA = useRef<HTMLVideoElement>(null);
+  const slotB = useRef<HTMLVideoElement>(null);
+  const slotUrl = useRef<[string | null, string | null]>([null, null]);
+  const activeRef = useRef<0 | 1>(0);
+  const [activeSlot, setActiveSlot] = useState<0 | 1>(0);
 
   useEffect(() => {
     const seg = current?.segment;
     const offset = current?.offset ?? 0;
-    const video = videoRef.current;
+    const slots = [slotA.current, slotB.current] as const;
+    if (seg?.kind === "video" && seg.mediaUrl && slotUrl.current[activeRef.current] !== seg.mediaUrl) {
+      const other = (1 - activeRef.current) as 0 | 1;
+      const was = slots[activeRef.current];
+      if (slotUrl.current[other] === seg.mediaUrl && slots[other]) {
+        /* The cut: the waiting player, already loaded, takes over. */
+        if (was) {
+          was.muted = true;
+          was.pause();
+        }
+        activeRef.current = other;
+        setActiveSlot(other);
+      } else if (was) {
+        /* Nothing waiting (a jump on the timeline): load it here. */
+        slotUrl.current[activeRef.current] = seg.mediaUrl;
+        was.src = seg.mediaUrl;
+      }
+    }
+    const video = slots[activeRef.current];
+    videoRef.current = video;
     if (video) {
       if (seg?.kind === "video" && seg.mediaUrl) {
-        if (loaded.current.video !== seg.mediaUrl) {
-          loaded.current.video = seg.mediaUrl;
-          /* The clip's still shows until its first frame is ready — never black. */
-          video.poster = seg.posterUrl ?? "";
-          video.src = seg.mediaUrl;
-        }
+        video.muted = false;
         const expected = seg.from + offset * seg.speed;
         const ready = video.readyState >= 3 && !video.seeking;
         stalled.current = playing && !ready;
@@ -366,12 +390,37 @@ export default function VideoEditor({ id }: { id: string }) {
         if (!video.paused) video.pause();
       }
     }
-    /* The next clip, loading in the background so the cut to it is instant. */
+    /* The next clip, into the other player: loaded and held on its first
+       frame, muted, so the cut to it is instant. A muted inline play is the
+       one way an iPhone will fetch it; it is paused again at once. */
     const upcoming = seg ? segments.find((s) => s.start >= seg.start + seg.seconds - 0.01 && s.kind === "video" && s.mediaUrl) : undefined;
-    const ahead = nextRef.current;
-    if (ahead && upcoming?.mediaUrl && loaded.current.next !== upcoming.mediaUrl) {
-      loaded.current.next = upcoming.mediaUrl;
-      ahead.src = upcoming.mediaUrl;
+    const spare = (1 - activeRef.current) as 0 | 1;
+    const ahead = slots[spare];
+    if (ahead) {
+      if (upcoming?.mediaUrl && upcoming.mediaUrl !== slotUrl.current[activeRef.current] && slotUrl.current[spare] !== upcoming.mediaUrl) {
+        slotUrl.current[spare] = upcoming.mediaUrl;
+        const at = upcoming.from;
+        ahead.muted = true;
+        ahead.src = upcoming.mediaUrl;
+        ahead.addEventListener(
+          "loadedmetadata",
+          () => {
+            ahead.currentTime = at;
+            void ahead
+              .play()
+              .then(() => {
+                if (slotUrl.current[activeRef.current] !== upcoming.mediaUrl) {
+                  ahead.pause();
+                  ahead.currentTime = at;
+                }
+              })
+              .catch(() => {});
+          },
+          { once: true },
+        );
+      } else if (!ahead.paused && slotUrl.current[spare] !== slotUrl.current[activeRef.current]) {
+        ahead.pause();
+      }
     }
     /* Voice and music wait with the picture: left playing through a stall,
        they ran ahead and were dragged back when it caught up — heard as
@@ -705,12 +754,11 @@ export default function VideoEditor({ id }: { id: string }) {
             <section className="order-1 flex min-w-0 flex-col rounded-[16px] border border-line/[0.08] bg-panel p-3 lg:order-none lg:min-h-0">
               <div className="flex min-h-0 flex-1 items-center justify-center">
                 <div className="w-full">
-                  <Preview plan={draft} segment={current?.segment ?? null} offset={current?.offset ?? 0} videoRef={videoRef} />
+                  <Preview videoId={id} plan={draft} segment={current?.segment ?? null} offset={current?.offset ?? 0} slots={[slotA, slotB]} active={activeSlot} />
                 </div>
               </div>
               <audio ref={voiceRef} preload="auto" />
               <audio ref={musicRef} preload="auto" />
-              <video ref={nextRef} preload="auto" muted playsInline className="hidden" aria-hidden />
               <div className="mt-2.5 flex items-center gap-2">
                 <button onClick={() => seek(0)} aria-label="To the start" className="flex h-8 w-8 items-center justify-center rounded-full text-soft hover:text-ink"><SkipBack className="h-4 w-4" /></button>
                 <button onClick={() => setPlaying((p) => !p)} aria-label={playing ? "Pause" : "Play"} className="flex h-9 w-9 items-center justify-center rounded-full bg-solid text-onSolid">
@@ -920,7 +968,7 @@ export function timecode(seconds: number, fps: number): string {
 }
 
 /* ── Preview ─────────────────────────────────────────────────────────── */
-function Preview({ plan, segment, offset, videoRef }: { plan: ProductionPlan; segment: Segment | null; offset: number; videoRef: React.RefObject<HTMLVideoElement | null> }) {
+function Preview({ videoId, plan, segment, offset, slots, active }: { videoId: string; plan: ProductionPlan; segment: Segment | null; offset: number; slots: [React.RefObject<HTMLVideoElement | null>, React.RefObject<HTMLVideoElement | null>]; active: 0 | 1 }) {
   const cut = resolveCut(plan);
   const fit = cut.fit === "fill" ? "object-cover" : "object-contain";
   const zoom = segment?.kind === "image" && cut.stillMotion !== "none" ? 1 + 0.12 * (cut.stillMotion === "zoom-out" ? 1 - offset / segment.seconds : offset / segment.seconds) : 1;
@@ -930,29 +978,45 @@ function Preview({ plan, segment, offset, videoRef }: { plan: ProductionPlan; se
   const captionSize = cut.captionSize === "small" ? "text-[12px]" : cut.captionSize === "large" ? "text-[18px]" : "text-[14px]";
   const captionStyle = cut.captionStyle === "box" ? "bg-black/70 text-white" : cut.captionStyle === "highlight" ? "text-[#FFE14D] [text-shadow:0_0_3px_#000,0_0_3px_#000]" : "text-white [text-shadow:0_0_3px_#000,0_0_3px_#000]";
   const showCaption = cut.captions && segment?.caption && cut.audio !== "original";
+  /* Under the player while a clip first loads: the clip's own opening frame,
+     sharp (made on the server at full size) — not a small timeline still
+     stretched, which is what made every scene start blurred. */
+  const still = segment?.kind === "video" && segment.mediaUrl ? stripUrl(videoId, segment.mediaUrl, { count: 1, from: segment.from, seconds: 0.2, height: 720 }) : (segment?.posterUrl ?? null);
   return (
     <div className="relative mx-auto overflow-hidden rounded-[10px] bg-black" style={{ aspectRatio: RATIO[plan.aspect] ?? "16 / 9", maxHeight: "56vh" }}>
-      {cut.fit === "fit-blur" && segment?.posterUrl && (
+      {cut.fit === "fit-blur" && still && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={segment.posterUrl} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
+        <img src={still} alt="" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
       )}
-      {segment?.kind === "video" && segment.posterUrl && (
+      {segment?.kind === "video" && still && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={segment.posterUrl} alt="" className={`absolute inset-0 h-full w-full ${fit}`} style={{ filter }} />
+        <img src={still} alt="" className={`absolute inset-0 h-full w-full ${fit}`} style={{ filter }} />
       )}
-      <video ref={videoRef} playsInline muted={false} className={`absolute inset-0 h-full w-full ${fit} ${segment?.kind === "video" ? "" : "invisible"}`} style={{ filter }} />
+      {/* The two players (A/B): the one in use on top; the other waits, loaded, behind it — not display:none, which an iPhone would not load. */}
+      {slots.map((ref, i) => (
+        <video
+          key={i}
+          ref={ref}
+          playsInline
+          preload="auto"
+          muted={i !== active}
+          aria-hidden={i !== active}
+          className={`absolute inset-0 h-full w-full ${fit} ${segment?.kind === "video" && i === active ? "z-[1] opacity-100" : "pointer-events-none opacity-0"}`}
+          style={{ filter }}
+        />
+      ))}
       {segment?.kind === "image" && segment.mediaUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={segment.mediaUrl} alt="" className={`absolute inset-0 h-full w-full ${fit}`} style={{ transform: `scale(${zoom})`, filter }} />
       )}
       {segment?.kind === "pending" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-[#1b2340] via-[#121218] to-[#2a1630] p-4 text-center">
+        <div className="absolute inset-0 z-[2] flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-[#1b2340] via-[#121218] to-[#2a1630] p-4 text-center">
           <span className="text-[10.5px] uppercase tracking-wider text-white/50">Scene {segment.n} · made on export</span>
           <span className="line-clamp-3 max-w-[90%] text-[12px] text-white/70">{segment.label}</span>
         </div>
       )}
-      {segment?.text && <p className="absolute left-0 right-0 top-[10%] px-4 text-center text-[clamp(14px,3.5vw,24px)] font-extrabold text-white [text-shadow:0_2px_10px_rgba(0,0,0,.8)]">{segment.text}</p>}
-      {showCaption && <p className={`absolute left-[8%] right-[8%] ${captionY} rounded-md px-2 py-1 text-center font-semibold ${captionSize} ${captionStyle}`}>{segment!.caption}</p>}
+      {segment?.text && <p className="absolute left-0 right-0 top-[10%] z-[2] px-4 text-center text-[clamp(14px,3.5vw,24px)] font-extrabold text-white [text-shadow:0_2px_10px_rgba(0,0,0,.8)]">{segment.text}</p>}
+      {showCaption && <p className={`absolute left-[8%] right-[8%] z-[2] ${captionY} rounded-md px-2 py-1 text-center font-semibold ${captionSize} ${captionStyle}`}>{segment!.caption}</p>}
     </div>
   );
 }
@@ -1317,12 +1381,6 @@ function Timeline(props: {
                         <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/60 to-transparent px-1.5 pb-1 pt-0.5 text-[10px] font-medium text-white/90">
                           {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
                         </span>
-                        {s.fallback && (
-                          /* The card still shows a working clip; this only says the newer one did not come out. */
-                          <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex max-w-[calc(100%-3.5rem)] items-center gap-1 truncate rounded bg-black/55 px-1 text-[9.5px] text-amber-300">
-                            <AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Last good take
-                          </span>
-                        )}
                         {!picture && !frames && !s.fallback && (
                           <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
                             {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}

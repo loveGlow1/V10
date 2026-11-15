@@ -917,7 +917,11 @@ has(/state:'open-editor'/.test(wsSrc) && /data\.state === "open-editor"/.test(pp
 const playSrc = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
 has(/if \(stalled\.current\) \{/.test(playSrc) && /v\.readyState >= 3 && !v\.seeking\) stalled\.current = false/.test(playSrc), "the clock waits while a clip loads and goes on as soon as it can play");
 has(/!video\.seeking && video\.readyState >= 1 && Math\.abs\(video\.currentTime - expected\) > \(playing \? 0\.75 : 0\.12\)/.test(playSrc), "a clip is not re-seeked while it is loading or catching up");
-has(/video\.poster = seg\.posterUrl/.test(playSrc) && /ref=\{nextRef\} preload="auto"/.test(playSrc), "its still shows instead of black, and the next clip loads ahead");
+has(/stripUrl\(videoId, segment\.mediaUrl, \{ count: 1, from: segment\.from, seconds: 0\.2, height: 720 \}\)/.test(playSrc) && /slotUrl\.current\[other\] === seg\.mediaUrl/.test(playSrc) && /ahead\.muted = true;/.test(playSrc) && !/className="hidden" aria-hidden/.test(playSrc), "a sharp still of the clip's first frame shows instead of black, and two players take turns: the next clip waits loaded in the other, so a cut is instant — no blur, stall or crackle");
+{
+  const FS2 = await import(join(dir, "filmstrip.js"));
+  has(FS2.stripHeight("720", 1) === 720 && FS2.stripHeight("9999", 1) === FS2.MAX_STILL_HEIGHT && FS2.stripHeight("720", 8) === FS2.STRIP_HEIGHT && FS2.stripHeight(null, 1) === FS2.STRIP_HEIGHT, "only a single still may be tall; strips stay small");
+}
 
 
 console.log("\nthe sound never clips or clicks");
@@ -1065,7 +1069,7 @@ console.log("\na failed scene falls back to its last working clip");
   const ve = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
   const cl = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
   const st = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
-  has(/Last good take/.test(ve) && /the latest re-film failed/.test(ve) && /!picture && !frames && !s\.fallback/.test(ve), "the card shows the clip with a small note, not 'Not made'");
+  has(!/Last good take/.test(ve) && /the latest re-film failed/.test(ve) && /!picture && !frames && !s\.fallback/.test(ve), "the card shows the last working clip cleanly — no note inside the frame; the reason is in its tooltip");
   has(/lastWorking\(plans, \(earlier \?\? \[\]\) as MadeRow\[\], version\)/.test(cl) && /lastWorking\(plans, \(rows \?\? \[\]\) as MadeRow\[\], current\)/.test(st), "the finished video uses the same stand-in, instead of dropping the scene");
 }
 

@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
-import { frameArgs, rowArgs, storagePathOf, stripPath, stripTimes } from "@/lib/video/filmstrip";
+import { frameArgs, rowArgs, storagePathOf, stripHeight, stripPath, stripTimes } from "@/lib/video/filmstrip";
 
 export const maxDuration = 60;
 
@@ -58,7 +58,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!input) return NextResponse.json({ error: "Not this video's clip." }, { status: 403 });
 
   const times = stripTimes(Number(url.searchParams.get("n")), Number(url.searchParams.get("a")), Number(url.searchParams.get("d")));
-  const kept = stripPath(String(video.user_id), id, source, times);
+  const height = stripHeight(url.searchParams.get("h"), times.length);
+  const kept = stripPath(String(video.user_id), id, source, times, height);
   const { data: cached } = await service.storage.from("video-assets").download(kept);
   if (cached) return image(Buffer.from(await cached.arrayBuffer()));
 
@@ -67,7 +68,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     await mkdir(dir, { recursive: true });
     const made = await Promise.all(
       times.map((at, i) =>
-        exec(ffmpegPath as string, frameArgs({ url: input as string, at, out: `${dir}/f-${String(i).padStart(2, "0")}.jpg` }), { timeout: 25_000 })
+        exec(ffmpegPath as string, frameArgs({ url: input as string, at, height, out: `${dir}/f-${String(i).padStart(2, "0")}.jpg` }), { timeout: 25_000 })
           .then(() => true)
           .catch(() => false),
       ),
