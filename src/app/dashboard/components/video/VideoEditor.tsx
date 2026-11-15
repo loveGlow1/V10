@@ -36,6 +36,7 @@ import {
   Lock,
   Magnet,
   Loader2,
+  Mic,
   Music,
   Pause,
   Play,
@@ -1482,11 +1483,26 @@ function Timeline(props: {
 
                 {/* Voice track: only when something is spoken */}
                 {anyVoice && (
-                  <div className={`relative mt-1.5 h-7 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
+                  <div className={`relative mt-1.5 h-8 ${cut && cut.voiceVolume === 0 ? "opacity-40" : ""}`}>
                     {segments.map((s) =>
                       s.caption || sceneOf(s.n)?.voiceAsset ? (
-                        <button key={s.n} disabled={isLocked("voice")} onClick={() => props.onSelect({ type: "scene", n: s.n })} className={`absolute top-0 h-7 truncate rounded-[6px] px-2 text-left text-[11px] ${s.voiceUrl ? "bg-violet-500/30 text-violet-100" : "bg-violet-500/15 text-violet-200/70"}`} style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }} title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}>
-                          🎙 {s.caption || "Recording"}
+                        /* A studio voice clip: a dark, lit card with its waveform
+                           behind the words, a glowing mic badge, and a dot that
+                           says whether the line is recorded yet (globals.css
+                           .qs-voice-clip). */
+                        <button
+                          key={s.n}
+                          disabled={isLocked("voice")}
+                          onClick={() => props.onSelect({ type: "scene", n: s.n })}
+                          className={`qs-voice-clip group/voice absolute top-0 flex h-8 items-center gap-1.5 overflow-hidden rounded-[8px] pl-1 pr-2 text-left ${s.voiceUrl ? "" : "qs-voice-clip--pending"} ${isSel(s.n) ? "qs-voice-clip--selected" : ""}`}
+                          style={{ left: s.start * pps, width: Math.max(14, s.seconds * pps - 2) }}
+                          title={s.voiceUrl ? "Voice line ready" : "Voice line made on export"}
+                        >
+                          <span aria-hidden className="qs-voice-badge relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                            <Mic className="h-3.5 w-3.5 text-white" strokeWidth={2.25} />
+                          </span>
+                          <span className="relative min-w-0 flex-1 truncate text-[11.5px] font-medium tracking-[0.01em] text-white/95 [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{s.caption || "Recording"}</span>
+                          <span aria-hidden className={`relative h-1.5 w-1.5 shrink-0 rounded-full ${s.voiceUrl ? "bg-[#7CF2B8] shadow-[0_0_6px_#7CF2B8]" : "bg-white/35"}`} />
                         </button>
                       ) : null,
                     )}
