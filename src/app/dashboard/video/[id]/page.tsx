@@ -1470,7 +1470,7 @@ function DirectorChat(props: {
             never zooms in on it. */}
         <div
           {...fileDrop.zone}
-          className="qs-composer relative flex w-full flex-col rounded-[22px] border-[1.5px] border-line/[0.11] bg-sunken p-3 transition-colors focus-within:border-line/[0.22]"
+          className="qs-composer relative flex w-full flex-col rounded-[22px] border-[1.5px] border-line/[0.11] bg-sunken p-3 md:bg-panel transition-colors focus-within:border-line/[0.22]"
         >
           <DropHint show={fileDrop.dragging} />
           <textarea
