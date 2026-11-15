@@ -650,10 +650,12 @@ export default function PreviewPanel({
       if (event.source !== frameRef.current?.contentWindow) return;
       /* The board's "Open the editor": the preview is sandboxed, so a tab it
          opened itself would be sandboxed too — no sign-in, and the editor
-         could not load the video. The workspace opens it instead. */
+         could not load the video. The workspace opens it instead, in this
+         tab: a new tab opened from a message is not a tap, and a phone's
+         browser blocks it as a pop-up — the link did nothing on mobile. */
       if (data.state === "open-editor") {
         const path = (data.detail as { path?: unknown } | undefined)?.path;
-        if (typeof path === "string" && /^\/dashboard\/video\/[0-9a-f-]{36}\/edit$/i.test(path)) window.open(path, "_blank", "noopener");
+        if (typeof path === "string" && /^\/dashboard\/video\/[0-9a-f-]{36}\/edit$/i.test(path)) router.push(path);
         return;
       }
       if (data.state !== "ask") return;
@@ -661,7 +663,7 @@ export default function PreviewPanel({
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [project?.id, project?.intent]);
+  }, [project?.id, project?.intent, router]);
 
   useEffect(() => setDraft(project?.name ?? ""), [project?.name]);
 
