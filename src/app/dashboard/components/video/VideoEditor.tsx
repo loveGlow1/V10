@@ -32,6 +32,7 @@ import {
   Copy,
   Diamond,
   Download,
+  Film,
   Eye,
   Lock,
   Magnet,
@@ -684,11 +685,37 @@ export default function VideoEditor({ id }: { id: string }) {
       {error && <p role="alert" className="mt-3 rounded-[10px] border border-danger/30 bg-danger/[0.08] px-3 py-2 text-[12.5px] text-danger">{error}</p>}
       {note && !error && <p className="mt-3 text-[12.5px] text-emerald-400">{note}</p>}
       {data.final && !rendering && (
-        <p className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-soft">
-          Finished video:
-          <a href={`/api/video/${id}/file?v=${data.video.current_version}`} target="_blank" rel="noopener" className="text-accent underline">play</a>
-          <a href={`/api/video/${id}/file?v=${data.video.current_version}&download=1`} className="text-accent underline">download MP4</a>
-        </p>
+        /* The finished video as a card of its own: what it is on the left,
+           Play and Download as real buttons on the right — not two links in a line. */
+        <section aria-label="Finished video" className="qs-final-card mt-3 flex flex-wrap items-center gap-3 rounded-[16px] p-2.5 pr-3 sm:flex-nowrap">
+          <span aria-hidden className="qs-final-badge flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px]">
+            <Film className="h-5 w-5 text-white" strokeWidth={2} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-white">
+              Finished video <span className="h-1.5 w-1.5 rounded-full bg-[#7CF2B8] shadow-[0_0_6px_#7CF2B8]" aria-hidden />
+            </span>
+            <span className="block truncate text-[11.5px] text-white/55">
+              Version {data.video.current_version} · {`${Math.floor(total / 60)}:${String(Math.round(total % 60)).padStart(2, "0")}`} · MP4
+            </span>
+          </span>
+          <span className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+            <a
+              href={`/api/video/${id}/file?v=${data.video.current_version}`}
+              target="_blank"
+              rel="noopener"
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-white px-4 text-[12.5px] font-semibold text-black shadow-[0_6px_18px_-6px_rgba(255,255,255,0.45)] transition hover:bg-white/90 active:scale-[0.98] sm:flex-none"
+            >
+              <Play className="h-3.5 w-3.5 fill-current" /> Play
+            </a>
+            <a
+              href={`/api/video/${id}/file?v=${data.video.current_version}&download=1`}
+              className="flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.08] px-4 text-[12.5px] font-semibold text-white transition hover:bg-white/[0.14] active:scale-[0.98] sm:flex-none"
+            >
+              <Download className="h-3.5 w-3.5" /> Download MP4
+            </a>
+          </span>
+        </section>
       )}
 
       {!draft ? (

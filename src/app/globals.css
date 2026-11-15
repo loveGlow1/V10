@@ -1499,3 +1499,24 @@ html.qs-scrolling .metal-shimmer {
     transition: none;
   }
 }
+
+/* ── The editor's finished-video card ─────────────────────────────────────
+ * A solid dark card, lit faintly from the top left, with the film badge in
+ * the studio's warm accent. Its own dark ground in both themes, like the
+ * voice clips, so the white words always read. (VideoEditor.tsx) */
+.qs-final-card {
+  background:
+    radial-gradient(120% 160% at 0% 0%, rgba(232, 145, 95, 0.16), transparent 55%),
+    linear-gradient(180deg, #1c1c21 0%, #141418 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 12px 30px -14px rgba(0, 0, 0, 0.8);
+}
+.qs-final-badge {
+  background: radial-gradient(circle at 30% 25%, #ffb489 0%, #e8915f 45%, #a94e27 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 6px 16px -4px rgba(232, 145, 95, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
