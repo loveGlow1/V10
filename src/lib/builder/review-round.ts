@@ -116,7 +116,7 @@ export async function reviewDue(
     .select("id", { count: "exact", head: true })
     .eq("id", latest.id)
     .or("html.ilike.*data-qs-flier*,html.ilike.*download png*");
-  if ((flier ?? 0) > 0) return { due: false, reason: "Fliers are not reviewed as websites." };
+  if ((flier ?? 0) > 0) return { due: false, reason: "Flyers are not reviewed as websites." };
   const { count } = await service
     .from("project_messages")
     .select("id", { count: "exact", head: true })

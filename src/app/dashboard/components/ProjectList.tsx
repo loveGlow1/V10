@@ -81,7 +81,7 @@ const VIEWS: { id: View; label: string; heading: string; icon: typeof Laptop }[]
   { id: "apps", label: "Apps", heading: "Continue working", icon: Laptop },
   { id: "published", label: "Published", heading: "Live apps", icon: Radio },
   { id: "videos", label: "Videos", heading: "Your videos", icon: Clapperboard },
-  { id: "fliers", label: "Fliers", heading: "Your fliers", icon: ImageIcon },
+  { id: "fliers", label: "Flyers", heading: "Your flyers", icon: ImageIcon },
 ];
 
 /* Says what to do rather than what is absent — an empty state that only reports
@@ -91,7 +91,7 @@ const EMPTY: Record<View, string> = {
   apps: "No active apps.",
   published: "Nothing published yet. Open an app and press Publish to put it online.",
   videos: "No videos yet. Pick the Video tab above and choose what to create.",
-  fliers: "No fliers yet. Pick the Fliers tab above and describe one.",
+  fliers: "No flyers yet. Pick the Flyers tab above and describe one.",
 };
 
 /* A Video Studio project as /api/video lists it. */
@@ -395,7 +395,7 @@ export default function ProjectList() {
             {shownFliers.map((flier) => (
               <div key={flier.id} className="min-w-0">
                 <FlierThumb flier={flier} className="rounded-xl" />
-                <p className="mt-1.5 truncate text-[12.5px] text-soft">{flier.headline || "Flier"}</p>
+                <p className="mt-1.5 truncate text-[12.5px] text-soft">{flier.headline || "Flyer"}</p>
               </div>
             ))}
           </div>

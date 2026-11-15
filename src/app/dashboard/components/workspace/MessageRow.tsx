@@ -289,7 +289,7 @@ function ReplyImages({ images }: { images: { label: string; href: string }[] }) 
       <div className="mt-3 grid max-w-[520px] grid-cols-2 gap-2">
         {images.map((image, index) => gone.has(image.href) ? (
           <div key={image.href} className="flex aspect-[2/3] items-center justify-center rounded-xl border border-dashed border-line/[0.14] p-3 text-center text-[12px] leading-snug text-muted">
-            Version {index + 1} was deleted. It stays in Recently deleted in Your fliers for 15 days.
+            Version {index + 1} was deleted. It stays in Recently deleted in Your flyers for 15 days.
           </div>
         ) : (
           <div key={image.href} className="group/img relative overflow-hidden rounded-xl border border-line/[0.08] bg-layer/[0.04]">

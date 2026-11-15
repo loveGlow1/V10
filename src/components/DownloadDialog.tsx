@@ -232,7 +232,7 @@ export function useProjectDownload({
                     <Loader2 className="h-4 w-4 animate-spin" /> Checking what this project is…
                   </p>
                 ) : options.length === 0 ? (
-                  <p className="py-4 text-[13px] text-muted">Fliers and videos download from their own Save buttons.</p>
+                  <p className="py-4 text-[13px] text-muted">Flyers and videos download from their own Save buttons.</p>
                 ) : (
                   options.map((id) => {
                     const { title, detail, icon: Icon } = OPTIONS[id];

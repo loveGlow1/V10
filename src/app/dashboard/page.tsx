@@ -133,10 +133,10 @@ const STARTERS: Record<Category, Starter[]> = {
     { label: "Habit tracker", icon: Check, prompt: "Build a habit tracker mobile app with daily check-ins, streaks and reminders." },
   ],
   fliers: [
-    { label: "Sale promo", icon: Sparkles, prompt: "Design a flier for a summer sale, 30% off everything this weekend." },
-    { label: "Event", icon: Clock, prompt: "Design a flier for our community event with the date, time and place." },
-    { label: "Grand opening", icon: Sparkles, prompt: "Design a flier announcing the grand opening of our new shop." },
-    { label: "Menu", icon: FileText, prompt: "Design a flier with our cafe menu and prices." },
+    { label: "Sale promo", icon: Sparkles, prompt: "Design a flyer for a summer sale, 30% off everything this weekend." },
+    { label: "Event", icon: Clock, prompt: "Design a flyer for our community event with the date, time and place." },
+    { label: "Grand opening", icon: Sparkles, prompt: "Design a flyer announcing the grand opening of our new shop." },
+    { label: "Menu", icon: FileText, prompt: "Design a flyer with our cafe menu and prices." },
   ],
   video: [
     { label: "Product promo", icon: Clapperboard, prompt: "Create a 30-second promo video for my product." },
@@ -171,7 +171,7 @@ const PLACEHOLDER: Record<Category, string> = {
   website: "Build a landing page for my bakery…",
   web_app: "Build a booking app where customers log in…",
   mobile_app: "Build a fitness tracker app for iOS and Android…",
-  fliers: "Design a flier for a summer sale, 30% off…",
+  fliers: "Design a flyer for a summer sale, 30% off…",
   video: "Create a 30-second promo video for…",
 };
 
@@ -1013,7 +1013,7 @@ export default function DashboardPage() {
           {/* Where the fliers made here are kept — the Video tab has its own. */}
           {activeCategory === "fliers" && (
             <Link href="/dashboard/fliers" className="mt-3 block text-center text-[12.5px] text-muted hover:text-ink">
-              Your fliers →
+              Your flyers →
             </Link>
           )}
           {CATEGORY_NOTE[activeCategory] && (

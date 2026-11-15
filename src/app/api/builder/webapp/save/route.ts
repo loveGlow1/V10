@@ -837,7 +837,7 @@ export async function POST(request: Request) {
       userId: claim.userId,
       action: "generate",
       cost: artMade * ART_COST,
-      description: `Flier art: ${artMade} ${artMade === 1 ? "picture" : "pictures"} for ${str(body.prompt).slice(0, 40) || "a flier"}`,
+      description: `Flyer art: ${artMade} ${artMade === 1 ? "picture" : "pictures"} for ${str(body.prompt).slice(0, 40) || "a flyer"}`,
       projectId: project.id,
       dedupeKey: `flier-art:${claim.requestId || project.id}`,
     });

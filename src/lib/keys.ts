@@ -17,7 +17,7 @@ type Env = Record<string, string | undefined>;
 export type KeyFeature = {
   id: string;
   /** The area of the product it belongs to. */
-  area: "Core" | "AI building" | "Images & fliers" | "Video" | "Email & alerts" | "Payments" | "Sign-in & integrations" | "Publishing" | "Databases";
+  area: "Core" | "AI building" | "Images & flyers" | "Video" | "Email & alerts" | "Payments" | "Sign-in & integrations" | "Publishing" | "Databases";
   label: string;
   /** What works once it is set, in a sentence. */
   unlocks: string;
@@ -40,18 +40,18 @@ export const FEATURES: KeyFeature[] = [
   { id: "owner", area: "Core", label: "Owner access", unlocks: "Who may see the Keys page and the owner's tools.", needs: [["OWNER_EMAILS", "ALERT_EMAIL"]], where: "Your email address(es), comma-separated" },
   { id: "cron", area: "Core", label: "Scheduled jobs", unlocks: "The sweeps that settle payments, refresh trials and clean up.", needs: [["CRON_SECRET"]], where: "Any long random string" },
 
-  { id: "anthropic", area: "AI building", required: true, label: "Claude (the builder's brain)", unlocks: "Editing pages, planning videos, the video editor, flier briefs, text checks.", needs: [["ANTHROPIC_API_KEY"]], where: "console.anthropic.com → API keys" },
-  { id: "n8n", area: "AI building", label: "n8n workflows", unlocks: "Building whole pages, MiniMax video and voice on the usage credit, flier images.", needs: [["N8N_WEBHOOK_URL"], ["N8N_WEBHOOK_TOKEN"]], optional: ["N8N_VIDEO_WEBHOOK_URL", "N8N_FLIER_WEBHOOK_URL"], also: "The video and flier addresses are worked out from N8N_WEBHOOK_URL." },
+  { id: "anthropic", area: "AI building", required: true, label: "Claude (the builder's brain)", unlocks: "Editing pages, planning videos, the video editor, flyer briefs, text checks.", needs: [["ANTHROPIC_API_KEY"]], where: "console.anthropic.com → API keys" },
+  { id: "n8n", area: "AI building", label: "n8n workflows", unlocks: "Building whole pages, MiniMax video and voice on the usage credit, flyer images.", needs: [["N8N_WEBHOOK_URL"], ["N8N_WEBHOOK_TOKEN"]], optional: ["N8N_VIDEO_WEBHOOK_URL", "N8N_FLIER_WEBHOOK_URL"], also: "The video and flyer addresses are worked out from N8N_WEBHOOK_URL." },
   { id: "openai-chat", area: "AI building", label: "ChatGPT models in the model picker", unlocks: "GPT-5, GPT-5 mini and nano: chat, edits, answers and the video studio answer through them; full builds also need the same key on n8n's OpenAI credential.", needs: [["OPENAI_API_KEY"]], optional: ["AI_OPENAI"], where: "platform.openai.com → API keys", also: "On at the next deploy after the key is set. AI_OPENAI=off keeps them off." },
   { id: "google-chat", area: "AI building", label: "Gemini models in the model picker", unlocks: "Gemini 3 Pro and 2.5 Flash for chat, edits, answers and the video studio, and Gemini images; full builds also need the same key on n8n's Gemini credential.", needs: [["GEMINI_API_KEY", "GOOGLE_API_KEY"]], optional: ["AI_GOOGLE"], where: "aistudio.google.com → Get API key", also: "Either name works. On at the next deploy after the key is set. AI_GOOGLE=off keeps them off." },
   { id: "e2b", area: "AI building", label: "Code sandbox", unlocks: "The code editor's terminal: running an app's own commands.", needs: [["E2B_API_KEY"]], optional: ["E2B_TEMPLATE"], where: "e2b.dev → Dashboard" },
 
-  { id: "minimax", area: "Images & fliers", label: "MiniMax (direct)", unlocks: "Video clips, voice-overs and flier images on your MiniMax account — works without n8n.", needs: [["MINIMAX_API_KEY"]], optional: ["MINIMAX_SPEECH_MODEL"], where: "platform.minimax.io → API keys" },
-  { id: "openai-image", area: "Images & fliers", label: "OpenAI images", unlocks: "Flier pictures, creator keyframes and page art with gpt-image.", needs: [["OPENAI_API_KEY"]], optional: ["OPENAI_IMAGE_MODEL"] },
-  { id: "ideogram", area: "Images & fliers", label: "Ideogram", unlocks: "Graphic-style flier art and creator keyframes.", needs: [["IDEOGRAM_API_KEY"]], where: "ideogram.ai → API" },
-  { id: "unsplash", area: "Images & fliers", label: "Unsplash photos", unlocks: "Free stock photos in built pages.", needs: [["UNSPLASH_ACCESS_KEY"]], where: "unsplash.com/developers" },
-  { id: "pexels", area: "Images & fliers", label: "Pexels photos", unlocks: "More free stock photos in built pages.", needs: [["PEXELS_API_KEY"]], where: "pexels.com/api" },
-  { id: "ai-image", area: "Images & fliers", label: "Custom image endpoint", unlocks: "Your own image-generation service for page pictures.", needs: [["AI_IMAGE_ENDPOINT"], ["AI_IMAGE_API_KEY"]], optional: ["AI_IMAGE_ENABLED"], also: "On once both are set; AI_IMAGE_ENABLED=false turns it off." },
+  { id: "minimax", area: "Images & flyers", label: "MiniMax (direct)", unlocks: "Video clips, voice-overs and flyer images on your MiniMax account — works without n8n.", needs: [["MINIMAX_API_KEY"]], optional: ["MINIMAX_SPEECH_MODEL"], where: "platform.minimax.io → API keys" },
+  { id: "openai-image", area: "Images & flyers", label: "OpenAI images", unlocks: "Flyer pictures, creator keyframes and page art with gpt-image.", needs: [["OPENAI_API_KEY"]], optional: ["OPENAI_IMAGE_MODEL"] },
+  { id: "ideogram", area: "Images & flyers", label: "Ideogram", unlocks: "Graphic-style flyer art and creator keyframes.", needs: [["IDEOGRAM_API_KEY"]], where: "ideogram.ai → API" },
+  { id: "unsplash", area: "Images & flyers", label: "Unsplash photos", unlocks: "Free stock photos in built pages.", needs: [["UNSPLASH_ACCESS_KEY"]], where: "unsplash.com/developers" },
+  { id: "pexels", area: "Images & flyers", label: "Pexels photos", unlocks: "More free stock photos in built pages.", needs: [["PEXELS_API_KEY"]], where: "pexels.com/api" },
+  { id: "ai-image", area: "Images & flyers", label: "Custom image endpoint", unlocks: "Your own image-generation service for page pictures.", needs: [["AI_IMAGE_ENDPOINT"], ["AI_IMAGE_API_KEY"]], optional: ["AI_IMAGE_ENABLED"], also: "On once both are set; AI_IMAGE_ENABLED=false turns it off." },
 
   { id: "runware", area: "Video", label: "Runware", unlocks: "MiniMax H3 video clips (every shape, 4–15s), MiniMax voice-overs and still images on your Runware credit — spent before other paid engines.", needs: [["RUNWARE_API_KEY"]], optional: ["RUNWARE_VIDEO_MODEL", "RUNWARE_IMAGE_MODEL", "RUNWARE_SPEECH_MODEL"], where: "my.runware.ai → API Keys" },
   { id: "fal", area: "Video", label: "fal.ai", unlocks: "Lip-sync, avatars, music and Seedance clips.", needs: [["FAL_KEY"]], where: "fal.ai → Keys" },

@@ -243,7 +243,7 @@ function ProjectsScreen() {
             href="/dashboard/fliers"
             className="flex h-8 items-center rounded-lg px-3 text-[13px] text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
           >
-            Fliers
+            Flyers
           </Link>
         </div>
 

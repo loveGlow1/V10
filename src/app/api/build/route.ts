@@ -856,7 +856,7 @@ async function handle(
   }
 
   if (project.intent === FLIER_INTENT || (isFlierTarget(body.target) && !project.intent)) {
-    steps.begin("flier", "Designing your flier", "reading what you asked for…");
+    steps.begin("flier", "Designing your flyer", "reading what you asked for…");
     const turn = await startFlierTurn({
       supabase,
       service,

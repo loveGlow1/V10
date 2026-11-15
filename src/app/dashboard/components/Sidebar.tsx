@@ -430,7 +430,7 @@ export default function Sidebar({
                 <LayoutGrid className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-medium">Published Apps</span>
               </button>
-              {/* Flyers: every flier, newest first, each opening its Flier Studio. */}
+              {/* Fliers: every flier, newest first, each opening its Flier Studio. */}
               <button
                 onClick={() => {
                   onClose();

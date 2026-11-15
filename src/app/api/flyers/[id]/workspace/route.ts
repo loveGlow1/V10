@@ -34,8 +34,8 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     .select('id, site_id, parent_job_id, request, created_at, deleted_at')
     .eq('id', id)
     .maybeSingle<{ id: string; site_id: string | null; parent_job_id: string | null; request: FlyerRequest | null; created_at: string; deleted_at: string | null }>();
-  if (!job) return NextResponse.json({ error: 'No such flier.' }, { status: 404 });
-  if (job.deleted_at) return NextResponse.json({ error: 'This flier is in Recently deleted. Restore it first.' }, { status: 409 });
+  if (!job) return NextResponse.json({ error: 'No such flyer.' }, { status: 404 });
+  if (job.deleted_at) return NextResponse.json({ error: 'This flyer is in Recently deleted. Restore it first.' }, { status: 409 });
 
   /* A final belongs to its drafts' flier. */
   let root = job;
@@ -61,7 +61,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     .from('projects')
     .insert({
       user_id: user.id,
-      name: `Flier: ${headline || 'untitled'}`.slice(0, 80),
+      name: `Flyer: ${headline || 'untitled'}`.slice(0, 80),
       intent: FLIER_INTENT,
       status: 'Built',
       prompt: headline || null,
@@ -77,7 +77,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     userId: user.id,
     role: 'system',
     kind: 'build_ready',
-    body: `This is your flier${headline ? ` "${headline}"` : ''}. Its versions are in the preview — tap one to see it full size and save it. Tell me anything to change and I'll make four new versions.`,
+    body: `This is your flyer${headline ? ` "${headline}"` : ''}. Its versions are in the preview — tap one to see it full size and save it. Tell me anything to change and I'll make four new versions.`,
     dedupeKey: `flier-open:${root.id}`,
   });
   return NextResponse.json({ projectId: project.id });

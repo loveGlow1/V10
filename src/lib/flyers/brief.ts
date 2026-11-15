@@ -50,7 +50,7 @@ export function heuristicRequest(brief: string, format: FlyerFormat): FlyerReque
   };
 }
 
-const SYSTEM = `You turn a short request for a flier, poster, banner or social graphic into the brief a designer works from. Reply with JSON only, no prose:
+const SYSTEM = `You turn a short request for a flyer, poster, banner or social graphic into the brief a designer works from. Reply with JSON only, no prose:
 {"brand":"the business or event name, or \\"\\" if none is given","headline":"the one line that dominates, under 7 words — the offer or event name, exactly as the person would want it spelled","subhead":"one supporting line or \\"\\"","details":["date, time, venue, price, website — only facts the request gives, at most 4"],"cta":"a short call to action or \\"\\"","imagery":"the picture to make behind or around the type: subject, setting, mood, lighting — concrete, one or two sentences","colors":{"primary":"#hex","accent":"#hex","background":"#hex","text":"#hex"},"vibe":"three or four words of style","style":"brand | typography | photo","type":"modern | elegant | bold | playful | retro | neon | romantic | natural | friendly | raw — the lettering that suits the occasion","layout":"bottom | top | center | band — where the words sit: band is a solid brand-colour strip (sales, sport, loud offers), center a soft card (weddings, galas, elegant), top when the subject is low in the picture, bottom otherwise"}
 Never invent facts — no dates, prices, addresses, phone numbers or URLs the request does not give. Pick colours that suit the subject and keep the text readable.`;
 
@@ -107,7 +107,7 @@ export async function requestFromBrief(brief: string, subtype: string | null | u
   }
 }
 
-const REVISE = `You revise the design brief of a flier the person has already seen. You are given the current brief as JSON and the change they asked for. Apply exactly that change and keep everything else the same, word for word. Reply with the whole revised brief as JSON only, in the same shape:
+const REVISE = `You revise the design brief of a flyer the person has already seen. You are given the current brief as JSON and the change they asked for. Apply exactly that change and keep everything else the same, word for word. Reply with the whole revised brief as JSON only, in the same shape:
 {"brand":"","headline":"","subhead":"","details":[""],"cta":"","imagery":"","colors":{"primary":"#hex","accent":"#hex","background":"#hex","text":"#hex"},"vibe":"","style":"brand | typography | photo","type":"modern | elegant | bold | playful | retro | neon | romantic | natural | friendly | raw","layout":"bottom | top | center | band"}
 Never invent facts the person did not give — no dates, prices, addresses, phone numbers or URLs.`;
 

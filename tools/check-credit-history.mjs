@@ -22,7 +22,7 @@ const has = (ok, name) => {
 const line = (credits, extra = {}) => ({ id: String(Math.random()), action: "generate", credits, description: "", created_at: "2026-11-10T12:00:00Z", project_id: null, dedupe_key: null, source: null, ...extra });
 has(H.categoryOf(line(-3, { dedupe_key: "video-job:v:2:video:1", description: "Video video 1: Launch" })) === "Video", "a video clip is Video");
 has(H.categoryOf(line(-1, { description: "Character: Leo" })) === "Video", "a character is Video");
-has(H.categoryOf(line(-2, { dedupe_key: "flyer:1" })) === "Fliers", "a flyer is Fliers");
+has(H.categoryOf(line(-2, { dedupe_key: "flyer:1" })) === "Flyers", "a flyer is Flyers");
 has(H.categoryOf(line(-1, { action: "publish" })) === "Publishing", "a publish is Publishing");
 has(H.categoryOf(line(-1, { description: "Built the checkout page" })) === "Websites & apps", "a build is Websites & apps");
 has(H.categoryOf(line(100, { action: "topup" })) === "Credits added", "a top-up is added credit");

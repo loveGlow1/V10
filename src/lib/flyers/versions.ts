@@ -101,7 +101,7 @@ export async function moveFlierVersion(input: {
   /* A set being made lands as the newest and shows when it is done; moving
      the pointer under it would hide it. */
   if (found.making) return say(false, "A new set is being made right now. Once it lands you can Undo back to any earlier set — nothing was changed.");
-  if (!found.showing) return say(false, "This flier has no finished versions yet — describe it and four are made.");
+  if (!found.showing) return say(false, "This flyer has no finished versions yet — describe it and four are made.");
 
   const move = resolveMove(prompt, found.showing.number, found.versions.map((version) => version.number), { one: "set", thing: "flier" });
   if (move.kind === "refuse") return say(false, move.message);
@@ -110,7 +110,7 @@ export async function moveFlierVersion(input: {
       .reverse()
       .slice(0, 15)
       .map((version) => `${version.number === found.showing?.number ? "▶ " : ""}Version ${version.number} — "${version.headline || "flier"}", ${version.images} images`);
-    return say(true, `This flier's versions, newest first:\n${lines.join("\n")}\n\nSay "go back to version 2", or use Undo, Redo and Versions above the preview. Switching is instant and free.`);
+    return say(true, `This flyer's versions, newest first:\n${lines.join("\n")}\n\nSay "go back to version 2", or use Undo, Redo and Versions above the preview. Switching is instant and free.`);
   }
 
   const target = found.versions.find((version) => version.number === move.to);
@@ -125,7 +125,7 @@ export async function moveFlierVersion(input: {
   const lead = move.how === "undo" ? "Undone" : move.how === "redo" ? "Redone" : "Switched";
   return say(
     true,
-    `${lead} — now showing version ${target.number}, "${target.headline || "your flier"}" (${target.images} images). Nothing was designed again and no credits were used. Version ${found.showing.number} is still saved: Redo or "go back to version ${found.showing.number}" brings it back. Ask for a change and it's made from this version.`,
+    `${lead} — now showing version ${target.number}, "${target.headline || "your flyer"}" (${target.images} images). Nothing was designed again and no credits were used. Version ${found.showing.number} is still saved: Redo or "go back to version ${found.showing.number}" brings it back. Ask for a change and it's made from this version.`,
     /* The set's images, in the chat with Download, as when it was made. */
     target.paths.map((path, index) => ({ label: `image:${index + 1}`, href: imageUrl(input.origin, target.jobId, path) })),
   );

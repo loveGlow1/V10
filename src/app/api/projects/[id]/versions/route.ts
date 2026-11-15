@@ -41,7 +41,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       redo: showing === null ? null : flier.versions.find((version) => version.number > showing)?.number ?? null,
       versions: [...flier.versions].reverse().map((version) => ({
         number: version.number,
-        label: `${version.headline ? `"${version.headline}"` : "Flier"} · ${version.images} images`,
+        label: `${version.headline ? `"${version.headline}"` : "Flyer"} · ${version.images} images`,
         createdAt: version.createdAt,
         restoredFrom: null,
       })),

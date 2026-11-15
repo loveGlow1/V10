@@ -20,7 +20,7 @@ export default function OpenFlierPage({ params }: { params: Promise<{ id: string
       .then(async (response) => {
         const body = (await response.json().catch(() => null)) as { projectId?: string; error?: string } | null;
         if (!live) return;
-        if (!response.ok || !body?.projectId) throw new Error(body?.error ?? "This flier could not be opened.");
+        if (!response.ok || !body?.projectId) throw new Error(body?.error ?? "This flyer could not be opened.");
         router.replace(`/dashboard/project/${body.projectId}`);
       })
       .catch((e: Error) => live && setError(e.message));
@@ -34,7 +34,7 @@ export default function OpenFlierPage({ params }: { params: Promise<{ id: string
       {error ? (
         <>
           <p>{error}</p>
-          <Link href="/dashboard/fliers" className="text-accent">Back to Your fliers</Link>
+          <Link href="/dashboard/fliers" className="text-accent">Back to Your flyers</Link>
         </>
       ) : (
         <>

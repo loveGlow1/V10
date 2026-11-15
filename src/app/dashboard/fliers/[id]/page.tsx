@@ -60,7 +60,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
     const body = (await response?.json().catch(() => null)) as (Job & { error?: string }) | null;
     /* A reply without a job (an error page, an empty body) says so rather than crashing the page. */
     if (!response?.ok || !body || !(body as { id?: unknown }).id) {
-      setError(body?.error ?? "This flier could not be opened.");
+      setError(body?.error ?? "This flyer could not be opened.");
       return;
     }
     setJob(body);
@@ -102,7 +102,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
      or with no image the whole flier. */
   async function remove(image: Image | null) {
     if (!job) return;
-    if (!image && !window.confirm("Delete this flier? It stays in Recently deleted for 15 days, then it is gone for good.")) return;
+    if (!image && !window.confirm("Delete this flyer? It stays in Recently deleted for 15 days, then it is gone for good.")) return;
     setBusy("delete");
     setNote(null);
     const query = image ? `?path=${encodeURIComponent(image.path)}` : "";
@@ -147,14 +147,14 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
       <header className="flex items-center gap-3">
         <Link
           href={final && job.parentId ? `/dashboard/fliers/${job.parentId}` : "/dashboard/fliers"}
-          aria-label={final ? "Back to the drafts" : "Back to your fliers"}
+          aria-label={final ? "Back to the drafts" : "Back to your flyers"}
           className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] text-muted">{final ? "Final · Flier Studio" : "Flier Studio"}</p>
-          <h1 className="truncate text-[20px] font-semibold text-ink">{job.headline || "Your flier"}</h1>
+          <p className="text-[12px] text-muted">{final ? "Final · Flyer Studio" : "Flyer Studio"}</p>
+          <h1 className="truncate text-[20px] font-semibold text-ink">{job.headline || "Your flyer"}</h1>
         </div>
         {/* Changes are made in the workspace now, like a website's. */}
         <Link
@@ -167,8 +167,8 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
           type="button"
           onClick={() => void remove(null)}
           disabled={busy !== null || working}
-          aria-label="Delete this flier"
-          title="Delete this flier"
+          aria-label="Delete this flyer"
+          title="Delete this flyer"
           className="flex h-9 w-9 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.03] text-soft hover:text-danger disabled:opacity-40"
         >
           <Trash2 className="h-4 w-4" />
@@ -265,7 +265,7 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Flier, full size"
+          aria-label="Flyer, full size"
           className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/90 p-4"
           onClick={() => setOpen(null)}
         >

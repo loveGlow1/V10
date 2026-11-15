@@ -74,7 +74,7 @@ const save = readFileSync(join(root, "src/app/api/builder/webapp/save/route.ts")
 has(/isFlier\(html\) \? flierArtProvider\(providerFromEnv\(\)\)/.test(save), "the save step uses flier art only on a flier canvas, with Unsplash behind it");
 has(/cost: artMade \* ART_COST/.test(save) && /dedupeKey: `flier-art:/.test(save), "charged per picture made, once per build");
 const rules = readFileSync(join(root, "src/lib/builder/targets.ts"), "utf8");
-has(/data-qs-flier/.test(rules) && /data-weight=\\"hero\\"/.test(rules) && /every word on the flier is HTML text/.test(rules), "the flier rules declare the art slot and keep every word in HTML");
+has(/data-qs-flier/.test(rules) && /data-weight=\\"hero\\"/.test(rules) && /every word on the flyer is HTML text/.test(rules), "the flier rules declare the art slot and keep every word in HTML");
 const api = readFileSync(join(root, "src/app/api/flyers/route.ts"), "utf8");
 const run = readFileSync(join(root, "src/lib/flyers/run.ts"), "utf8");
 has(/currentBalance/.test(api) && /status: 402/.test(api), "the flyer API checks the balance before it makes anything");
@@ -141,13 +141,13 @@ const gallery = readFileSync(join(root, "src/app/dashboard/fliers/page.tsx"), "u
 const homeList = readFileSync(join(root, "src/app/dashboard/components/ProjectList.tsx"), "utf8");
 has(/export async function GET\(req: Request\)[\s\S]{0,4000}\.eq\('stage', 'preview'\)[\s\S]{0,80}\.is\('parent_job_id', null\)/.test(flyersApi), "fliers are listed one per brief, under the caller's own session");
 has(/"\/api\/flyers"/.test(gallery) && /Your fliers/.test(gallery), "Your fliers lists every flier");
-has(/id: "fliers", label: "Fliers"/.test(homeList) && /"\/dashboard\/fliers"/.test(homeList), "and Home has a Fliers view that leads to it"
+has(/id: "fliers", label: "Flyers"/.test(homeList) && /"\/dashboard\/fliers"/.test(homeList), "and Home has a Flyers view that leads to it"
 );
 const studio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.tsx"), "utf8");
 const projectsPage = readFileSync(join(root, "src/app/dashboard/projects/page.tsx"), "utf8");
 has(!/Make it final/.test(studio) && /onClick=\{\(\) => setOpen\(image\)\}/.test(studio) && /<SaveFileButton url=\{open\.url\}/.test(studio), "a version is saved exactly as shown — no separate final made again from the brief");
 has(/typeof raw\.again === 'string'[\s\S]{0,500}stage: 'preview', variants: 4/.test(flyersApi), "4 more versions reuse the brief as new drafts");
-has(/href="\/dashboard\/fliers"[\s\S]{0,200}Fliers/.test(projectsPage), "the Projects page's last tab is Fliers");
+has(/href="\/dashboard\/fliers"[\s\S]{0,200}Flyers/.test(projectsPage), "the Projects page's last tab is Flyers");
 /* Fliers open in the workspace, like a website. */
 const ws = readFileSync(join(root, "src/lib/flyers/workspace.ts"), "utf8");
 const buildApi = readFileSync(join(root, "src/app/api/build/route.ts"), "utf8");
@@ -166,7 +166,7 @@ const oldStudio = readFileSync(join(root, "src/app/dashboard/fliers/[id]/page.ts
 has(/flier\.projectId \? `\/dashboard\/project\/\$\{flier\.projectId\}` : `\/dashboard\/fliers\/\$\{flier\.id\}\/open`/.test(thumb), "every flier in Your fliers opens in the workspace");
 has(/if \(root\.site_id\)[\s\S]{0,300}return NextResponse\.json\(\{ projectId: project\.id \}\)/.test(openApi), "one made there goes back to its own project");
 has(/intent: FLIER_INTENT/.test(openApi) && /update\(\{ site_id: project\.id \}\)/.test(openApi), "an older one is given a flier project, its images left where they are");
-has(/\.eq\('id', id\)\s*\.maybeSingle/.test(openApi) && /deleted_at\) return NextResponse\.json\(\{ error: 'This flier is in Recently deleted/.test(openApi), "only the caller's own flier, and not one in Recently deleted");
+has(/\.eq\('id', id\)\s*\.maybeSingle/.test(openApi) && /deleted_at\) return NextResponse\.json\(\{ error: 'This flyer is in Recently deleted/.test(openApi), "only the caller's own flier, and not one in Recently deleted");
 has(/Open in workspace/.test(oldStudio), "the older studio page offers the way back too");
 /* The images in the chat, and a clean download. */
 const fileApi = readFileSync(join(root, "src/app/api/flyers/[id]/file/route.ts"), "utf8");

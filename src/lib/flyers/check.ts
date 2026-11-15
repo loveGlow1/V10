@@ -31,7 +31,7 @@ export function allowedText(spec: FlyerSpec, brandName: string): string[] {
   );
 }
 
-const SYSTEM = `You check the lettering on a generated flier image before a customer pays for it. You are given the only text the image is allowed to show. Reply with JSON only: {"ok": true|false, "reason": "short"}.
+const SYSTEM = `You check the lettering on a generated flyer image before a customer pays for it. You are given the only text the image is allowed to show. Reply with JSON only: {"ok": true|false, "reason": "short"}.
 
 ok is false when ANY of these is visible and readable:
 - characters in a script that the allowed text does not use (for example Chinese, Japanese, Korean, Arabic, Cyrillic when the allowed text is English)
