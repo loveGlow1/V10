@@ -80,6 +80,7 @@ import CharactersPanel from "./CharactersPanel";
 import EditorLibrary, { type LibraryTab } from "./EditorLibrary";
 import { STRIP_FRAMES, placeholderStyle, spriteFrame, stripUrl } from "./useClipPosters";
 import MediaPanel, { ASSET_DRAG, type PanelAsset } from "./MediaPanel";
+import { AudioEngine, type Schedule } from "./audio-engine";
 import TimelineClip from "./TimelineClip";
 import VideoSettings from "./VideoSettings";
 
@@ -285,32 +286,92 @@ export default function VideoEditor({ id }: { id: string }) {
   }, [draft, cut, assets, data]);
 
   /* ── Playback ──────────────────────────────────────────────────────── */
+  /* The sound: decoded ahead and laid on one audio clock (audio-engine.ts),
+     which is also the playhead's clock while playing — the picture follows
+     the sound, nothing is loaded at a cut and nothing is seeked mid-line. */
+  const engine = useRef<AudioEngine | null>(null);
+  if (!engine.current && typeof window !== "undefined") engine.current = new AudioEngine();
+  const builtSchedule = useMemo<Schedule>(() => {
+    const voices: Schedule["voices"] = [];
+    if (cut && cut.audio !== "original" && cut.audio !== "none") {
+      for (const s of segments) {
+        if (s.voiceUrl) voices.push({ url: s.voiceUrl, at: s.start + 0.15, until: s.start + s.seconds, volume: Math.min(1, cut.voiceVolume ?? 1) });
+      }
+    }
+    const music: Schedule["music"] =
+      musicUrl && cut
+        ? {
+            url: musicUrl,
+            offset: cut.music.source === "upload" ? cut.music.start : 0,
+            levels: segments.map((s) => {
+              const spoken = Boolean(s.voiceUrl) && cut.audio !== "original";
+              return { at: s.start, gain: Math.max(0, Math.min(1, cut.musicVolume * (spoken && cut.duck ? 0.18 : spoken ? 0.3 : 0.7))) };
+            }),
+          }
+        : null;
+    return { voices, music };
+  }, [segments, cut, musicUrl]);
+  /* The same sound plan keeps the same object: the segments are rebuilt on
+     every frame, and re-laying the sound each time would itself be heard.
+     Signed links change on reload but the files do not, so they are keyed
+     without their query. */
+  const scheduleKey = JSON.stringify(builtSchedule, (k, v) => (k === "url" && typeof v === "string" ? v.split("?")[0] : v));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const schedule = useMemo(() => builtSchedule, [scheduleKey]);
+  /* Every line and the music, fetched and decoded before they are needed. */
+  useEffect(() => {
+    engine.current?.preload([...schedule.voices.map((v) => v.url), schedule.music?.url]);
+  }, [schedule]);
+  /* A browser lets sound start only from a tap or a key: the first one wakes it. */
+  useEffect(() => {
+    const wake = () => engine.current?.unlock();
+    document.addEventListener("pointerdown", wake, true);
+    document.addEventListener("keydown", wake, true);
+    return () => {
+      document.removeEventListener("pointerdown", wake, true);
+      document.removeEventListener("keydown", wake, true);
+      engine.current?.close();
+    };
+  }, []);
+  const useEngine = Boolean(engine.current?.available);
   const clock = useRef<{ t0: number; from: number } | null>(null);
   /* True while the clip on screen is still loading or seeking: the clock
      waits for it rather than running ahead and dragging it back. */
   const stalled = useRef(false);
   useEffect(() => {
     if (!playing) return;
-    clock.current = { t0: performance.now(), from: time >= total ? 0 : time };
+    const from = time >= total ? 0 : time;
+    clock.current = { t0: performance.now(), from };
+    const sound = useEngine ? engine.current : null;
+    sound?.play(from, scheduleRef.current);
     let frame = 0;
     let last = 0;
     let previous = performance.now();
+    let stallSince = 0;
     const tick = (now: number) => {
       const c = clock.current;
       if (!c) return;
-      /* Held while the picture catches up — the time it spent waiting is not
-         played — and let go the moment the clip can play. */
+      /* Held while the picture catches up — sound and picture pause together
+         and carry on together — and let go the moment the clip can play. A
+         blink shorter than a sixth of a second is not held at all. */
       if (stalled.current) {
         const v = videoRef.current;
         if (v && v.readyState >= 3 && !v.seeking) stalled.current = false;
         else {
-          c.t0 += now - previous;
+          if (!stallSince) stallSince = now;
+          if (sound) {
+            if (now - stallSince > 160) sound.hold();
+          } else c.t0 += now - previous;
           /* Nudged while it loads: a paused clip is not fetched by every browser. */
           if (v && v.paused) void v.play().catch(() => {});
         }
       }
+      if (!stalled.current) {
+        stallSince = 0;
+        if (sound?.holding) sound.release();
+      }
       previous = now;
-      const t = c.from + (now - c.t0) / 1000;
+      const t = sound?.position() ?? c.from + (now - c.t0) / 1000;
       if (t >= total) {
         setTime(total);
         setPlaying(false);
@@ -323,13 +384,30 @@ export default function VideoEditor({ id }: { id: string }) {
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      sound?.stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, total]);
+  /* The newest schedule, for the clock to start from; an edit while playing re-lays the sound from where it is. */
+  const scheduleRef = useRef(schedule);
+  useEffect(() => {
+    const changed = scheduleRef.current !== schedule;
+    scheduleRef.current = schedule;
+    if (changed && playing && useEngine) {
+      const at = engine.current?.position();
+      if (at !== null && at !== undefined) engine.current?.play(at, schedule);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedule]);
   const seek = (t: number) => {
     const value = Math.max(0, Math.min(total, t));
     setTime(value);
-    if (playing) clock.current = { t0: performance.now(), from: value };
+    if (playing) {
+      clock.current = { t0: performance.now(), from: value };
+      if (useEngine) engine.current?.play(value, scheduleRef.current);
+    }
   };
 
   const current = segmentAt(segments, time);
@@ -431,7 +509,8 @@ export default function VideoEditor({ id }: { id: string }) {
     const voice = voiceRef.current;
     if (voice) {
       const url = cut?.audio === "original" || cut?.audio === "none" ? null : seg?.voiceUrl ?? null;
-      if (url) {
+      /* Played by the audio engine unless it could not take this file. */
+      if (url && (!useEngine || engine.current?.failed(url))) {
         if (loaded.current.voice !== url) {
           loaded.current.voice = url;
           voice.src = url;
@@ -449,7 +528,7 @@ export default function VideoEditor({ id }: { id: string }) {
     }
     const music = musicRef.current;
     if (music) {
-      if (musicUrl && cut) {
+      if (musicUrl && cut && (!useEngine || engine.current?.failed(musicUrl))) {
         if (loaded.current.music !== musicUrl) {
           loaded.current.music = musicUrl;
           music.src = musicUrl;
