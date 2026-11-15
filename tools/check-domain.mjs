@@ -70,7 +70,7 @@ has(pick("technical documentary", "webapp", "a log viewer") === "Technical" && p
   const inStep = Object.entries(G.KIND_DEFAULT_REGISTER).every(([kind, register]) => new RegExp(`\\n  ${kind}: \\{\\n    register: "${register}"`).test(planner));
   has(inStep, "the kinds' default registers match asset-planner's, so the house design is reached");
 }
-has(G.SYSTEMS.length === 12 && G.SYSTEMS.every((s) => /^[A-I] · /.test(s.blueprint)), "12 systems, each naming the A–I blueprint it serves");
+has(G.SYSTEMS.length === 21 && G.SYSTEMS.every((s) => /^[A-R] · /.test(s.blueprint)) && new Set(G.SYSTEMS.map((s) => s.blueprint[0])).size >= 18, "21 systems, each naming the A–R blueprint it serves");
 const letters = new Set(G.SYSTEMS.map((s) => s.blueprint[0]));
 has(["A", "B", "C", "D", "E", "F", "G", "H", "I"].every((l) => letters.has(l)), "every blueprint A–I is served by at least one system");
 has(/design blueprint F · Corporate professional/.test(G.designBrief(G.systemByName("Corporate professional"))), "the design brief names the blueprint to the model");

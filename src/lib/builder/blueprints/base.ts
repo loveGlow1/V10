@@ -142,7 +142,7 @@ STILL DRAWN, AND DELIBERATELY SO — reach for inline SVG or CSS for all of thes
 - Logos, wordmarks, monograms and avatars.
 - Icons, rules, patterns, textures and background shapes.
 Never send one of these through a photo slot, and never send a photograph through an SVG.
-- Prefer a system font stack. The page is downloadable, and everything it fetches that file has to carry. One webfont family at most, and only where the typeface is genuinely the design.
+- Fonts come from the design system, already linked: var(--font-display) for headings, var(--font-body) for text. Never link another font family or invent a stack — the page is downloadable and carries everything it fetches.
 - Semantic HTML, labelled form controls, alt text, visible focus states, sufficient contrast.
 - Forms and controls must behave — validate and respond in-page. Send submissions where a FORMS section says; without one, post nowhere and show what a real submission would produce.
 

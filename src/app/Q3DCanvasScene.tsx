@@ -99,6 +99,15 @@ const CAMERA_Z_DISTANCE = 9.5;
 // beveled edges every few seconds instead of only reflecting the fixed
 // key/rim lights.
 const GLINT_PERIOD_SECONDS = 4.5;
+const GLINT_INTENSITY = 6;
+/* The glint is dark for its first GLINT_HOLD seconds, then eases to full over
+   GLINT_RAMP more. Pure. */
+const GLINT_HOLD_SECONDS = 1.6;
+const GLINT_RAMP_SECONDS = 1.4;
+export function glintRamp(t: number): number {
+  const x = Math.min(1, Math.max(0, (t - GLINT_HOLD_SECONDS) / GLINT_RAMP_SECONDS));
+  return x * x * (3 - 2 * x);
+}
 const GLINT_ORBIT_RADIUS = 3.4;
 // Flattens the orbit's Y extent relative to X, so the glint traces an
 // ellipse (wide sweep, shallow rise/fall) rather than a full circle — this
@@ -128,10 +137,18 @@ const GLINT_VERTICAL_COMPRESSION = 0.5;
  * of its own and draws perfectly well with no environment at all, so waiting
  * forever on a reflection map is strictly worse than drawing without one. See
  * FrameDeadline. */
+/* Frames drawn before the hand-over: the very first ones after the
+   environment resolves can still be settling its reflections, and the flat
+   mark should give way to a finished drawing, not the first one. */
+const SETTLE_FRAMES = 4;
+
 function FirstFrame({ onPainted }: { onPainted?: () => void }) {
   const reported = useRef(false);
+  const frames = useRef(0);
   useFrame(() => {
     if (reported.current || !onPainted) return;
+    frames.current += 1;
+    if (frames.current < SETTLE_FRAMES) return;
     reported.current = true;
     onPainted();
   });
@@ -337,15 +354,22 @@ function GlintLight() {
 
   useFrame(({ clock }) => {
     if (!lightRef.current) return;
-    const angle = (clock.getElapsedTime() / GLINT_PERIOD_SECONDS) * Math.PI * 2;
+    const t = clock.getElapsedTime();
+    const angle = (t / GLINT_PERIOD_SECONDS) * Math.PI * 2;
     lightRef.current.position.set(
       Math.cos(angle) * GLINT_ORBIT_RADIUS,
       Math.sin(angle) * GLINT_ORBIT_RADIUS * GLINT_VERTICAL_COMPRESSION,
       2.6
     );
+    /* Off at first, then eased up to full. The orbit starts in front of the
+       mark, so at full strength from frame one the very first thing the 3D
+       mark showed — on every load and refresh — was a white flash, before it
+       settled to obsidian. Now it arrives dark, matching the flat mark it
+       replaces, and the glint only starts sweeping once it is on screen. */
+    lightRef.current.intensity = GLINT_INTENSITY * glintRamp(t);
   });
 
-  return <pointLight ref={lightRef} color="#ffffff" intensity={6} distance={9} decay={2} />;
+  return <pointLight ref={lightRef} color="#ffffff" intensity={0} distance={9} decay={2} />;
 }
 
 export default function Q3DCanvasScene({

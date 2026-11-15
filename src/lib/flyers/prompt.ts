@@ -1,3 +1,4 @@
+import { calmSpace, layoutFor, typeStyleFor } from './type-styles';
 import type { BrandKit, FlyerSpec, Provider } from './types';
 
 const NO_MARKS = `No logo, emblem, monogram, brand mark, icon with letters, signature or watermark anywhere in the image.`;
@@ -26,9 +27,7 @@ export function buildPrompt(brand: BrandKit, spec: FlyerSpec, provider: Provider
         ].filter(Boolean).join('\n')
       : [
           `Do NOT render any text, letters, numbers, signs, labels or logos in any language or script — the words are set afterwards in real type.`,
-          spec.format === 'landscape'
-            ? `Keep the left half of the image calm, darker and uncluttered for the words; put the subject on the right.`
-            : `Keep the lower half of the image calm, darker and uncluttered for the words; put the subject in the upper half.`,
+          calmSpace(layoutFor(typeStyleFor({ typeStyle: brand.typeStyle, vibe: brand.vibe, headingFont: brand.fonts?.heading, imagery: spec.imagery, headline: spec.headline }), spec.layout), spec.format === 'landscape'),
           NO_MARKS,
         ].join('\n');
 

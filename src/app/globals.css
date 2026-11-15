@@ -1429,3 +1429,13 @@ html.qs-scrolling .qs-edge-glow,
 html.qs-scrolling .metal-shimmer {
   animation-play-state: paused;
 }
+
+/* The video studio on a phone: every field at 16px, so tapping one never
+   makes iOS zoom the page in (it does for anything smaller). */
+@media (max-width: 639px) {
+  .qs-studio input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  .qs-studio select,
+  .qs-studio textarea {
+    font-size: 16px;
+  }
+}

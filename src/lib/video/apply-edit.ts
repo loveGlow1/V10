@@ -23,7 +23,7 @@ import { chargeCredits, currentBalance } from "@/lib/credits-server";
 import { stopped } from "@/lib/ai/llm";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 
-import { applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
+import { EDIT_RETRY_BUDGET_MS, applyEdit, carryByContent, decideEdit, type Carry, type Edit } from "./editor";
 import { dropsNarration, wantsNarration } from "./director";
 import { pictureKey, voiceKey } from "./editor-timeline";
 import { madeLibrary, type MadeRow } from "./reuse";
@@ -130,6 +130,7 @@ export async function editVideo(input: {
     .order("version", { ascending: false })
     .limit(12);
   const history = (earlier ?? []).map((row) => ({ version: row.version as number, note: row.note as string | null, plan: row.plan as ProductionPlan }));
+  const askedAt = Date.now();
   const ask = (nudge?: string) => decideEdit({ plan, made, instruction: input.instruction, assets: uploads, model: agent.apiId, ...context, stills, history, nudge });
   let decided = await ask();
   if ("error" in decided) return { ok: false, message: `${decided.error} Nothing was changed or charged — try again in a moment.` };
@@ -154,7 +155,8 @@ export async function editVideo(input: {
   /* An answer that changes nothing, though a change was asked for: asked
      once more, plainly. Still nothing — said so, and nothing is charged. */
   if (changesNothing(plan, decided.edit, uploads)) {
-    const again = await ask(
+    /* Asked again only while there is time left in the request for it. */
+    const again = Date.now() - askedAt > EDIT_RETRY_BUDGET_MS ? decided : await ask(
       wantsNarration(input.instruction)
         ? "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a VOICE-OVER. Write a spoken line for every scene (action \"revoice\" with the full new line in \"voiceover\") and set cut.audio to \"voiceover\" (or \"mix\" for their own clips with sound). Do not refilm anything."
         : "YOUR LAST ANSWER CHANGED NOTHING, but the person asked for a change. Make the edit they asked for now — on the scene(s) it concerns — using the fields above. Only if it truly cannot be done, keep the scenes unchanged and say why in reply.",

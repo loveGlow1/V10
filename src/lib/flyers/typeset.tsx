@@ -20,6 +20,7 @@ import { ImageResponse } from "next/og";
 import sharp from "sharp";
 
 import type { BrandKit, FlyerSpec } from "./types";
+import { fontUrl, layoutFor, typeStyleFor, type FlyerLayout } from "./type-styles";
 
 /* Inter, and Playfair Display for an elegant brief — fetched once per
    instance (Satori needs the font files; TTF, not WOFF2). */
@@ -66,7 +67,7 @@ export function headlineSize(width: number, text: string, landscape: boolean): n
 /* An elegant brief gets a serif headline; everything else, Inter. */
 export const wantsSerif = (brand: Pick<BrandKit, "vibe">) => /\b(luxur|elegan|premium|classic|editorial|wedding|fine dining|boutique)/i.test(brand.vibe ?? "");
 
-/** The flier: the picture, with its words set over it. A PNG. */
+/** The flier: the picture, with its words set over it, in its type style and layout. A PNG. */
 export async function typeset(art: Buffer, input: { spec: FlyerSpec; brand: BrandKit; logo: boolean }): Promise<Buffer> {
   const { spec, brand } = input;
   const meta = await sharp(art).metadata();
@@ -75,95 +76,109 @@ export async function typeset(art: Buffer, input: { spec: FlyerSpec; brand: Bran
   const landscape = width > height * 1.15;
   const picture = `data:image/png;base64,${(await sharp(art).png().toBuffer()).toString("base64")}`;
 
-  const serif = wantsSerif(brand);
-  const [regular, semibold, bold, display] = await Promise.all([font(FONTS.sans400), font(FONTS.sans600), font(FONTS.sans800), serif ? font(FONTS.serif700) : Promise.resolve(null)]);
-  if (!regular || !bold) throw new Error("The flier's typeface could not be loaded.");
+  /* The style: asked for, read from the vibe, or an elegant brief's serif. */
+  const style = typeStyleFor({ typeStyle: brand.typeStyle ?? (wantsSerif(brand) ? "elegant" : undefined), vibe: brand.vibe, headingFont: brand.fonts?.heading, imagery: spec.imagery, headline: spec.headline });
+  const layout: FlyerLayout = landscape ? "bottom" : layoutFor(style, spec.layout);
+  const [headFont, bodyFont, strongFont, fallback] = await Promise.all([font(fontUrl(style.heading)), font(fontUrl(style.body)), font(fontUrl(style.bodyStrong)), font(FONTS.sans800)]);
+  const body400 = bodyFont ?? (await font(FONTS.sans400));
+  if (!body400 || !(headFont ?? fallback)) throw new Error("The flier's typeface could not be loaded.");
+  const HEAD = headFont ? "Head" : "Inter";
+  const BODY = bodyFont ? "Body" : "Inter";
 
   const accent = hex(brand.colors.accent, hex(brand.colors.primary, "#f97316"));
+  const primary = hex(brand.colors.primary, accent);
   const scrim = "11,11,15";
   const unit = Math.min(width, height);
   const pad = Math.round(width * 0.07);
-  const headline = spec.headline.trim();
+  const headline = style.upper ? spec.headline.trim().toUpperCase() : spec.headline.trim();
   const details = (spec.details ?? []).filter((d) => d.trim()).slice(0, 4);
-  const h1 = headlineSize(width, headline, landscape);
+  const h1 = Math.round(headlineSize(width, headline, landscape) * (style.upper ? 1.08 : 1) * (layout === "center" ? 0.86 : 1));
   const body = Math.round(unit * (landscape ? 0.034 : 0.036));
   const small = Math.round(unit * (landscape ? 0.027 : 0.029));
 
+  /* The colours the words are set in: white over the picture's fade, the
+     band's own ink on a solid band, dark ink on the light centre card. */
+  const bandInk = inkOn(primary);
+  const ink = layout === "band" ? bandInk : layout === "center" ? "#111114" : "#ffffff";
+  const centred = layout === "center";
+  const chipBg = layout === "band" && inkOn(accent) === inkOn(primary) && accent.toLowerCase() === primary.toLowerCase() ? bandInk : accent;
+
   const words = (
-    <div
-      style={{
-        position: "absolute",
-        left: 0,
-        bottom: 0,
-        width: landscape ? "62%" : "100%",
-        height: landscape ? "100%" : "auto",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-end",
-        padding: `${pad}px`,
-        color: "#ffffff",
-      }}
-    >
-      <div style={{ display: "flex", fontFamily: display ? "Display" : "Inter", fontWeight: 800, fontSize: h1, lineHeight: 1.04, letterSpacing: display ? 0 : -h1 * 0.02 }}>{headline}</div>
+    <div style={{ display: "flex", flexDirection: "column", width: centred ? "auto" : "100%", alignItems: centred ? "center" : "flex-start", textAlign: centred ? "center" : "left", color: ink }}>
+      <div style={{ display: "flex", justifyContent: centred ? "center" : "flex-start", fontFamily: HEAD, fontWeight: headFont ? style.heading.weight : 800, fontSize: h1, lineHeight: style.leading, letterSpacing: h1 * style.tracking }}>{headline}</div>
       {spec.subhead?.trim() ? (
-        <div style={{ display: "flex", marginTop: Math.round(body * 0.7), fontFamily: "Inter", fontWeight: 400, fontSize: body * 1.12, lineHeight: 1.3, opacity: 0.92 }}>{spec.subhead.trim()}</div>
+        <div style={{ display: "flex", marginTop: Math.round(body * 0.7), fontFamily: BODY, fontWeight: 400, fontSize: body * 1.12, lineHeight: 1.3, opacity: 0.92 }}>{spec.subhead.trim()}</div>
       ) : null}
       {details.length ? (
-        <div style={{ display: "flex", flexDirection: "column", marginTop: Math.round(body * 1.1) }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: centred ? "center" : "flex-start", marginTop: Math.round(body * 1.1) }}>
           {details.map((line, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", marginTop: i ? Math.round(small * 0.55) : 0, fontFamily: "Inter", fontWeight: 400, fontSize: small, lineHeight: 1.35 }}>
-              <div style={{ width: Math.round(small * 0.38), height: Math.round(small * 0.38), borderRadius: 999, background: accent, marginRight: Math.round(small * 0.6), flexShrink: 0 }} />
+            <div key={i} style={{ display: "flex", alignItems: "center", marginTop: i ? Math.round(small * 0.55) : 0, fontFamily: BODY, fontWeight: 400, fontSize: small, lineHeight: 1.35 }}>
+              {centred ? null : <div style={{ width: Math.round(small * 0.38), height: Math.round(small * 0.38), borderRadius: 999, background: layout === "band" ? bandInk : accent, marginRight: Math.round(small * 0.6), flexShrink: 0 }} />}
               <div style={{ display: "flex" }}>{line.trim()}</div>
             </div>
           ))}
         </div>
       ) : null}
       {spec.cta?.trim() || (!input.logo && brand.name.trim()) ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: Math.round(body * 1.4) }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: centred ? "center" : "space-between", width: centred ? "auto" : "100%", marginTop: Math.round(body * 1.4) }}>
           {spec.cta?.trim() ? (
-            <div style={{ display: "flex", background: accent, color: inkOn(accent), fontFamily: "Inter", fontWeight: 600, fontSize: Math.round(small * 1.08), padding: `${Math.round(small * 0.62)}px ${Math.round(small * 1.25)}px`, borderRadius: 999 }}>
+            <div style={{ display: "flex", background: chipBg, color: inkOn(chipBg), fontFamily: strongFont ? "BodyStrong" : "Inter", fontWeight: strongFont ? style.bodyStrong.weight : 600, fontSize: Math.round(small * 1.08), padding: `${Math.round(small * 0.62)}px ${Math.round(small * 1.25)}px`, borderRadius: style.id === "raw" || style.id === "bold" ? 4 : 999, textTransform: style.upper ? "uppercase" : "none", letterSpacing: style.upper ? small * 0.04 : 0 }}>
               {spec.cta.trim()}
             </div>
           ) : (
             <div style={{ display: "flex" }} />
           )}
-          {!input.logo && brand.name.trim() ? (
-            <div style={{ display: "flex", fontFamily: "Inter", fontWeight: 800, fontSize: Math.round(small * 1.05), letterSpacing: small * 0.02, opacity: 0.95 }}>{brand.name.trim()}</div>
+          {!input.logo && brand.name.trim() && !centred ? (
+            <div style={{ display: "flex", fontFamily: HEAD, fontWeight: headFont ? style.heading.weight : 800, fontSize: Math.round(small * 1.05), letterSpacing: small * 0.02, opacity: 0.95 }}>{brand.name.trim()}</div>
           ) : null}
         </div>
       ) : null}
+      {!input.logo && brand.name.trim() && centred ? (
+        <div style={{ display: "flex", marginTop: Math.round(body * 0.9), fontFamily: BODY, fontWeight: 400, fontSize: small, letterSpacing: small * 0.12, textTransform: "uppercase", opacity: 0.7 }}>{brand.name.trim()}</div>
+      ) : null}
     </div>
   );
+
+  /* The four arrangements. */
+  const fade =
+    layout === "top"
+      ? `linear-gradient(0deg, rgba(${scrim},0) 38%, rgba(${scrim},0.7) 70%, rgba(${scrim},0.92) 100%)`
+      : landscape
+        ? `linear-gradient(90deg, rgba(${scrim},0.9) 0%, rgba(${scrim},0.72) 45%, rgba(${scrim},0) 75%)`
+        : `linear-gradient(180deg, rgba(${scrim},0) 30%, rgba(${scrim},0.7) 58%, rgba(${scrim},0.92) 100%)`;
+  const arranged =
+    layout === "band" ? (
+      <div style={{ position: "absolute", left: 0, bottom: 0, width: "100%", display: "flex", flexDirection: "column", background: primary, padding: `${Math.round(pad * 0.9)}px ${pad}px ${pad}px` }}>
+        <div style={{ position: "absolute", left: 0, top: -Math.round(unit * 0.012), width: "100%", height: Math.round(unit * 0.012), background: accent, display: "flex" }} />
+        {words}
+      </div>
+    ) : layout === "center" ? (
+      <div style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: pad }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "rgba(255,255,255,0.92)", borderRadius: Math.round(unit * 0.02), padding: `${Math.round(pad * 1.1)}px ${pad}px`, maxWidth: "86%", boxShadow: "0 30px 80px rgba(0,0,0,0.35)" }}>{words}</div>
+      </div>
+    ) : (
+      <div style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: layout === "top" ? "flex-start" : "flex-end", alignItems: "stretch", background: fade }}>
+        <div style={{ display: "flex", flexDirection: "column", width: landscape ? "62%" : "100%", height: landscape ? "100%" : "auto", justifyContent: layout === "top" ? "flex-start" : "flex-end", padding: `${layout === "top" ? Math.round(pad * (input.logo ? 2.2 : 1)) : pad}px ${pad}px ${pad}px` }}>{words}</div>
+      </div>
+    );
 
   const response = new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", display: "flex", position: "relative", background: `rgb(${scrim})` }}>
         {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
         <img src={picture} width={width} height={height} style={{ position: "absolute", left: 0, top: 0, width, height }} />
-        <div
-          style={{
-            position: "absolute",
-            left: 0,
-            bottom: 0,
-            width: "100%",
-            height: "100%",
-            display: "flex",
-            background: landscape
-              ? `linear-gradient(90deg, rgba(${scrim},0.9) 0%, rgba(${scrim},0.72) 45%, rgba(${scrim},0) 75%)`
-              : `linear-gradient(180deg, rgba(${scrim},0) 30%, rgba(${scrim},0.7) 58%, rgba(${scrim},0.92) 100%)`,
-          }}
-        />
-        {words}
+        {arranged}
       </div>
     ),
     {
       width,
       height,
       fonts: [
-        { name: "Inter", data: regular, weight: 400, style: "normal" },
-        ...(semibold ? [{ name: "Inter", data: semibold, weight: 600 as const, style: "normal" as const }] : []),
-        { name: "Inter", data: bold, weight: 800, style: "normal" },
-        ...(display ? [{ name: "Display", data: display, weight: 800 as const, style: "normal" as const }] : []),
+        { name: "Inter", data: (await font(FONTS.sans400)) ?? body400, weight: 400, style: "normal" },
+        ...(fallback ? [{ name: "Inter", data: fallback, weight: 800 as const, style: "normal" as const }] : []),
+        ...(headFont ? [{ name: "Head", data: headFont, weight: style.heading.weight as 400, style: "normal" as const }] : []),
+        ...(bodyFont ? [{ name: "Body", data: bodyFont, weight: 400 as const, style: "normal" as const }] : []),
+        ...(strongFont ? [{ name: "BodyStrong", data: strongFont, weight: style.bodyStrong.weight as 600, style: "normal" as const }] : []),
       ],
     },
   );

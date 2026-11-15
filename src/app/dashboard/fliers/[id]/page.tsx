@@ -58,7 +58,8 @@ export default function FlierStudioPage({ params }: { params: Promise<{ id: stri
   const load = useCallback(async () => {
     const response = await fetch(`/api/flyers/${id}`, { cache: "no-store" }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as (Job & { error?: string }) | null;
-    if (!response?.ok || !body) {
+    /* A reply without a job (an error page, an empty body) says so rather than crashing the page. */
+    if (!response?.ok || !body || !(body as { id?: unknown }).id) {
       setError(body?.error ?? "This flier could not be opened.");
       return;
     }

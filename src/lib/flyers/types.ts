@@ -1,3 +1,5 @@
+import type { FlyerLayout, TypeStyleId } from './type-styles';
+
 export type Provider =
   | 'nano-banana-2'
   | 'nano-banana-pro'
@@ -19,6 +21,8 @@ export interface BrandKit {
   colors: { primary: string; secondary?: string; accent?: string; background?: string; text?: string };
   fonts?: { heading?: string; body?: string };
   vibe?: string;
+  /** How the words look: a headline and body pair (type-styles.ts). Read from the vibe when absent. */
+  typeStyle?: TypeStyleId;
   logoUrl?: string;
   /** The flier's own logo, in the flyers bucket (<user>/brand/…). Never drawn
       by a model: stamped onto every image after it is made, in the same
@@ -38,6 +42,8 @@ export interface FlyerSpec {
   format: FlyerFormat;
   textMode: 'ai' | 'overlay';
   styleIntent?: StyleIntent;
+  /** Where the words sit (type-styles.ts). The type style's own when absent. */
+  layout?: FlyerLayout;
 }
 
 export interface FlyerRequest {

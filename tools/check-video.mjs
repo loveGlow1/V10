@@ -963,6 +963,22 @@ const miSrc = readFileSync(join(root, "src/lib/media-intent.ts"), "utf8");
 has(/MEDIA_INTENTS = \["video", "flier"\]/.test(miSrc) && /const publishable = !isMediaIntent\(project\?\.intent\)/.test(pvSrc) && (pvSrc.match(/\{publishable && /g) ?? []).length >= 3, "a video or flier project shows no Publish in the workspace header (phone and desktop) or the changes banner");
 has(/onDeploy=\{isMediaIntent\(project\?\.intent\) \? undefined : requestPublish\}/.test(wsSrc2) && /onPublish=\{isMediaIntent\(project\?\.intent\) \? undefined : requestPublish\}/.test(wsSrc2) && /\{onPublish && \(/.test(readFileSync(join(root, "src/app/dashboard/components/workspace/BuildResultCard.tsx"), "utf8")), "nor on the build card or the phone's quick actions; websites keep it");
 
+console.log("\nthe studio and editor on a phone");
+const mpSrc = readFileSync(join(root, "src/app/dashboard/components/video/MediaPanel.tsx"), "utf8");
+const stSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
+const veSrc3 = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+const cssSrc = readFileSync(join(root, "src/app/globals.css"), "utf8");
+has(/flex w-full flex-wrap items-center gap-x-2 gap-y-2/.test(mpSrc) && (mpSrc.match(/shrink-0 items-center gap-1 whitespace-nowrap rounded-full/g) ?? []).length >= 3, "a media file is two lines on a phone: the file on top, its actions (Add, Use as look, Continue it) whole underneath");
+has(/line-clamp-2 break-words/.test(stSrc) && /flex w-full items-center gap-2 sm:w-auto/.test(stSrc), "the studio title is never squeezed: the actions take their own row");
+has(/box\.scrollTop = box\.scrollHeight/.test(stSrc) && !/scrollIntoView\(\{ block: "nearest" \}\)/.test(stSrc) && /Show \{earlier\.length - 3\} earlier/.test(stSrc), "opening the studio never jumps the page to the chat; old versions fold away");
+has(/\.qs-studio select,/.test(cssSrc) && /font-size: 16px/.test(cssSrc) && /qs-studio relative/.test(stSrc) && /qs-studio relative/.test(veSrc3), "every field in the studio and editor is 16px on a phone, so iOS never zooms in");
+
+{
+  const edB = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
+  const apB = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+  has(/if \(attempt > 0 && Date\.now\(\) - began > EDIT_RETRY_BUDGET_MS\) break;/.test(edB) && /Date\.now\(\) - askedAt > EDIT_RETRY_BUDGET_MS \? decided : await ask\(/.test(apB), "the editor's retries stay inside the request's time, so a slow model ends in a sentence, not a timeout");
+}
+
 console.log("\nmade once, never again");
 {
   const RU = await import(join(dir, "reuse.js"));
