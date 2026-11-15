@@ -13,6 +13,7 @@
 
 import AddMenu from "../../components/AddMenu";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, MessageSquare, Loader2, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
@@ -72,6 +73,12 @@ function download(name: string, body: string, type: string) {
 export default function VideoStudioPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [data, setData] = useState<Loaded | null>(null);
+  const router = useRouter();
+  /* "Edit my clips" has nothing to plan: it opens straight in the editor,
+     where uploads drop onto the timeline by themselves. */
+  useEffect(() => {
+    if (data && data.video.pipeline === "clip_edit" && !data.latest) router.replace(`/dashboard/video/${id}/edit`);
+  }, [data, id, router]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "plan" | "save" | "render">(null);
   const [saved, setSaved] = useState<string | null>(null);

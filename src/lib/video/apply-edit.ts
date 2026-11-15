@@ -38,6 +38,7 @@ import { contextFiles } from "./context-files";
 import { sceneStills, wantsStills } from "./scene-stills";
 import { agentCost, videoAgentFor } from "./agent";
 import { cutCost, wantsMusic } from "./engines";
+import { exportIsFree } from "./free-exports";
 import { creditsLabel } from "./pricing";
 
 const EDIT_COST = 1;
@@ -284,8 +285,8 @@ async function commitNext(input: Loaded & {
   if (input.deferRender) return saveOnly({ ...input, next, carry });
   /* Every new version is cut again, and the cut is charged: nothing is
      saved unless the AI's answer (if any) and the cut can be paid for. */
-  const needed = input.charge + cutCost(next);
   const purse = createSupabaseServiceClient();
+  const needed = input.charge + ((await exportIsFree(purse, userId, videoId, next)) ? 0 : cutCost(next));
   const balance = purse ? await currentBalance(purse, userId) : null;
   if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < needed) {
     return { ok: false, message: `This change needs ${creditsLabel(needed)} (the new cut${input.charge ? " and the AI's answer" : ""}). Top up and try again — nothing was changed.` };

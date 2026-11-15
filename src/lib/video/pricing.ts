@@ -3,8 +3,12 @@
  * starts (charge_credits always lands, short or not), and charged once, when
  * the work is delivered, by its dedupe key.
  *
- *   stitch     "Edit my clips" laid out on the timeline from the uploads
- *   prepare    an upload probed and given its working copy and poster
+ *   stitch     "Edit my clips" laid out on the timeline from the uploads — free
+ *   prepare    an upload probed and given its working copy and poster — free
+ *   own cut    the export of a video made only of the person's own clips:
+ *              half a credit per started minute, and the first
+ *              FREE_OWN_EXPORTS such videos of every account cost nothing
+ *              (free-exports.ts)
  *   cut        the final MP4 (and its ready-to-post versions) made from the
  *              scenes — on every render, every saved edit, every setting
  *              change, every Sound switch: per started minute of the cut
@@ -16,11 +20,15 @@
  *
  * Pure. */
 
-/** Laying uploads out as a timeline. */
-export const STITCH_COST = 1;
-/** Preparing one uploaded clip; one sound file or picture. */
-export const PREPARE_VIDEO_COST = 0.5;
-export const PREPARE_OTHER_COST = 0.1;
+/** Laying uploads out as a timeline: free — editing your own clips by hand costs nothing until Export. */
+export const STITCH_COST = 0;
+/** Preparing one uploaded clip; one sound file or picture: free. */
+export const PREPARE_VIDEO_COST = 0;
+export const PREPARE_OTHER_COST = 0;
+/** Every account's videos of its own clips exported free, once each, for good. */
+export const FREE_OWN_EXPORTS = 3;
+/** The export of an own-clips video, per started minute. */
+export const OWN_CUT_PER_MINUTE = 0.5;
 /** The AI's review of an edit, at the default agent's rate. */
 export const REVIEW_COST = 0.5;
 
@@ -29,6 +37,16 @@ const cents = (value: number) => Math.round(value * 100) / 100;
 /** The cut of a video this long: one credit per started minute, at least one. Pure. */
 export function cutCredits(seconds: number): number {
   return Math.max(1, Math.ceil(Math.max(0, seconds) / 60));
+}
+
+/** The export of a video made only of the person's own clips: half a credit per started minute. Pure. */
+export function ownCutCredits(seconds: number): number {
+  return cents(OWN_CUT_PER_MINUTE * Math.max(1, Math.ceil(Math.max(0, seconds) / 60)));
+}
+
+/** Every scene is the person's own upload — nothing generated in the picture. Pure. */
+export function ownClipsOnly(plan: { scenes: { source?: unknown }[] }): boolean {
+  return plan.scenes.length > 0 && plan.scenes.every((scene) => Boolean(scene.source));
 }
 
 /** Preparing an upload of this kind. Pure. */

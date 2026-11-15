@@ -709,20 +709,30 @@ has(/planReferences\(cast, [^\n]*\{ reserve: \(lastFrame \? 1 : 0\) \+ Math\.min
 console.log("\nno free work");
 const PR = await import(join(dir, "pricing.js"));
 has(PR.cutCredits(10) === 1 && PR.cutCredits(60) === 1 && PR.cutCredits(61) === 2 && PR.cutCredits(0) === 1, "a cut is 1 credit per started minute, at least 1");
-has(PR.prepareCredits("video") === 0.5 && PR.prepareCredits("audio") === 0.1 && PR.STITCH_COST === 1, "preparing an upload and laying clips out are charged");
+has(PR.prepareCredits("video") === 0 && PR.prepareCredits("audio") === 0 && PR.STITCH_COST === 0, "uploading your clips and laying them out are free — only the export is paid");
+has(PR.ownCutCredits(10) === 0.5 && PR.ownCutCredits(60) === 0.5 && PR.ownCutCredits(61) === 1 && PR.ownCutCredits(0) === 0.5 && PR.FREE_OWN_EXPORTS === 3, "an export of your own clips is half a credit per started minute; three videos export free");
+has(PR.ownClipsOnly({ scenes: [{ source: { assetId: "a" } }, { source: { assetId: "b" } }] }) && !PR.ownClipsOnly({ scenes: [{ source: { assetId: "a" } }, {}] }) && !PR.ownClipsOnly({ scenes: [] }), "own clips means every scene is an upload");
+const fx = readFileSync(join(root, "src/lib/video/free-exports.ts"), "utf8");
+const fxSql = readFileSync(join(root, "supabase/migrations/20261115120000_free_own_exports.sql"), "utf8");
+has(/claim_free_export/.test(fx) && /pg_advisory_xact_lock/.test(fxSql) && !/references public\.video_projects/.test(fxSql) && /grant execute on function public\.claim_free_export\(uuid, uuid, int\) to service_role/.test(fxSql), "a free export is claimed atomically, kept when the video is deleted, and only the server can claim one");
+has(/ownExportCharge/.test(readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8")) && /ownExportCharge/.test(readFileSync(join(root, "src/app/api/video/[id]/render/fal/route.ts"), "utf8")), "both cut paths use the free export or the own-clips price");
+has(/exportIsFree/.test(readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8")) && /exportIsFree/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")) && /freeExports:/.test(readFileSync(join(root, "src/lib/video/state.ts"), "utf8")), "a free export is never refused for want of credits, and the button shows it");
+const vex = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+has(/autoStitched\.current = true/.test(vex) && /seenAssets/.test(vex) && /free exports left/.test(vex), "own clips go onto the timeline by themselves, new uploads land on the end, and the free exports left are shown");
+has(/pipeline === "clip_edit" && !data\.latest\) router\.replace/.test(readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8")), "Edit my clips opens straight in the editor");
 has(PR.reviewCredits(1) === 0.5 && PR.reviewCredits(2.5) === 1.25 && PR.creditsLabel(0.5) === "0.5 credits" && PR.creditsLabel(1) === "1 credit", "an AI look-over is charged at the agent's rate");
-has(E.renderCost(stitched, {}) === E.cutCost(stitched, {}) && E.cutCost(stitched, {}) >= 1, "a stitch of uploads alone still pays for its cut");
+has(E.renderCost(stitched, {}) === E.cutCost(stitched, {}) && E.cutCost(stitched, {}) === 0.5, "a stitch of uploads alone pays only the low own-clips export");
 const cl = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
 has(/cost: cutCredits\(total\)/.test(cl) && /dedupeKey: `video-cut:\$\{videoId\}:\$\{version\}`/.test(cl), "every cut made here is charged once per version, by its length");
 const ae = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
-has(/const needed = input\.charge \+ cutCost\(next\)/.test(ae) && ae.indexOf("const needed") < ae.indexOf("const { error: saveError }"), "a saved edit or a Sound switch is refused before anything is saved when the new cut cannot be paid for");
+has(/const needed = input\.charge \+ \(\(await exportIsFree\(purse, userId, videoId, next\)\) \? 0 : cutCost\(next\)\)/.test(ae) && ae.indexOf("const needed") < ae.indexOf("const { error: saveError }"), "a saved edit or a Sound switch is refused before anything is saved when the new cut cannot be paid for");
 const srx = readFileSync(join(root, "src/lib/video/start-render.ts"), "utf8");
 has(/jobCost\(jobs\) \+ cutCost\(plan\)/.test(srx) && /return shortOf\(cutCost\(plan\)\)/.test(srx), "re-renders and edits with nothing to film still check the cut can be paid for");
-has(/STITCH_COST/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /video-stitch:/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "laying out clips is checked and charged");
-has(/prepareCredits\(assetKind\(mime\)\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")) && /video-prepare:/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "an upload is checked before it is sent and charged once it is prepared");
+has(/STITCH_COST > 0 &&/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "laying out clips is charged only if it is priced again");
+has(/price > 0 && balance/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")) && /<= 0\) return;/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "a free upload is never refused or charged");
 const videoUi = ["src/app/dashboard/components/video/VideoSettings.tsx", "src/app/dashboard/components/video/VideoEditor.tsx", "src/app/dashboard/video/[id]/page.tsx", "src/app/api/video/[id]/assist/route.ts"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
 /* Saving a timeline really is free now (apply-edit.ts saveOnly): only that may say so. */
-has(!/for free|is free\b|— free|\. Free\./.test(videoUi.replace(/[Ss]aving (your own edits )?is free/g, "")) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
+has(!/for free|is free\b|— free|\. Free\./.test(videoUi.replace(/[Ss]aving (your own edits )?is free/g, "").replace(/(trimming|arranging)( your clips)? is (always )?free/g, "")) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
 
 console.log("\nthe AI speaks only when it helps");
 has(ED.normalizeReview({ quiet: true }, castPlan).length === 0 && ED.normalizeReview({ quiet: false, suggestions: [] }, castPlan).length === 0, "all is well: the AI stays quiet");

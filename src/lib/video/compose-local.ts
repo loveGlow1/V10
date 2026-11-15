@@ -39,7 +39,8 @@ import { finishArgs, joinArgs, musicMixArgs, sceneAudioFilter, sceneEncodeArgs, 
 import { downloadTo, inspect, runFfmpeg } from "./media-files";
 import { signedUrl } from "./production";
 import { chargeCredits } from "@/lib/credits-server";
-import { cutCredits } from "./pricing";
+import { cutCredits, ownClipsOnly } from "./pricing";
+import { ownExportCharge } from "./free-exports";
 import { chapterStarts, chaptersOf, concatList, musicOffset, partFingerprint, partOf, partPath, partProvider, partsOutput, sceneKey, stableChapters, streamJoinArgs } from "./chapters";
 import { falToken, verifyFalToken } from "./fal";
 import { ffmpegOutput, streamToStorage } from "./stream-upload";
@@ -535,7 +536,7 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
     }
 
     await finish({ status: "done", output_path: `storage:${path}`, error: null });
-    await chargeCut(service, video, videoId, version, total);
+    await chargeCut(service, video, videoId, version, total, undefined, ownClipsOnly(plan));
     await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
     await announceFinal(service, { videoId, version, origin, scenes: made.count });
   } catch (error) {
@@ -545,13 +546,22 @@ export async function composeLocally(service: SupabaseClient, videoId: string, v
   }
 }
 
-/* The cut is work: charged once per version, by its length. */
-async function chargeCut(service: SupabaseClient, video: { user_id: string; title: string }, videoId: string, version: number, total: number, label?: string) {
+/* The cut is work: charged once per version, by its length. A video of the
+   person's own clips exports at the low own-clips rate — or free, while the
+   account has free exports left (free-exports.ts). */
+async function chargeCut(service: SupabaseClient, video: { user_id: string; title: string }, videoId: string, version: number, total: number, label?: string, own = false) {
+  const minutes = Math.max(1, Math.ceil(total / 60));
+  if (own) {
+    const { cost, free } = await ownExportCharge(service, video.user_id, videoId, total);
+    if (free) return;
+    await chargeCredits(service, { userId: video.user_id, action: "generate", cost, description: `Export of your clips (${minutes} min): ${video.title}`, videoId, dedupeKey: `video-cut:${videoId}:${version}` });
+    return;
+  }
   await chargeCredits(service, {
     userId: video.user_id,
     action: "generate",
     cost: cutCredits(total),
-    description: label ?? `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
+    description: label ?? `Video cut (${minutes} min): ${video.title}`,
     videoId,
     dedupeKey: `video-cut:${videoId}:${version}`,
   });
@@ -655,6 +665,7 @@ async function joinParts(service: SupabaseClient, videoId: string, version: numb
     reusedCount
       ? `Video re-cut: ${parts.length - reusedCount} of ${parts.length} parts changed (${Math.max(1, Math.ceil(recut / 60))} min): ${String(video.title)}`
       : undefined,
+    scenes.length > 0 && ownClipsOnly({ scenes }),
   );
   await service.from("video_projects").update({ status: "ready" }).eq("id", videoId);
   await announceFinal(service, { videoId, version, origin, scenes: scenes.length });

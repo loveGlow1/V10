@@ -31,6 +31,7 @@ import { n8nPausedUntil } from "@/lib/video/credit";
 import { ensureKeyframe, ensureSceneFrame, wantsKeyframe } from "@/lib/video/frames";
 import { clipWebhookUrl, speak, submitClip } from "@/lib/video/providers";
 import { landResult } from "@/lib/video/results";
+import { exportIsFree } from "@/lib/video/free-exports";
 import { advance, startMusic } from "@/lib/video/production";
 import { fileUploads } from "@/lib/video/uploads-render";
 import { castPrompt, planReferences, sceneCast } from "@/lib/video/cast";
@@ -72,14 +73,16 @@ export async function startRender(
   }
 
   const answers = (video.answers ?? {}) as Record<string, string>;
-  /* Nothing here is free: every path below checks it can be paid for first. */
+  /* Every path below checks it can be paid for first — less the cut when it
+     is one of the account's free exports of its own clips (free-exports.ts). */
+  const freeCut = (await exportIsFree(createSupabaseServiceClient(), userId, id, plan)) ? cutCost(plan) : 0;
   const covers = async (needed: number) => {
     const service = createSupabaseServiceClient();
     const balance = service ? await currentBalance(service, userId) : null;
-    return !balance || balance.daily + balance.rollover + balance.monthly + balance.topUp >= needed;
+    return !balance || balance.daily + balance.rollover + balance.monthly + balance.topUp >= needed - freeCut;
   };
   const shortOf = (needed: number) =>
-    NextResponse.json({ error: `This needs ${creditsLabel(needed)}. Top up to make the cut.` }, { status: 402 });
+    NextResponse.json({ error: `This needs ${creditsLabel(needed - freeCut)}. Top up to make the cut.` }, { status: 402 });
   const { data: refs } = await supabase.from("video_assets").select("kind, storage_path").eq("video_id", id).neq("kind", "render").order("created_at");
   if (plan.pipeline === "clone" && !(refs ?? []).some((asset) => asset.kind === "person")) {
     return NextResponse.json({ error: "Upload a clear photo of yourself first — your presenter is made from it." }, { status: 400 });
@@ -201,7 +204,7 @@ export async function startRender(
   const service = createSupabaseServiceClient();
   if (service) {
     const balance = await currentBalance(service, userId);
-    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < cost) {
+    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < cost - freeCut) {
       return NextResponse.json({ error: `Generating this needs ${cost} credits. Top up to generate it.` }, { status: 402 });
     }
   }

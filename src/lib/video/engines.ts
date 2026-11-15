@@ -26,7 +26,7 @@ import { type Aspect, type ClipEngine, anyClipEngine, clipCost, routeClip, tierF
 import type { PipelineId } from "./pipelines";
 import type { ProductionPlan } from "./plan";
 import { topUpPricePerCredit } from "@/app/dashboard/credits";
-import { cutCredits } from "./pricing";
+import { cutCredits, ownClipsOnly, ownCutCredits } from "./pricing";
 
 /* Credits per job, charged when its result arrives — never for a failure. */
 export const CLIP_COST = 4;
@@ -176,8 +176,9 @@ export function renderCost(plan: ProductionPlan, env: Env = process.env, quality
   return total;
 }
 
-/** The final cut's price: fal's compose, or the cut made here by its length. */
+/** The final cut's price: a video of the person's own clips at the low own-clips rate; else fal's compose, or the cut made here by its length. */
 export function cutCost(plan: Pick<ProductionPlan, "scenes">, env: Env = process.env): number {
+  if (ownClipsOnly(plan)) return ownCutCredits(totalSeconds(plan));
   return productionEngine(env) === "fal" ? COMPOSE_COST : cutCredits(totalSeconds(plan));
 }
 
