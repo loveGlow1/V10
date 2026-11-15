@@ -16,9 +16,11 @@
 export const STRIP_FRAMES = 8;
 
 /** The server-made strip (or, with count 1, the still) of a clip's [from, from + seconds]. Pure. */
-export function stripUrl(videoId: string, src: string, input: { count?: number; from?: number; seconds?: number } = {}): string {
+export function stripUrl(videoId: string, src: string, input: { count?: number; from?: number; seconds?: number; height?: number } = {}): string {
   const r = (v: number) => Math.round(Math.max(0, v) * 10) / 10;
   const q = new URLSearchParams({ src, n: String(input.count ?? STRIP_FRAMES), a: String(r(input.from ?? 0)), d: String(r(input.seconds ?? 3) || 3) });
+  /* Taller for the player's own still; the timeline's strips stay small. */
+  if (input.height) q.set("h", String(Math.round(input.height)));
   return `/api/video/${videoId}/strip?${q.toString()}`;
 }
 
