@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUpRight, Laptop, MousePointerClick, RotateCw, X } from "lucide-react";
 
@@ -63,6 +64,26 @@ export default function PreviewSheet({
   const [loaded, setLoaded] = useState(false);
   const [mounted, setMounted] = useState(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const router = useRouter();
+  /* A video board's "Open the editor" (lib/video/workspace.ts). The frame is
+     sandboxed, so the board asks and the app opens the editor — in this tab:
+     a tab opened from a message is not a tap, and a phone blocks it as a
+     pop-up. This sheet is the phone's preview, so it listens as well as the
+     desktop panel does (PreviewPanel.tsx). */
+  useEffect(() => {
+    function onMessage(event: MessageEvent) {
+      const data = event.data as { source?: string; state?: string; detail?: { path?: unknown } } | null;
+      if (!data || data.source !== "quickstark-preview" || data.state !== "open-editor") return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      const path = data.detail?.path;
+      if (typeof path === "string" && /^\/dashboard\/video\/[0-9a-f-]{36}\/edit$/i.test(path)) {
+        onClose();
+        router.push(path);
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onClose, router]);
   const { editMode, setEditMode, picked, setPicked, picks, readyCount, deselect, selectParent, editText, stopTyping, typing, saveState, reloadAfterSave, applyStyle, removePicked, coverBelow, typingText, typeLive, cancelTyping } = usePreviewBridge(
     frameRef,
     projectId,
