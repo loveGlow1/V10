@@ -16,7 +16,7 @@ mkdirSync(out, { recursive: true });
 const config = join(out, "tsconfig.json");
 writeFileSync(config, JSON.stringify({
   compilerOptions: { outDir: ".", rootDir: join(process.cwd(), "src"), module: "esnext", target: "es2022", moduleResolution: "bundler", skipLibCheck: true, strict: true, types: ["node"], baseUrl: process.cwd(), paths: { "@/*": ["src/*"] } },
-  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
+  files: ["pipelines.ts", "plan.ts", "engines.ts", "render.ts", "fal.ts", "clip-engines.ts", "credit.ts", "versions.ts", "editor.ts", "exports.ts", "sound.ts", "probe.ts", "assets.ts", "cut-settings.ts", "cut-filters.ts", "timeline.ts", "media-files.ts", "editor-timeline.ts", "voices.ts", "cast.ts", "continuity.ts", "pricing.ts", "look.ts", "chapters.ts", "context-files.ts", "reuse.ts"].map((f) => join(process.cwd(), "src/lib/video", f)),
 }));
 execFileSync("npx", ["tsc", "-p", config], { stdio: "inherit" });
 writeFileSync(join(out, "package.json"), JSON.stringify({ type: "module" }));
@@ -119,7 +119,7 @@ has(!/s\.visual/.test(boardShow) && /Filming scene/.test(boardShow), "a scene st
 has(/We couldn\\u2019t film this video just now/.test(boardSrc) && /You haven\\u2019t been charged for the scenes/.test(boardSrc), "a video that could not be made says so plainly, once, and that nothing was charged for it");
 has(!/could not be made/.test(boardSrc) && /\$\('cap'\)\.hidden=!\(clip&&s\.voiceover\)/.test(boardSrc), "no red per-scene alarms, and no caption laid over the waiting card");
 const studioSrc = readFileSync(join(process.cwd(), "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/sceneFailure\(failure\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
+has(/failureSummary\(failed\)/.test(studioSrc) && !/title=\{failure\}/.test(studioSrc) && !/\{r\.error\}|\$\{r\.error\}/.test(studioSrc), "the studio never shows an engine's own error (keys, providers) to the person");
 const integrationsSrc = readFileSync(join(process.cwd(), "src/app/dashboard/components/workspace/Integrations.tsx"), "utf8");
 const integrationsList = readFileSync(join(process.cwd(), "src/app/dashboard/integrations.ts"), "utf8");
 has(!/building is live/.test(integrationsSrc) && /askChat\(\{ projectId, texts: \[integration\.request/.test(integrationsSrc), "Integrations: Add on Storage / email login really builds it through the chat — no placeholder message");
@@ -399,7 +399,7 @@ has(/serverExternalPackages: \["ffmpeg-static"\]/.test(nextConfig) && /node_modu
 /* Narrated throughout, unless narration is turned off. */
 const directorSrc = readFileSync(join(root, "src/lib/video/director.ts"), "utf8");
 const pipelinesSrc = readFileSync(join(root, "src/lib/video/pipelines.ts"), "utf8");
-has(/- \$\{narrationRule\(answers\.voice\)\}/.test(directorSrc) && /write a voiceover line for EVERY scene/.test(directorSrc), "a narrated video gets a voice line in every scene, not just the last");
+has(/- \$\{narrationRule\(answers\.voice, note\)\}/.test(directorSrc) && /write a voiceover line for EVERY scene/.test(directorSrc), "a narrated video gets a voice line in every scene, not just the last");
 has(/no voiceover\|music only\|none/.test(directorSrc), "No voiceover / Music only still means none");
 has(!/initial: "Music only"/.test(pipelinesSrc) && /id: "voice", label: "Voiceover", options: \["Male", "Female", "No voiceover"\], initial: "Male"/.test(pipelinesSrc), "trailers ask for a voice, and every type defaults to narrated");
 /* The finished video in the chat, with Download. */
@@ -721,7 +721,8 @@ has(/jobCost\(jobs\) \+ cutCost\(plan\)/.test(srx) && /return shortOf\(cutCost\(
 has(/STITCH_COST/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")) && /video-stitch:/.test(readFileSync(join(root, "src/lib/video/plan-video.ts"), "utf8")), "laying out clips is checked and charged");
 has(/prepareCredits\(assetKind\(mime\)\)/.test(readFileSync(join(root, "src/app/api/video/[id]/assets/upload-url/route.ts"), "utf8")) && /video-prepare:/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "an upload is checked before it is sent and charged once it is prepared");
 const videoUi = ["src/app/dashboard/components/video/VideoSettings.tsx", "src/app/dashboard/components/video/VideoEditor.tsx", "src/app/dashboard/video/[id]/page.tsx", "src/app/api/video/[id]/assist/route.ts"].map((f) => readFileSync(join(root, f), "utf8")).join("\n");
-has(!/for free|is free\b|— free|\. Free\./.test(videoUi) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
+/* Saving a timeline really is free now (apply-edit.ts saveOnly): only that may say so. */
+has(!/for free|is free\b|— free|\. Free\./.test(videoUi.replace(/[Ss]aving (your own edits )?is free/g, "")) && !/Free\.'|free, and nothing/.test(readFileSync(join(root, "src/lib/video/workspace.ts"), "utf8")), "nothing in the studio says an edit is free");
 
 console.log("\nthe AI speaks only when it helps");
 has(ED.normalizeReview({ quiet: true }, castPlan).length === 0 && ED.normalizeReview({ quiet: false, suggestions: [] }, castPlan).length === 0, "all is well: the AI stays quiet");
@@ -874,7 +875,7 @@ has(/contextFiles\(supabase, uploads, marked\)/.test(readFileSync(join(root, "sr
 has(/contextFiles\(input\.writer/.test(readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8")) && /contextFiles\(supabase, uploads/.test(readFileSync(join(root, "src/app/api/video/[id]/assist/route.ts"), "utf8")) && /DOCUMENTS_NOTE/.test(readFileSync(join(root, "src/lib/video/editor.ts"), "utf8")), "so does the AI editor, from the chat and from the editor");
 has(/asset\.kind === "document"[\s\S]{0,200}status: "ready"/.test(readFileSync(join(root, "src/lib/video/prepare-asset.ts"), "utf8")), "a document is ready as soon as it is uploaded");
 const ctxStudioSrc = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /<Paperclip/.test(ctxStudioSrc), "the studio's change box has a paperclip, and the message names what was attached");
+has(/uploadStudioFile\(props\.videoId, file\)/.test(ctxStudioSrc) && /Use the files I attached for this: \$\{attached\.map/.test(ctxStudioSrc) && /"Add images", ImagePlus, imageInput/.test(ctxStudioSrc) && /"Add files", Paperclip, fileInput/.test(ctxStudioSrc), "the studio's change box has a + menu (Add images, Add files), and the message names what was attached");
 const ctxChatSrc = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
 has(/if \(project\.intent === "video"\) \{\s*await attachToVideo\(files\)/.test(ctxChatSrc) && /uploadStudioFile\(videoId, file\)/.test(ctxChatSrc) && /project\?\.intent === "video" \? VIDEO_ACCEPT : ACCEPT/.test(ctxChatSrc), "a file attached in the workspace chat of a video goes into the video's media, and its @name into the message");
 
@@ -976,6 +977,43 @@ has(/\.qs-studio select,/.test(cssSrc) && /font-size: 16px/.test(cssSrc) && /qs-
   const edB = readFileSync(join(root, "src/lib/video/editor.ts"), "utf8");
   const apB = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
   has(/if \(attempt > 0 && Date\.now\(\) - began > EDIT_RETRY_BUDGET_MS\) break;/.test(edB) && /Date\.now\(\) - askedAt > EDIT_RETRY_BUDGET_MS \? decided : await ask\(/.test(apB), "the editor's retries stay inside the request's time, so a slow model ends in a sentence, not a timeout");
+}
+
+console.log("\nmade once, never again");
+{
+  const RU = await import(join(dir, "reuse.js"));
+  const DR = await import(join(dir, "director.js"));
+  const scene = (n, prompt, extra = {}) => ({ n, duration: 5, shot: "", visual: "", onScreenText: "", voiceover: "", sound: "", motionPrompt: prompt, engine: "video", ...extra });
+  const v1 = { scenes: [scene(1, "a city at night", { voiceover: "3 A.M." }), scene(2, "a hacker types")], cut: {} };
+  const v2 = { scenes: [scene(1, "a hacker types", { onScreenText: "NEW TEXT" }), scene(2, "a city at night", { voiceover: "3 A.M." }), scene(3, "a red screen")], cut: {} };
+  const rows = [
+    { version: 1, scene: 1, engine: "video", status: "done", provider: "p", output_path: "storage:c1" },
+    { version: 1, scene: 2, engine: "video", status: "done", provider: "p", output_path: "storage:c2" },
+    { version: 1, scene: 1, engine: "voice", status: "done", provider: "p", output_path: "storage:v1" },
+  ];
+  const lib = RU.madeLibrary(new Map([[1, v1], [2, v2]]), rows, 2);
+  const { reused, remaining } = RU.reuseMade(v2, [{ kind: "clip", n: 1 }, { kind: "clip", n: 2 }, { kind: "clip", n: 3 }, { kind: "voice", n: 2 }], lib);
+  has(reused.find((r) => r.scene === 1)?.output_path === "storage:c2" && reused.find((r) => r.scene === 2 && r.engine === "video")?.output_path === "storage:c1", "a clip made in an earlier version is reused wherever its scene moved, words on screen changed or not");
+  has(reused.find((r) => r.engine === "voice")?.output_path === "storage:v1", "and the same words in the same voice are not voiced again");
+  has(remaining.length === 1 && remaining[0].n === 3, "only the scene never made is filmed");
+  const seg = ET.segmentsFor(v2, [], [], { pictures: { [ET.pictureKey(v2.scenes[0])]: "u2" }, voices: {} });
+  has(seg[0].kind === "video" && seg[0].mediaUrl === "u2" && seg[2].kind === "pending", "the timeline shows a made scene's frames, by content, not 'Made on export'");
+  const linked = { scenes: [scene(1, "x"), scene(2, "y", { continues: true })], cut: {} };
+  const lib2 = RU.madeLibrary(new Map([[1, linked]]), [{ version: 1, scene: 2, engine: "video", status: "done", provider: "p", output_path: "storage:y" }], 1);
+  has(RU.reuseMade(linked, [{ kind: "clip", n: 1 }, { kind: "clip", n: 2 }], lib2).remaining.length === 2, "a scene filmed on from one being re-filmed is filmed again too");
+  has(DR.wantsNarration("can you add a voice over") && DR.wantsNarration("Add narration to every scene") && !DR.wantsNarration("remove the voiceover") && DR.dropsNarration("remove the voiceover"), "'add a voice-over' and 'remove the voice-over' are recognised");
+  has(/Narrated throughout/.test(DR.narrationRule("No voiceover", "add a voiceover please")) && /No narration/.test(DR.narrationRule("No voiceover")), "a voice-over asked for later wins over a 'no voiceover' choice at the start");
+  const ae = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+  has(/deferRender: true/.test(ae) && /if \(input\.deferRender\) return saveOnly/.test(ae) && !/startRender|startMusic|advance\(|chargeCredits/.test(ae.slice(ae.indexOf("async function saveOnly"), ae.indexOf("function scenesWord"))), "a timeline save films, voices, scores, cuts and charges nothing");
+}
+
+console.log("\nan edit changes what was asked, nothing more");
+{
+  const ae = readFileSync(join(root, "src/lib/video/apply-edit.ts"), "utf8");
+  has(/made, started: rows\.length > 0/.test(ae) && !/Nothing filmed yet: there is nothing to edit/.test(ae), "a plan whose clips failed is still edited, never planned again from scratch");
+  has(/decided\.edit\.replan && !wantsNewVideo\(input\.instruction\)/.test(ae), "the editor's 'new video' is questioned unless a new video was asked for");
+  has(/onlyNamedScenes\(decided\.edit, input\.instruction, made\)/.test(ae), "'change scene 3' touches scene 3 only");
+  has(/onlyScenes: \{ clips, voices \}/.test(ae) && /deferRender: !loaded\.started/.test(ae), "an edit films only the scenes it changed; before Generate it only changes the plan");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

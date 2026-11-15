@@ -62,7 +62,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const decided = await decideEdit({ plan, made, instruction, assets: uploads, model: agent.apiId, ...files });
   if ("error" in decided) return NextResponse.json({ error: `${decided.error} Nothing was charged.` }, { status: 502 });
   if (service) {
-    await chargeCredits(service, { userId, action: "generate", cost, description: `Video AI editor (${agent.name}): ${video.title}`, outputTokens: decided.outputTokens, dedupeKey: `video-assist:${id}:${Date.now()}` });
+    await chargeCredits(service, { userId, action: "generate", cost, description: `Video AI editor (${agent.name}): ${video.title}`, outputTokens: decided.outputTokens, videoId: id, dedupeKey: `video-assist:${id}:${Date.now()}` });
   }
   if (decided.edit.replan) {
     return NextResponse.json({ reply: `${decided.edit.reply} That sounds like a different video — use "Plan again" in the studio for a new plan.`, plan: null });

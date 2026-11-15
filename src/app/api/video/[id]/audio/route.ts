@@ -88,7 +88,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (error || !row) return NextResponse.json({ error: "It was made but could not be saved. Nothing was charged — try again." }, { status: 500 });
 
   if (service) {
-    await chargeCredits(service, { userId, action: "generate", cost, description: `${name.slice(0, 120)}: ${video.title}`, dedupeKey: `video-audio:${row.id}` });
+    await chargeCredits(service, { userId, action: "generate", cost, description: `${name.slice(0, 120)}: ${video.title}`, videoId: id, dedupeKey: `video-audio:${row.id}` });
   }
   const { data: signed } = await supabase.storage.from("video-assets").createSignedUrl(path, 60 * 60);
   return NextResponse.json({

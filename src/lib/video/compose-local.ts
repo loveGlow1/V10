@@ -531,6 +531,7 @@ async function chargeCut(service: SupabaseClient, video: { user_id: string; titl
     action: "generate",
     cost: cutCredits(total),
     description: label ?? `Video cut (${Math.max(1, Math.ceil(total / 60))} min): ${video.title}`,
+    videoId,
     dedupeKey: `video-cut:${videoId}:${version}`,
   });
 }

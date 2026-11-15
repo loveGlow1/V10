@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, MessageSquare, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, ChevronDown, Download, History, ImagePlus, MessageSquare, Loader2, Paperclip, Plus, Pause, Play, RotateCcw, Scissors, ShieldCheck, Sparkles, Trash2, Wand2, X } from "lucide-react";
 
 import SaveFileButton from "@/components/SaveFileButton";
 import { ACCEPT_ATTRIBUTE, formatSeconds, handleFor } from "@/lib/video/assets";
@@ -31,7 +31,7 @@ import VideoSettings from "../../components/video/VideoSettings";
 import { PIPELINE_ICON } from "../../components/video/VideoTypeGrid";
 
 type Readiness = { ready: boolean; notes?: string[]; engines: { engine: string; label: string; health: string; required?: boolean }[] } | null;
-type RenderRow = { scene: number | null; engine: string; status: string; error: string | null; url: string | null };
+type RenderRow = { scene: number | null; engine: string; status: string; error: string | null; url: string | null; created_at?: string; updated_at?: string };
 type Loaded = {
   video: { id: string; user_id: string; pipeline: string; title: string; brief: string; answers: Record<string, string>; status: string; current_version: number };
   latest: { version: number; plan: ProductionPlan; issues: QaIssue[]; note: string } | null;
@@ -73,6 +73,15 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "plan" | "save" | "render">(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /* Scene cards open in the list (collapsed by default: a long film is a long list). */
+  const [openScenes, setOpenScenes] = useState<Set<number>>(() => new Set());
+  const toggleScene = (n: number) =>
+    setOpenScenes((open) => {
+      const next = new Set(open);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
   const [draft, setDraft] = useState<ProductionPlan | null>(null);
   const [issues, setIssues] = useState<QaIssue[]>([]);
   const [note, setNote] = useState("");
@@ -395,15 +404,18 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             )}
             {/* Step 5: generate */}
             <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4">
+              {/* Generate is for a video not yet made; changes after that make only what they need. */}
+              {(!data.renders.length || status === "rendering") && (
               <button
                 onClick={() => void render()}
                 disabled={busy !== null || dirty || status === "rendering"}
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-full bg-solid text-[14px] font-medium text-onSolid disabled:opacity-50"
               >
                 {busy === "render" || status === "rendering" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {status === "rendering" ? "Generating…" : data.renders.length ? "Generate again" : "Generate video"}
+                {status === "rendering" ? "Generating…" : "Generate video"}
                 {status !== "rendering" && data.latest && <span className="text-[12px] opacity-70">· {data.cost} credits</span>}
               </button>
+              )}
               {data.renders.length > 0 && <RenderProgress renders={data.renders} />}
               {data.renders.some((r) => r.status === "failed") && status !== "rendering" && (
                 <button onClick={() => void render(true)} disabled={busy !== null} className="mt-2 flex h-8 items-center gap-1.5 rounded-full border border-line/[0.1] px-3 text-[12.5px] text-ink disabled:opacity-40">
@@ -453,8 +465,18 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
             {saved && !dirty && <p className="text-[12.5px] text-emerald-400">{saved}</p>}
             {/* Step 4: scenes — the timeline */}
             <section className="space-y-2.5">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[14px] font-medium text-ink">Scenes <span className="text-[12px] font-normal text-muted">· {formatSeconds(timelineSeconds(shown, data.assets))} · {shown.scenes.length}</span></h2>
+                {shown.scenes.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenScenes(openScenes.size ? new Set() : new Set(shown.scenes.map((x) => x.n)))}
+                    className="ml-auto flex h-8 items-center gap-1 rounded-full px-3 text-[12.5px] text-muted transition-colors hover:bg-layer/[0.06] hover:text-ink"
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${openScenes.size ? "rotate-180" : ""}`} />
+                    {openScenes.size ? "Collapse all" : "Show all"}
+                  </button>
+                )}
                 {dirty && (
                   <div className="flex gap-2">
                     <button onClick={() => setDraft(data.latest?.plan ?? null)} className="h-8 rounded-full px-3 text-[12.5px] text-muted hover:text-ink">Discard</button>
@@ -466,8 +488,19 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
               </div>
               {shown.scenes.map((scene) => (
                 <article key={scene.n} className="rounded-[14px] border border-line/[0.08] bg-panel p-3.5">
+                  {!openScenes.has(scene.n) ? (
+                    /* Collapsed: one line — the scene, its length and what it shows or says. */
+                    <button type="button" onClick={() => toggleScene(scene.n)} aria-expanded={false} className="flex w-full items-center gap-2 text-left text-[12px]">
+                      <span className="shrink-0 font-semibold text-ink">Scene {scene.n}</span>
+                      <span className="shrink-0 tabular-nums text-muted">{scene.duration}s</span>
+                      <span className="min-w-0 flex-1 truncate text-soft">{scene.onScreenText || scene.voiceover || scene.shot || scene.visual}</span>
+                      <ChevronDown className="h-4 w-4 shrink-0 text-muted" />
+                    </button>
+                  ) : (<>
                   <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                    <span className="font-semibold text-ink">Scene {scene.n}</span>
+                    <button type="button" onClick={() => toggleScene(scene.n)} aria-expanded aria-label={`Collapse scene ${scene.n}`} className="-ml-1 flex items-center gap-1 rounded-md px-1 font-semibold text-ink hover:bg-layer/[0.06]">
+                      <ChevronDown className="h-3.5 w-3.5 rotate-180 text-muted" /> Scene {scene.n}
+                    </button>
                     <span className="ml-auto flex gap-1 sm:order-last">
                       <button onClick={() => moveScene(scene.n, -1)} disabled={scene.n === 1} aria-label={`Move scene ${scene.n} earlier`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                       <button onClick={() => moveScene(scene.n, 1)} disabled={scene.n === shown.scenes.length} aria-label={`Move scene ${scene.n} later`} className="flex h-7 w-7 items-center justify-center rounded-full text-muted hover:bg-layer/[0.08] hover:text-ink disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
@@ -518,6 +551,7 @@ export default function VideoStudioPage({ params }: { params: Promise<{ id: stri
                     {scene.sound && <p className="mt-1">Sound: {scene.sound}</p>}
                   </details>}
                   <SceneAsk n={scene.n} disabled={busy !== null} onAsk={(text) => void plan({ note: `Change only scene ${scene.n}, keep every other scene exactly as it is: ${text}` })} />
+                  </>)}
                 </article>
               ))}
             </section>
@@ -656,56 +690,136 @@ function Animatic({ plan }: { plan: ProductionPlan }) {
   );
 }
 
-/* Where each scene's clip and voice line stand, one row per scene. */
+/* What is being made, live: one bar for the whole job, the stages (clips,
+   voice, music, the final file), and a tile per scene — each coloured by
+   where it stands, with how long it has been running. The page polls while
+   anything runs, so this moves on its own; failures are said once. */
 function RenderProgress({ renders }: { renders: RenderRow[] }) {
-  const scenes = [...new Set(renders.filter((r) => r.scene !== null).map((r) => r.scene))].sort((a, b) => (a ?? 0) - (b ?? 0)) as number[];
-  const mark = (row?: RenderRow) =>
-    !row ? null : row.status === "done" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : row.status === "failed" ? <X className="h-3.5 w-3.5 text-warn" /> : <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />;
+  /* A clock for the live times: ticks while something runs. */
+  const [now, setNow] = useState(() => Date.now());
+  const running = renders.some((r) => r.status === "running" || r.status === "queued");
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const [seenAt, setSeenAt] = useState(() => Date.now());
+  useEffect(() => setSeenAt(Date.now()), [renders]);
+
+  const total = renders.length;
   const done = renders.filter((r) => r.status === "done").length;
+  const failed = renders.filter((r) => r.status === "failed");
+  const active = renders.filter((r) => r.status === "running").length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const scenes = [...new Set(renders.filter((r) => r.scene !== null).map((r) => r.scene))].sort((a, b) => (a ?? 0) - (b ?? 0)) as number[];
   const music = renders.find((r) => r.engine === "music");
   const compose = renders.find((r) => r.engine === "compose");
   const parts = renders.filter((r) => r.engine === "part");
+  const since = (iso?: string) => (iso ? ago(now - new Date(iso).getTime()) : "");
+
+  const stage = (label: string, rows: RenderRow[]) => {
+    if (!rows.length) return null;
+    const ok = rows.filter((r) => r.status === "done").length;
+    const bad = rows.some((r) => r.status === "failed");
+    const busy = rows.some((r) => r.status === "running" || r.status === "queued");
+    return (
+      <li key={label} className="flex items-center gap-2 rounded-lg bg-layer/[0.04] px-2.5 py-2">
+        <span className={`flex h-5 w-5 items-center justify-center rounded-full ${ok === rows.length ? "bg-emerald-400/15 text-emerald-400" : busy ? "bg-accent/15 text-accent" : bad ? "bg-warn/15 text-warn" : "bg-layer/[0.08] text-muted"}`}>
+          {ok === rows.length ? <Check className="h-3 w-3" /> : busy ? <Loader2 className="h-3 w-3 animate-spin" /> : bad ? <X className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current" />}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[12px] text-soft">{label}</span>
+        <span className="text-[11.5px] tabular-nums text-muted">{rows.length > 1 ? `${ok}/${rows.length}` : ok ? "done" : busy ? "working" : bad ? "failed" : "waiting"}</span>
+      </li>
+    );
+  };
+
   return (
-    <div className="mt-3">
-      <p className="text-[12px] text-muted">{done} of {renders.length} jobs done</p>
-      <ul className="mt-1.5 space-y-1">
-        {scenes.map((n) => {
-          const clip = renders.find((r) => r.scene === n && r.engine === "video");
-          const voice = renders.find((r) => r.scene === n && r.engine === "voice");
-          const talking = renders.find((r) => r.scene === n && r.engine === "avatar");
-          const failure = [clip, voice, talking].find((r) => r?.status === "failed")?.error;
-          return (
-            <li key={n} className="text-[12px]">
-              <span className="flex flex-wrap items-center gap-x-2 text-soft">
-                Scene {n}
-                {clip && <span className="flex items-center gap-1 text-muted">clip {mark(clip)}</span>}
-                {voice && <span className="flex items-center gap-1 text-muted">voice {mark(voice)}</span>}
-                {talking && <span className="flex items-center gap-1 text-muted">lip sync {mark(talking)}</span>}
-              </span>
-              {failure && <span className="block truncate text-[11.5px] text-muted">{sceneFailure(failure)}</span>}
-            </li>
-          );
-        })}
-        {music && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Music {mark(music)}
-          </li>
-        )}
-        {parts.length > 0 && compose?.status !== "done" && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Cutting the film in {parts.length} parts — {parts.filter((p) => p.status === "done").length} done
-            {parts.some((p) => p.status === "failed") && <X className="h-3.5 w-3.5 text-warn" />}
-          </li>
-        )}
-        {compose && (
-          <li className="flex items-center gap-2 text-[12px] text-soft">
-            Final MP4 {mark(compose)}
-            {compose.status === "failed" && compose.error && <span className="truncate text-[11.5px] text-muted" title={compose.error}>{compose.error}</span>}
-          </li>
-        )}
+    <div className="mt-4 space-y-3">
+      {/* The whole job. */}
+      <div>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[13px] font-medium text-ink">
+            {running ? "Making your video" : failed.length ? "Finished with gaps" : "All made"}
+          </p>
+          <p className="text-[11.5px] tabular-nums text-muted">
+            {done}/{total} · {pct}%
+          </p>
+        </div>
+        <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-layer/[0.08]">
+          <span className="h-full bg-emerald-400 transition-all duration-700" style={{ width: `${(done / Math.max(1, total)) * 100}%` }} />
+          <span className="h-full animate-pulse bg-accent/60 transition-all duration-700" style={{ width: `${(active / Math.max(1, total)) * 100}%` }} />
+          <span className="h-full bg-warn/60 transition-all duration-700" style={{ width: `${(failed.length / Math.max(1, total)) * 100}%` }} />
+        </div>
+        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-faint">
+          {running && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />}
+          {running ? `Live · ${active} working now · updated ${ago(now - seenAt)} ago` : `Last change ${since(renders.map((r) => r.updated_at ?? "").sort().pop())} ago`}
+        </p>
+      </div>
+
+      {/* The stages. */}
+      <ul className="grid grid-cols-2 gap-1.5">
+        {stage("Clips", renders.filter((r) => r.engine === "video" || r.engine === "avatar"))}
+        {stage("Voice-over", renders.filter((r) => r.engine === "voice"))}
+        {music && stage("Music", [music])}
+        {parts.length > 0 && compose?.status !== "done" ? stage("Film parts", parts) : compose && stage("Final MP4", [compose])}
       </ul>
+
+      {/* A tile per scene. */}
+      {scenes.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[11.5px] text-muted">Scenes</p>
+          <ul className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+            {scenes.map((n) => {
+              const rows = renders.filter((r) => r.scene === n);
+              const isDone = rows.every((r) => r.status === "done");
+              const isBad = rows.some((r) => r.status === "failed");
+              const isBusy = rows.some((r) => r.status === "running" || r.status === "queued");
+              const live = rows.find((r) => r.status === "running");
+              const what = rows.map((r) => `${r.engine === "video" ? "clip" : r.engine === "avatar" ? "lip sync" : r.engine}: ${r.status === "done" ? "made" : r.status === "failed" ? "not made" : r.status}`).join(" · ");
+              return (
+                <li
+                  key={n}
+                  title={`Scene ${n} — ${what}${live?.created_at ? ` · running ${since(live.created_at)}` : ""}`}
+                  className={`relative flex h-9 flex-col items-center justify-center rounded-lg border text-[11.5px] tabular-nums transition-colors ${
+                    isDone ? "border-emerald-400/25 bg-emerald-400/[0.08] text-emerald-300" : isBusy ? "border-accent/30 bg-accent/[0.08] text-accent" : isBad ? "border-warn/25 bg-warn/[0.07] text-warn" : "border-line/[0.08] bg-layer/[0.03] text-muted"
+                  }`}
+                >
+                  {n}
+                  {isBusy && <span className="absolute inset-x-1.5 bottom-1 h-0.5 overflow-hidden rounded-full bg-accent/20"><span className="block h-full w-1/2 animate-pulse rounded-full bg-accent" /></span>}
+                  {live?.created_at && <span className="absolute -top-1.5 right-0.5 rounded bg-panel px-0.5 text-[9px] text-muted">{since(live.created_at)}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* What did not work, said once. */}
+      {failed.length > 0 && !running && (
+        <p className="rounded-lg border border-warn/20 bg-warn/[0.06] px-3 py-2 text-[12px] text-soft">
+          {failureSummary(failed)}
+        </p>
+      )}
     </div>
   );
+}
+
+/* "12s", "3m", "1h 5m". Pure. */
+function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60 ? `${s % 60}s` : ""}`.trim();
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/* The failed jobs in one sentence: which scenes, and that nothing was charged. Pure. */
+function failureSummary(failed: RenderRow[]): string {
+  const scenes = [...new Set(failed.map((r) => r.scene).filter((n): n is number => n !== null))].sort((a, b) => a - b);
+  const declined = failed.some((r) => /sensitive|safety|moderation|policy/i.test(r.error ?? ""));
+  const list = scenes.length > 6 ? `${scenes.length} scenes` : scenes.length === 1 ? `Scene ${scenes[0]}` : `Scenes ${scenes.slice(0, -1).join(", ")} and ${scenes[scenes.length - 1]}`;
+  const extra = failed.some((r) => r.scene === null) ? (scenes.length ? " and the final steps" : "The final steps") : "";
+  return `${scenes.length ? list : ""}${extra} weren't made${declined ? " — the engine declined some of them" : ""}. Nothing was charged for ${failed.length === 1 ? "it" : "them"}. Retry, or ask for a change first.`;
 }
 
 /* Step 7 once clips exist: the cut, played scene by scene — each clip with its
@@ -942,13 +1056,6 @@ function renderFailure(renders: RenderRow[]): string | null {
   return "The clips could not be made this time and nothing was charged. Press Retry failed scenes, or ask me for a change first.";
 }
 
-/* One scene that was not made, in a few plain words — the engine's own
-   message is for us (it names keys and providers), not for the person. */
-function sceneFailure(error: string): string {
-  if (/sensitive|safety|moderation|policy/i.test(error)) return "Not made — the engine declined this scene. Nothing was charged.";
-  return "Not made this time. Nothing was charged.";
-}
-
 /* A version's note, as the person said it. */
 function spoken(note: string): string | null {
   if (!note || note === "First plan" || note === "Planned again") return null;
@@ -1016,6 +1123,22 @@ function DirectorChat(props: {
   /* Files attached to this message: uploaded into the video's media, and
      named in the message so the director knows they are for this change. */
   const fileInput = useRef<HTMLInputElement>(null);
+  const imageInput = useRef<HTMLInputElement>(null);
+  /* The + menu: Add images, Add files. */
+  const [addOpen, setAddOpen] = useState(false);
+  const addMenu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!addOpen) return;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === "Escape" : !addMenu.current?.contains(event.target as Node)) setAddOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [addOpen]);
   /* Grows with what is typed, up to a third of a phone screen, then scrolls. */
   const composer = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -1271,13 +1394,16 @@ function DirectorChat(props: {
               <p className="mr-6 text-soft">
                 {turn.version === 1 ? "Here's the plan" : "Done — here's version " + turn.version}
                 {turn.version === current ? ` · ${props.scenes} scenes, ${props.seconds}s.` : "."}
-                {turn.version === current && !rendered && props.status !== "rendering" && " Have a look at the scenes, ask me for anything to change, then generate it."}
+                {turn.version === current && !rendered && props.status !== "rendering" && " Generate it when you're happy."}
               </p>
             </div>
           );
         })}
         {active > 1 && shown.length === 0 && (
-          <p className="text-soft">New session. {current ? `Version ${current} is the current one — ` : ""}ask me for anything to change.</p>
+          /* An empty chat: one quiet line, nothing to read through. */
+          <div className="flex h-full min-h-[120px] items-center justify-center">
+            <p className="text-center text-[12.5px] text-muted">What would you like to change?</p>
+          </div>
         )}
         {shown.map((message) => {
           const remove = (
@@ -1312,7 +1438,6 @@ function DirectorChat(props: {
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating the clips — they arrive one by one, usually within a few minutes.</p>
         )}
         {failure && <p className="rounded-xl border border-warn/25 bg-warn/[0.07] px-3 py-2 text-soft">{failure}</p>}
-        {rendered && props.status !== "rendering" && <p className="text-soft">Your video is ready on the right. Ask for a change and generate again whenever you like.</p>}
         {busy === "plan" && (
           <p className="flex items-center gap-2 text-soft"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Working on it…</p>
         )}
@@ -1356,6 +1481,7 @@ function DirectorChat(props: {
         >
           <DropHint show={fileDrop.dragging} />
           <input ref={fileInput} type="file" multiple accept={ACCEPT_ATTRIBUTE} className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
+          <input ref={imageInput} type="file" multiple accept="image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} onChange={(e) => { void attach(e.target.files); e.target.value = ""; }} />
           <textarea
             ref={composer}
             rows={2}
@@ -1374,16 +1500,44 @@ function DirectorChat(props: {
             className="max-h-60 min-h-[52px] w-full resize-none bg-transparent px-1 text-base leading-relaxed text-ink outline-none placeholder:text-faint sm:text-[14.5px]"
           />
           <div className="mt-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              disabled={busy !== null || Boolean(uploading)}
-              aria-label="Attach pictures, clips, sound or documents"
-              title="Attach pictures, clips, sound or documents (PDF, TXT, MD) — or paste a screenshot, or drop files here"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line/[0.08] bg-layer/[0.06] text-ink transition hover:bg-layer/[0.1] active:scale-[0.97] disabled:opacity-40"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
+            <div ref={addMenu} className="relative">
+              <button
+                type="button"
+                onClick={() => setAddOpen((open) => !open)}
+                disabled={busy !== null || Boolean(uploading)}
+                aria-label="Add images or files"
+                aria-haspopup="menu"
+                aria-expanded={addOpen}
+                title="Add images or files — or paste a screenshot, or drop files here"
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-layer/[0.14] active:scale-[0.97] disabled:opacity-40 ${addOpen ? "bg-layer/[0.14]" : "bg-layer/[0.08]"}`}
+              >
+                <Plus className={`h-[18px] w-[18px] transition-transform ${addOpen ? "rotate-45" : ""}`} />
+              </button>
+              {addOpen && (
+                <div role="menu" className="absolute bottom-11 left-0 z-20 w-48 overflow-hidden rounded-xl border border-line/[0.1] bg-panel p-1 shadow-xl shadow-black/30">
+                  {(
+                    [
+                      ["Add images", ImagePlus, imageInput],
+                      ["Add files", Paperclip, fileInput],
+                    ] as const
+                  ).map(([label, Icon, input]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setAddOpen(false);
+                        input.current?.click();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[13.5px] text-ink transition-colors hover:bg-layer/[0.08] focus-visible:bg-layer/[0.08] focus-visible:outline-none"
+                    >
+                      <Icon className="h-4 w-4 text-soft" />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             {busy === "plan" ? (
               /* Working: a stop sign inside a turning ring — pressing it stops
                  the change for real (nothing saved, nothing charged). */
@@ -1410,19 +1564,20 @@ function DirectorChat(props: {
             )}
           </div>
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[11.5px] text-muted">A change uses 1 credit. Saving your own scene edits makes a new cut: 1 credit per started minute of video.</p>
-          {props.current !== null && (
+        {/* Only before anything is made: after that, every change asked for
+            makes just what it needs — there is no "make it all again". */}
+        {props.current !== null && !rendered && (
+        <div className="mt-2 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={props.onRender}
               disabled={busy !== null || !props.canRender}
               className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[12.5px] font-medium text-onSolid disabled:opacity-40"
             >
-              <Play className="h-3.5 w-3.5" /> {rendered ? "Generate again" : "Generate"} · {props.cost}
+              <Play className="h-3.5 w-3.5" /> Generate · {props.cost}
             </button>
-          )}
         </div>
+        )}
       </div>
     </section>
   );

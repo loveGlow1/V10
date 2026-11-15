@@ -57,7 +57,7 @@ import {
 
 import { formatSeconds } from "@/lib/video/assets";
 import { COLOR_CSS, LABELS, resolveCut, type ResolvedCut } from "@/lib/video/cut-settings";
-import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type Segment } from "@/lib/video/editor-timeline";
+import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type MadeLibrary, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
 import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
@@ -83,6 +83,8 @@ type Loaded = {
   renders: RenderRow[];
   cost: number;
   final: string | null;
+  /** Every clip and voice line made in any version, by content (state.ts). */
+  library?: MadeLibrary;
 };
 type Selection = { type: "scene"; n: number } | { type: "music" } | { type: "voice" } | null;
 type Chat = { who: "you" | "ai"; text: string };
@@ -210,12 +212,14 @@ export default function VideoEditor({ id }: { id: string }) {
   };
 
   const assets = useMemo(() => data?.assets ?? [], [data]);
-  const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? []) : []), [draft, assets, data]);
+  const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? [], data?.library) : []), [draft, assets, data]);
   /* A still from every made clip, so generated scenes show their picture
      in the filmstrip and the scene list like uploads do (useClipPosters). */
   const posters = useClipPosters(rawSegments.filter((s) => s.kind === "video" && !s.posterUrl).map((s) => s.mediaUrl));
   const segments = rawSegments.map((s) => (!s.posterUrl && s.kind === "video" && s.mediaUrl && posters.get(s.mediaUrl) ? { ...s, posterUrl: posters.get(s.mediaUrl) ?? null } : s));
   const total = timelineLength(segments);
+  /* Generated scenes with no clip yet — never filmed, or failed last time. */
+  const missingScenes = segments.filter((seg) => seg.kind === "pending").length;
   const dirty = Boolean(draft && data?.latest && JSON.stringify(draft) !== JSON.stringify(data.latest.plan));
   const cut = draft ? resolveCut(draft) : null;
   const musicUrl = useMemo(() => {
@@ -402,13 +406,23 @@ export default function VideoEditor({ id }: { id: string }) {
   async function exportVideo() {
     if (dirty && !(await save())) return;
     const fresh = await load(true);
-    if (fresh && fresh.renders.length && !dirty) {
-      setNote(fresh.final ? "Your video is ready below." : "It's being cut — it appears here when it's done.");
-      if (fresh.video.status === "rendering" || fresh.final) return;
+    if (!fresh) return;
+    if (fresh.video.status === "rendering") {
+      setNote("It's being made — it appears here when it's done.");
+      return;
     }
-    if (fresh?.renders.length) return;
+    if (fresh.final && !missingScenes) {
+      setNote("Your video is ready below.");
+      return;
+    }
+    /* Only what was never made is filmed or voiced; every clip and line
+       already made (in any version) is used as it is. */
     setBusy("export");
-    const response = await fetch(`/api/video/${id}/render`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).catch(() => null);
+    const response = await fetch(`/api/video/${id}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fresh.renders.length ? { onlyMissing: true, reuseEarlier: true } : {}),
+    }).catch(() => null);
     const body = (await response?.json().catch(() => null)) as { error?: string } | null;
     setBusy(null);
     if (!response?.ok) setError(body?.error ?? "The export could not start.");
@@ -541,11 +555,11 @@ export default function VideoEditor({ id }: { id: string }) {
         <button onClick={redo} disabled={!future.length} aria-label="Redo" title="Redo (⇧⌘Z)" className={chip}><Redo2 className="h-3.5 w-3.5" /></button>
         <button onClick={() => setLibraryTab("settings")} disabled={!draft} className={chip}><SlidersHorizontal className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Settings</span></button>
         <button onClick={() => void save()} disabled={!dirty || busy !== null || rendering} className={chip}>
-          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save{data.renders.length && dirty ? ` · re-cut ${total > ONE_RUN_SECONDS ? "up to " : ""}${creditsLabel(cutCredits(total))}` : ""}
+          {busy === "save" && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Save
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="ml-auto flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50 sm:ml-0">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? "Save & export" : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
+          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? (missingScenes ? `Make ${missingScenes} missing scene${missingScenes === 1 ? "" : "s"}` : "Save & export") : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
         </button>
         </div>
       </header>
@@ -686,7 +700,7 @@ export default function VideoEditor({ id }: { id: string }) {
               ) : (
                 <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4 text-[12.5px] leading-relaxed text-muted">
                   <p className="text-[13.5px] font-medium text-ink">Edit by hand</p>
-                  <p className="mt-1">Edit freely, then Save: each save makes the new cut ({total > ONE_RUN_SECONDS ? `up to ${creditsLabel(cutCredits(total))} — only the parts you changed are cut and charged again` : `${creditsLabel(cutCredits(total))} at this length`} — 1 credit per started minute). Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
+                  <p className="mt-1">Edit freely and Save — saving is free and never films anything. Export makes the final video ({total > ONE_RUN_SECONDS ? `up to ${creditsLabel(cutCredits(total))} — only the parts you changed are cut and charged again` : `${creditsLabel(cutCredits(total))} at this length`} — 1 credit per started minute), filming only scenes that were never made. Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
                   <button onClick={() => setSelection({ type: "music" })} className={`${chip} mt-3`}><Music className="h-3.5 w-3.5" /> Music and voice</button>
                 </section>
               )}
@@ -1112,14 +1126,14 @@ function Timeline(props: {
                         ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined }
                         : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)),
                     }}
-                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? " · made on export" : ""}`}
+                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
                   >
                     <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium text-white">
                       {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
                     </span>
                     {!picture && (
                       <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
-                        {s.kind === "pending" ? <><Sparkles className="h-2.5 w-2.5" /> Made on export</> : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                        {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
                       </span>
                     )}
                     <span className="pointer-events-none absolute bottom-0.5 right-1.5 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">{lengthOf(s).toFixed(1)}s</span>
