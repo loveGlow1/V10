@@ -190,7 +190,7 @@ export const SUBTYPES: Record<Category, SubType[]> = {
   fliers: [
     {
       id: "event_flyer",
-      label: "Event flyer",
+      label: "Event flier",
       kind: "landing",
       blurb: "Party, concert, webinar or conference poster",
       focus: [

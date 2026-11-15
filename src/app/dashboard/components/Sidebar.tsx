@@ -430,7 +430,7 @@ export default function Sidebar({
                 <LayoutGrid className="h-4 w-4 shrink-0" />
                 <span className="text-sm font-medium">Published Apps</span>
               </button>
-              {/* Flyers: every flier, newest first, each opening its Flier Studio. */}
+              {/* Fliers: every flier, newest first, each opening its Flier Studio. */}
               <button
                 onClick={() => {
                   onClose();
@@ -439,7 +439,7 @@ export default function Sidebar({
                 className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-muted transition-colors hover:bg-layer/[0.04] hover:text-ink"
               >
                 <FileImage className="h-4 w-4 shrink-0" />
-                <span className="text-sm font-medium">Flyers</span>
+                <span className="text-sm font-medium">Fliers</span>
               </button>
               {/* Videos: every video, its studio and its editor — a section of
                   its own rather than a chip on Home that is easy to miss. */}
