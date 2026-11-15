@@ -15,7 +15,12 @@ export type TimelineRender = { scene: number | null; engine: string; status: str
 /** Every clip and voice line made for this video in any version, by what it
  *  shows or says (pictureKey / voiceKey) — so a scene whose picture was
  *  already made shows it, whatever version or position it was made in. */
-export type MadeLibrary = { pictures: Record<string, string>; voices: Record<string, string> };
+export type MadeLibrary = {
+  pictures: Record<string, string>;
+  voices: Record<string, string>;
+  /** The last clip that worked for a scene, by its number in the current plan — shown when its own is not made (reuse.ts lastWorking). */
+  fallback?: Record<number, string>;
+};
 
 /** What a scene's picture is: its upload, or the generated prompt, engine and
  *  cast. Two scenes with the same key show the same clip. Pure. */
@@ -156,6 +161,8 @@ export type Segment = {
   color?: ProductionPlan["scenes"][number]["color"];
   /** Not made: its last try failed (nothing charged). Export tries it again. */
   failed?: boolean;
+  /** Showing the scene's last working clip, because its own is not made. */
+  fallback?: boolean;
 };
 
 /** What the preview plays, in order, from the plan, the uploads and what has been made. Pure. */
@@ -172,7 +179,12 @@ export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], rende
     const asset = scene.source ? assets.find((a) => a.id === scene.source?.assetId) : undefined;
     const voiceAsset = scene.voiceAsset ? assets.find((a) => a.id === scene.voiceAsset) : undefined;
     const still = Boolean(asset && asset.kind !== "video");
-    const mediaUrl = asset ? asset.url ?? null : madePicture(scene);
+    const own = asset ? asset.url ?? null : madePicture(scene);
+    /* Never an empty card when this scene has worked before: its last working
+       clip stands in, and the failure is a note on it. */
+    const stand = !own && !asset && library?.fallback ? library.fallback[scene.n] ?? null : null;
+    const mediaUrl = own ?? stand;
+    const lastTryFailed = renders.some((r) => r.scene === scene.n && (r.engine === "video" || r.engine === "avatar") && r.status === "failed");
     const segment: Segment = {
       n: scene.n,
       start: round(at),
@@ -188,7 +200,8 @@ export function segmentsFor(plan: ProductionPlan, assets: TimelineAsset[], rende
       text: scene.onScreenText,
       caption: scene.voiceover.replace(/^[A-Z][A-Za-z .'-]{0,24}:\s*/, "").trim(),
       ...(scene.color ? { color: scene.color } : {}),
-      ...(!mediaUrl && renders.some((r) => r.scene === scene.n && (r.engine === "video" || r.engine === "avatar") && r.status === "failed") ? { failed: true } : {}),
+      ...(!own && lastTryFailed ? { failed: true } : {}),
+      ...(stand ? { fallback: true } : {}),
     };
     at += seconds;
     return segment;

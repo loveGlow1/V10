@@ -15,7 +15,7 @@
 
 import { continuityLinks } from "./continuity";
 import { pictureKey, voiceKey } from "./editor-timeline";
-import type { ProductionPlan } from "./plan";
+import type { ProductionPlan, Scene } from "./plan";
 
 export type MadeRow = { version: number; scene: number | null; engine: string; status: string; provider: string | null; output_path: string | null };
 
@@ -43,6 +43,43 @@ export function madeLibrary(plans: Map<number, ProductionPlan>, rows: MadeRow[],
     }
   }
   return { pictures, voices };
+}
+
+/* What a scene IS, apart from how it is filmed: a re-film changes the clip
+   prompt, and usually keeps the shot, the picture described, the words on
+   screen and the line spoken. */
+const sameScene = (a: Scene, b: Scene) =>
+  (a.shot?.trim() && a.shot.trim() === b.shot?.trim()) ||
+  (a.visual?.trim() && a.visual.trim() === b.visual?.trim()) ||
+  (a.voiceover?.trim() && a.voiceover.trim() === b.voiceover?.trim()) ||
+  (a.onScreenText?.trim() && a.onScreenText.trim() === b.onScreenText?.trim());
+
+/**
+ * The last clip that worked for each scene of the current plan, when its own
+ * clip is not made: its newest re-film failed, or has not run yet. Taken from
+ * the newest earlier version whose scene at the same place is recognisably the
+ * same scene; failing that, from the newest clip at that place. So the editor's
+ * cards and preview always show a working picture, and the person sees the
+ * failure as a note on it rather than as an empty card. Pure.
+ */
+export function lastWorking(plans: Map<number, ProductionPlan>, rows: MadeRow[], current: number): Map<number, MadeRow> {
+  const plan = plans.get(current);
+  const out = new Map<number, MadeRow>();
+  if (!plan) return out;
+  const clips = rows
+    .filter((row) => row.status === "done" && row.output_path && row.scene !== null && (row.engine === "video" || row.engine === "avatar") && row.version <= current)
+    .sort((a, b) => b.version - a.version);
+  for (const scene of plan.scenes) {
+    if (scene.source) continue;
+    const here = clips.filter((row) => row.scene === scene.n);
+    const alike = here.find((row) => {
+      const then = plans.get(row.version)?.scenes?.find((s) => s.n === row.scene);
+      return then && !then.source && sameScene(then, scene);
+    });
+    const pick = alike ?? here.find((row) => !plans.get(row.version)?.scenes?.find((s) => s.n === row.scene)?.source);
+    if (pick) out.set(scene.n, pick);
+  }
+  return out;
 }
 
 /**

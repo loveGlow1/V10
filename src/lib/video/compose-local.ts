@@ -44,6 +44,7 @@ import { chapterStarts, chaptersOf, concatList, musicOffset, partFingerprint, pa
 import { falToken, verifyFalToken } from "./fal";
 import { ffmpegOutput, streamToStorage } from "./stream-upload";
 import { WORKING_COPY_SECONDS } from "./prepare-asset";
+import { lastWorking, type MadeRow } from "./reuse";
 
 export { musicMixArgs } from "./cut-filters";
 
@@ -198,6 +199,26 @@ async function load(service: SupabaseClient, videoId: string, version: number, d
   if (!video || !planRow) throw new Error("The video or its plan is missing.");
   const plan = planRow.plan as ProductionPlan;
   const { data } = await service.from("video_renders").select("scene, engine, status, output_path").eq("video_id", videoId).eq("version", version);
+  const rows = (data ?? []) as Row[];
+  /* A scene whose own clip failed, or never came, is cut with the last clip
+     of it that worked (reuse.ts lastWorking) rather than left out of the
+     film. Only when there is such a gap — the extra reads are skipped for a
+     version that made everything. */
+  const gaps = plan.scenes.filter(
+    (scene) => !scene.source && !rows.some((row) => row.scene === scene.n && (row.engine === "video" || row.engine === "avatar") && row.status === "done" && row.output_path),
+  );
+  if (gaps.length) {
+    const [{ data: versions }, { data: earlier }] = await Promise.all([
+      service.from("video_versions").select("version, plan").eq("video_id", videoId).lte("version", version).order("version", { ascending: false }).limit(60),
+      service.from("video_renders").select("version, scene, engine, status, provider, output_path").eq("video_id", videoId).eq("status", "done").in("engine", ["video", "avatar"]).lte("version", version),
+    ]);
+    const plans = new Map((versions ?? []).map((row) => [row.version as number, row.plan as ProductionPlan]));
+    const standIns = lastWorking(plans, (earlier ?? []) as MadeRow[], version);
+    for (const scene of gaps) {
+      const stand = standIns.get(scene.n);
+      if (stand?.output_path) rows.push({ scene: scene.n, engine: "video", status: "done", output_path: stand.output_path } as Row);
+    }
+  }
   const { data: assetRows } = await service.from("video_assets").select("id, kind, storage_path, working_path, duration_s").eq("video_id", videoId);
   await mkdir(dir, { recursive: true });
   const cut = cutFor(plan);
@@ -207,7 +228,7 @@ async function load(service: SupabaseClient, videoId: string, version: number, d
     video: video as Loaded["video"],
     service,
     plan,
-    rows: (data ?? []) as Row[],
+    rows,
     uploads: new Map(((assetRows ?? []) as (Upload & { id: string })[]).map((asset) => [asset.id, asset])),
     dir,
     fontPath: await font(),

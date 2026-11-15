@@ -19,7 +19,7 @@ import { announceFinal } from "@/lib/video/announce";
 import { landResult, retryClip } from "@/lib/video/results";
 import type { ProductionPlan } from "@/lib/video/plan";
 import type { MadeLibrary } from "@/lib/video/editor-timeline";
-import { madeLibrary, type MadeRow } from "@/lib/video/reuse";
+import { lastWorking, madeLibrary, type MadeRow } from "@/lib/video/reuse";
 import { FAL_STALE_AFTER_MS, STALE_AFTER_MS } from "@/lib/video/render";
 
 
@@ -279,15 +279,20 @@ async function libraryOf(supabase: SupabaseClient, videoId: string, current: num
   ]);
   const plans = new Map((versions ?? []).map((row) => [row.version as number, row.plan as ProductionPlan]));
   const { pictures, voices } = madeLibrary(plans, (rows ?? []) as MadeRow[], current);
+  const standIns = lastWorking(plans, (rows ?? []) as MadeRow[], current);
   /* One link per file, signed together: carried clips share their file. */
-  const paths = [...new Set([...pictures.values(), ...voices.values()].map((row) => row.output_path as string).filter((path) => path.startsWith("storage:")).map((path) => path.slice(8)))];
+  const paths = [...new Set([...pictures.values(), ...voices.values(), ...standIns.values()].map((row) => row.output_path as string).filter((path) => path.startsWith("storage:")).map((path) => path.slice(8)))];
   const signed = new Map<string, string>();
   if (paths.length) {
     const { data } = await supabase.storage.from("video-assets").createSignedUrls(paths, 60 * 60);
     for (const entry of data ?? []) if (entry.path && entry.signedUrl) signed.set(entry.path, entry.signedUrl);
   }
   const link = (path: string | null) => (!path ? null : path.startsWith("storage:") ? signed.get(path.slice(8)) ?? null : path.startsWith("https://") ? path : null);
-  const out: MadeLibrary = { pictures: {}, voices: {} };
+  const out: MadeLibrary = { pictures: {}, voices: {}, fallback: {} };
+  for (const [n, row] of standIns) {
+    const url = link(row.output_path);
+    if (url && out.fallback) out.fallback[n] = url;
+  }
   for (const [key, row] of pictures) {
     const url = link(row.output_path);
     if (url) out.pictures[key] = url;

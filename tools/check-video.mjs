@@ -1016,5 +1016,43 @@ console.log("\nan edit changes what was asked, nothing more");
   has(/onlyScenes: \{ clips, voices \}/.test(ae) && /deferRender: !loaded\.started/.test(ae), "an edit films only the scenes it changed; before Generate it only changes the plan");
 }
 
+console.log("\na failed scene falls back to its last working clip");
+{
+  const RU2 = await import(join(dir, "reuse.js"));
+  const sc = (n, prompt, extra = {}) => ({ n, duration: 5, shot: "medium", visual: "Leo at the desk", onScreenText: "", voiceover: "", sound: "", motionPrompt: prompt, engine: "video", ...extra });
+  const v1 = { scenes: [sc(1, "wide city"), sc(2, "medium push-in")], cut: {} };
+  const v2 = { scenes: [sc(1, "wide city"), sc(2, "medium push-in, warmer light")], cut: {} };
+  const rows = [
+    { version: 1, scene: 1, engine: "video", status: "done", provider: "p", output_path: "storage:c1" },
+    { version: 1, scene: 2, engine: "video", status: "done", provider: "p", output_path: "storage:c2-old" },
+    { version: 2, scene: 2, engine: "video", status: "failed", provider: "p", output_path: null },
+  ];
+  const plans = new Map([[1, v1], [2, v2]]);
+  const lw = RU2.lastWorking(plans, rows, 2);
+  has(lw.get(2)?.output_path === "storage:c2-old", "a re-film that failed: the scene's last working clip stands in");
+  const other = { scenes: [sc(1, "x", { shot: "aerial", visual: "a farm", voiceover: "Morning." })], cut: {} };
+  const stranger = { scenes: [sc(1, "y", { shot: "close", visual: "a robot", voiceover: "Night." })], cut: {} };
+  const lw2 = RU2.lastWorking(new Map([[1, other], [2, stranger]]), [{ version: 1, scene: 1, engine: "video", status: "done", provider: "p", output_path: "storage:farm" }], 2);
+  has(lw2.get(1)?.output_path === "storage:farm", "with nothing recognisably the same, the newest clip at that place still stands in — never an empty card");
+  has(RU2.lastWorking(plans, rows, 2).get(1)?.output_path === "storage:c1" && RU2.lastWorking(new Map([[1, v1]]), [], 1).size === 0, "a scene that has never worked has no stand-in");
+  const seg = ET.segmentsFor(v2, [], [{ scene: 2, engine: "video", status: "failed", url: null }], { pictures: {}, voices: {}, fallback: { 2: "u-old" } });
+  has(seg[1].kind === "video" && seg[1].mediaUrl === "u-old" && seg[1].fallback === true && seg[1].failed === true, "the editor card plays the working clip and notes the new take failed");
+  const ve = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+  const cl = readFileSync(join(root, "src/lib/video/compose-local.ts"), "utf8");
+  const st = readFileSync(join(root, "src/lib/video/state.ts"), "utf8");
+  has(/Last good take/.test(ve) && /the latest re-film failed/.test(ve) && /!picture && !frames && !s\.fallback/.test(ve), "the card shows the clip with a small note, not 'Not made'");
+  has(/lastWorking\(plans, \(earlier \?\? \[\]\) as MadeRow\[\], version\)/.test(cl) && /lastWorking\(plans, \(rows \?\? \[\]\) as MadeRow\[\], current\)/.test(st), "the finished video uses the same stand-in, instead of dropping the scene");
+}
+
+console.log("\nthe timeline: a still playhead, tracks that slide, filmstrips");
+{
+  const ve = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+  const cp = readFileSync(join(root, "src/app/dashboard/components/video/useClipPosters.ts"), "utf8");
+  has(/left-1\/2 top-0 z-20 w-0\.5 -translate-x-1\/2/.test(ve) && /paddingLeft: half, paddingRight: half/.test(ve), "the playhead stays in the middle; the tracks run from under it at 0:00 to under it at the end");
+  has(/if \(Math\.abs\(el\.scrollLeft - target\) > 0\.5\) el\.scrollLeft = target;/.test(ve) && /props\.onSeek\(Math\.max\(0, Math\.min\(total, e\.currentTarget\.scrollLeft \/ pps\)\)\)/.test(ve), "playing slides the tracks; dragging the tracks scrubs");
+  has(/export function useClipStrips/.test(cp) && /useClipStrips\(segments\.filter/.test(ve) && /Math\.floor\(\(\(i \+ 0\.5\) \/ tiles\) \* frames\.length\)/.test(ve), "each clip is a filmstrip of its own frames, not one frame repeated");
+  has(/<Plus className="h-3\.5 w-3\.5" \/> Add audio/.test(ve) && /<Plus className="h-3\.5 w-3\.5" \/> Add text/.test(ve) && /aria-label="Add media"/.test(ve), "empty tracks offer Add audio and Add text; a + at the end adds media");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
