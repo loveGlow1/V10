@@ -77,7 +77,7 @@ import { continuesFrom } from "@/lib/video/continuity";
 
 import CharactersPanel from "./CharactersPanel";
 import EditorLibrary, { type LibraryTab } from "./EditorLibrary";
-import { placeholderStyle, useClipPosters, useClipStrips } from "./useClipPosters";
+import { STRIP_FRAMES, placeholderStyle, spriteFrame, stripUrl } from "./useClipPosters";
 import MediaPanel, { ASSET_DRAG, type PanelAsset } from "./MediaPanel";
 import TimelineClip from "./TimelineClip";
 import VideoSettings from "./VideoSettings";
@@ -235,9 +235,11 @@ export default function VideoEditor({ id }: { id: string }) {
   const assets = useMemo(() => data?.assets ?? [], [data]);
   const rawSegments = useMemo(() => (draft ? segmentsFor(draft, assets, data?.renders ?? [], data?.library) : []), [draft, assets, data]);
   /* A still from every made clip, so generated scenes show their picture
-     in the filmstrip and the scene list like uploads do (useClipPosters). */
-  const posters = useClipPosters(rawSegments.filter((s) => s.kind === "video" && !s.posterUrl).map((s) => s.mediaUrl));
-  const segments = rawSegments.map((s) => (!s.posterUrl && s.kind === "video" && s.mediaUrl && posters.get(s.mediaUrl) ? { ...s, posterUrl: posters.get(s.mediaUrl) ?? null } : s));
+     in the filmstrip and the scene list like uploads do — made on the server,
+     so it shows on an iPhone too (useClipPosters.ts stripUrl). */
+  const segments = rawSegments.map((s) =>
+    !s.posterUrl && s.kind === "video" && s.mediaUrl ? { ...s, posterUrl: stripUrl(id, s.mediaUrl, { count: 1, from: s.from, seconds: s.seconds * (s.speed || 1) }) } : s,
+  );
   const total = timelineLength(segments);
   /* Generated scenes with no clip yet — never filmed, or failed last time. */
   const missingScenes = segments.filter((seg) => seg.kind === "pending").length;
@@ -839,6 +841,7 @@ export default function VideoEditor({ id }: { id: string }) {
           {/* Timeline: under all three, full width; second on a phone */}
           <div className="order-2 min-w-0 lg:order-none lg:col-span-3">
           <Timeline
+            videoId={id}
             plan={draft}
             segments={segments}
             time={time}
@@ -1044,6 +1047,7 @@ type TrackId = "video" | "filter" | "words" | "voice" | "music";
  * filmstrip of its own frames, with a plain marker between clips; empty
  * tracks offer "Add audio" and "Add text" instead of blank rows. */
 function Timeline(props: {
+  videoId: string;
   plan: ProductionPlan;
   segments: Segment[];
   time: number;
@@ -1095,7 +1099,6 @@ function Timeline(props: {
     else next.add(track);
     props.onLocked(next);
   };
-  const strips = useClipStrips(segments.filter((s) => s.kind === "video" && s.mediaUrl).map((s) => s.mediaUrl), 8);
 
   /* The run before and after: half of whatever width the timeline has. */
   useEffect(() => {
@@ -1259,7 +1262,8 @@ function Timeline(props: {
                   {segments.map((s, index) => {
                     const scene = sceneOf(s.n);
                     const picture = s.posterUrl ?? (s.kind === "image" ? s.mediaUrl : null);
-                    const frames = s.mediaUrl ? strips.get(s.mediaUrl) : undefined;
+                    /* The clip's own frames, along the part of it on screen, made on the server (filmstrip.ts). */
+                    const frames = s.kind === "video" && s.mediaUrl ? stripUrl(props.videoId, s.mediaUrl, { from: s.from, seconds: s.seconds * (s.speed || 1) }) : undefined;
                     const w = Math.max(14, lengthOf(s) * pps - 1);
                     const tiles = Math.max(1, Math.ceil(w / TILE));
                     const filter = COLOR_CSS[s.color ?? color] || undefined;
@@ -1300,14 +1304,14 @@ function Timeline(props: {
                         {/* The strip: one tile per 56px, each showing the frame from its part of the clip */}
                         {(frames || picture) &&
                           Array.from({ length: tiles }, (_, i) => {
-                            const src = frames ? frames[Math.min(frames.length - 1, Math.floor(((i + 0.5) / tiles) * frames.length))] : picture;
+                            const width = i === tiles - 1 ? w - TILE * (tiles - 1) : TILE;
+                            /* The frame from this tile's part of the clip; the still underneath until the strip arrives. */
+                            const frame = frames ? spriteFrame(frames, Math.floor(((i + 0.5) / tiles) * STRIP_FRAMES), STRIP_FRAMES) : null;
                             return (
-                              <span
-                                key={i}
-                                aria-hidden
-                                className="h-full shrink-0 border-r border-black/40 bg-cover bg-center last:border-r-0"
-                                style={{ width: i === tiles - 1 ? w - TILE * (tiles - 1) : TILE, backgroundImage: `url(${src})`, filter }}
-                              />
+                              <span key={i} aria-hidden className="relative h-full shrink-0 overflow-hidden border-r border-black/40 last:border-r-0" style={{ width, filter }}>
+                                {picture && <span className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url("${picture}")` }} />}
+                                {frame && <span className="absolute inset-0" style={frame} />}
+                              </span>
                             );
                           })}
                         <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/60 to-transparent px-1.5 pb-1 pt-0.5 text-[10px] font-medium text-white/90">
