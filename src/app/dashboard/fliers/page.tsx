@@ -69,6 +69,20 @@ export default function FliersPage() {
     load();
   }
 
+  /* Into Recently deleted (15 days to change one's mind) — a flier that could
+     not be made as much as any other. Taken off the list at once. */
+  async function remove(ids: string[]) {
+    if (!ids.length) return;
+    setBusy(ids.join(","));
+    setError(null);
+    const results = await Promise.all(ids.map((id) => fetch(`/api/flyers/${id}`, { method: "DELETE" }).then((r) => r.ok).catch(() => false)));
+    setBusy(null);
+    const gone = new Set(ids.filter((_, i) => results[i]));
+    setRows((current) => (current ? current.filter((flier) => !gone.has(flier.id)) : current));
+    if (gone.size < ids.length) setError(ids.length === 1 ? "It could not be deleted. Try again." : `${ids.length - gone.size} could not be deleted. Try again.`);
+  }
+  const failedIds = (rows ?? []).filter((flier) => flier.status === "failed" && !flier.thumb).map((flier) => flier.id);
+
   const tab = (id: typeof view, label: string) => (
     <button
       type="button"
@@ -104,10 +118,34 @@ export default function FliersPage() {
               No fliers yet. Pick <span className="text-ink">Fliers</span> on <Link href="/dashboard" className="text-accent">Home</Link> and describe one.
             </p>
           )}
+          {failedIds.length > 0 && (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line/[0.08] bg-layer/[0.03] px-3 py-2 text-[13px] text-soft">
+              <span>{failedIds.length === 1 ? "1 flier could not be made." : `${failedIds.length} fliers could not be made.`}</span>
+              <button
+                type="button"
+                onClick={() => void remove(failedIds)}
+                disabled={busy !== null}
+                className="flex h-8 items-center gap-1.5 rounded-full bg-layer/[0.08] px-3 text-[12.5px] font-medium text-ink transition-colors hover:bg-layer/[0.14] disabled:opacity-50"
+              >
+                {busy === failedIds.join(",") ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Remove {failedIds.length === 1 ? "it" : "all that failed"}
+              </button>
+            </div>
+          )}
           <ul className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
             {rows?.map((flier) => (
-              <li key={flier.id} className="min-w-0">
+              <li key={flier.id} className="group/card relative min-w-0">
                 <FlierThumb flier={flier} />
+                {/* Always there on a phone (no hover); on a computer on hover. */}
+                <button
+                  type="button"
+                  onClick={() => void remove([flier.id])}
+                  disabled={busy !== null}
+                  aria-label={`Delete ${flier.headline || "flier"}`}
+                  title="Delete — kept in Recently deleted for 15 days"
+                  className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white backdrop-blur transition-opacity hover:bg-black/80 disabled:opacity-50 md:opacity-0 md:focus-visible:opacity-100 md:group-hover/card:opacity-100"
+                >
+                  {busy === flier.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                </button>
                 <p className="mt-1.5 truncate text-[13px] text-ink">{flier.headline || "Flier"}</p>
                 <p className="text-[11.5px] text-muted">{new Date(flier.created_at).toLocaleDateString()}</p>
               </li>
