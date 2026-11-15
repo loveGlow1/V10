@@ -1078,7 +1078,10 @@ console.log("\none + in every composer");
   const home = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
   const ws = readFileSync(join(root, "src/app/dashboard/components/workspace/ChatPanel.tsx"), "utf8");
   const dir = readFileSync(join(root, "src/app/dashboard/video/[id]/page.tsx"), "utf8");
-  has(/\["Add images", ImagePlus, imageInput\]/.test(am) && /\["Add files", Paperclip, fileInput\]/.test(am) && /<Plus className=/.test(am), "the + opens Add images and Add files");
+  const gd = readFileSync(join(root, "src/lib/google-drive.ts"), "utf8");
+  has(/label: "Photo Library"/.test(am) && /label: "Take Photo or Video"/.test(am) && /label: "Choose Files"/.test(am) && /label: "Google Drive"/.test(am) && /<Plus className=/.test(am), "the + lists Photo Library, Take Photo or Video, Choose Files and Google Drive");
+  has(/capture="environment"/.test(am) && /\(pointer: coarse\)/.test(am) && /takesVideo \? "image\/\*,video\/\*" : "image\/\*"/.test(am), "the camera opens straight away on phones; videos only where the composer takes them");
+  has(/export const driveReady = Boolean\(CLIENT_ID && API_KEY\)/.test(gd) && /\.\.\.\(driveReady \?/.test(am) && /drive\.readonly/.test(gd) && /export\?mimeType=application\/pdf/.test(gd), "Google Drive appears once the Google keys are set; read-only, Google Docs come as PDFs");
   has([home, ws, dir].every((src) => /<AddMenu /.test(src)) && !/aria-label="Attach images"/.test(home) && !/aria-label="Upload file or assets"/.test(ws), "Home, the workspace chat and the Creative Director all use that same +");
 }
 
