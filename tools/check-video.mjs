@@ -1101,6 +1101,15 @@ console.log("\nsuggestions only when the video calls for one");
   has(!/const QUICK = \[/.test(page) && !/Funnier hook/.test(page) && /suggestionsFor\(props\.plan, props\.renders\)/.test(page) && /suggestions\.length > 0 && props\.status !== "rendering"/.test(page), "the Director shows these instead of a fixed list, and nothing when there is nothing to suggest");
 }
 
+console.log("\nsound that never breaks");
+{
+  const ae = readFileSync(join(root, "src/app/dashboard/components/video/audio-engine.ts"), "utf8");
+  const ve3 = readFileSync(join(root, "src/app/dashboard/components/video/VideoEditor.tsx"), "utf8");
+  has(/decodeAudioData/.test(ae) && /source\.start\(t0, startAt - voice\.at\)/.test(ae) && /source\.stop\(t1 \+ 0\.01\)/.test(ae) && /linearRampToValueAtTime\(0, t1\)/.test(ae), "voice lines are decoded ahead and laid on one audio clock with exact starts and stops, faded at each end — no load at a cut, no click");
+  has(/setTargetAtTime\(level\.gain/.test(ae) && /audioSession/.test(ae) && /suspend\(\)/.test(ae) && /resume\(\)/.test(ae), "music ducks smoothly under speech, an iPhone's silent switch does not mute it, and a stall pauses sound and picture together");
+  has(/sound\?\.position\(\) \?\? c\.from/.test(ve3) && /const scheduleKey = JSON\.stringify\(builtSchedule/.test(ve3) && /engine\.current\?\.failed\(url\)/.test(ve3), "the audio clock is the playhead's clock, the sound is laid once per plan (not every frame), and a file it cannot take plays the old way");
+}
+
 console.log("\none + in every composer");
 {
   const am = readFileSync(join(root, "src/app/dashboard/components/AddMenu.tsx"), "utf8");
