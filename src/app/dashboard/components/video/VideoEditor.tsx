@@ -25,6 +25,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowLeft,
   ArrowUp,
@@ -1126,12 +1127,18 @@ function Timeline(props: {
                         ? { backgroundImage: `url(${picture})`, backgroundSize: "auto 100%", backgroundRepeat: "repeat-x", filter: COLOR_CSS[s.color ?? color] || undefined }
                         : placeholderStyle(`${scene?.shot ?? ""}${scene?.visual ?? s.label}`)),
                     }}
-                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
+                    title={`${s.label} · ${s.seconds.toFixed(1)}s${s.fallback ? (s.failed ? " · the latest re-film failed (nothing charged) — showing the last clip that worked; Export tries the new one again" : " · showing the last clip that worked until the new one is made") : s.kind === "pending" ? (s.failed ? " · not made last time (nothing charged) — Export tries it again" : " · not filmed yet — Export films it") : ""}`}
                   >
                     <span className="pointer-events-none absolute left-0 right-0 top-0 truncate bg-gradient-to-b from-black/70 to-transparent px-1.5 pb-1 pt-0.5 text-[10.5px] font-medium text-white">
                       {index + 1}. {scene?.source ? s.label : scene?.shot || "Generated"}
                     </span>
-                    {!picture && (
+                    {s.fallback && (
+                      /* The card still shows a working clip; this only says the newer one did not come out. */
+                      <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex max-w-[calc(100%-3.5rem)] items-center gap-1 truncate rounded bg-black/55 px-1 text-[9.5px] text-amber-300">
+                        <AlertTriangle className="h-2.5 w-2.5 shrink-0" /> Last good take
+                      </span>
+                    )}
+                    {!picture && !s.fallback && (
                       <span className="pointer-events-none absolute bottom-0.5 left-1.5 flex items-center gap-1 rounded bg-black/45 px-1 text-[9.5px] text-white/85">
                         {s.kind === "pending" ? (s.failed ? <span className="flex items-center gap-1 text-amber-300"><RotateCcw className="h-2.5 w-2.5" /> Not made · retry on export</span> : <><Sparkles className="h-2.5 w-2.5" /> Not filmed yet</>) : <Loader2 className="h-2.5 w-2.5 animate-spin" />}
                       </span>
