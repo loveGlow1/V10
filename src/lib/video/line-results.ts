@@ -72,7 +72,7 @@ export async function landLineJob(service: SupabaseClient, landing: LineLanding)
       .eq("engine", job.engine);
     await (job.scene === null ? update.is("scene", null) : update.eq("scene", job.scene));
 
-    if (media) {
+    if (media && landing.cost > 0) {
       await chargeCredits(service, {
         userId: video.user_id,
         action: "generate",

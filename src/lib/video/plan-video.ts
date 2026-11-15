@@ -131,7 +131,8 @@ export async function planVideo(
   const brief0 = String(video.brief ?? "");
   const fill0 = typeof body.fill === "string" ? body.fill.trim() : "";
   /* "Edit my clips", first time, with nothing asked beyond the template:
-     stitched at once from the uploads, in order — no model, no charge. */
+     stitched at once from the uploads, in order — no model, and free: only
+     the export is paid for (pricing.ts, free-exports.ts). */
   const stitchNow =
     video.pipeline === "clip_edit" && !body.plan && typeof body.note !== "string" && (!brief0.trim() || (unfilledPlaceholders(brief0).length > 0 && !fill0) || body.stitch === true);
 
@@ -144,7 +145,7 @@ export async function planVideo(
     }
     const purse = createSupabaseServiceClient();
     const balance = purse ? await currentBalance(purse, userId) : null;
-    if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < STITCH_COST) {
+    if (STITCH_COST > 0 && balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < STITCH_COST) {
       return NextResponse.json({ error: `Laying out your clips needs ${creditsLabel(STITCH_COST)}. Top up to continue.` }, { status: 402 });
     }
     ({ plan, issues } = qaAndRepair(keepKnownCast(stitchPlan({ assets: uploads, answers, title: video.title as string }), cast)));
@@ -218,7 +219,7 @@ export async function planVideo(
   if (saveError) return NextResponse.json({ error: "The plan was made but could not be saved. Try again." }, { status: 500 });
   await supabase.from("video_projects").update({ current_version: version, status: "planned", title: plan.title.slice(0, 160) }).eq("id", id);
 
-  if (stitched) {
+  if (stitched && STITCH_COST > 0) {
     const service = createSupabaseServiceClient();
     if (service) await chargeCredits(service, { userId, action: "generate", cost: STITCH_COST, description: `Clips stitched: ${plan.title}`, videoId: id, dedupeKey: `video-stitch:${id}:${version}` });
   }

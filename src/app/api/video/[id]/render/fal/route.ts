@@ -13,7 +13,10 @@ import { NextResponse } from "next/server";
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { COMPOSE_COST, productionJobCost } from "@/lib/video/engines";
 import { outputUrl, parseJobKey, verifyFalSignature, verifyFalToken } from "@/lib/video/fal";
+import { ownExportCharge } from "@/lib/video/free-exports";
 import { landLineJob } from "@/lib/video/line-results";
+import type { ProductionPlan } from "@/lib/video/plan";
+import { ownClipsOnly } from "@/lib/video/pricing";
 
 export const maxDuration = 120;
 
@@ -35,18 +38,25 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const service = createSupabaseServiceClient();
   if (!service) return NextResponse.json({ error: "Storage is not configured." }, { status: 503 });
-  const { data: video } = await service.from("video_projects").select("id, pipeline").eq("id", id).maybeSingle();
+  const { data: video } = await service.from("video_projects").select("id, pipeline, user_id").eq("id", id).maybeSingle();
   if (!video) return NextResponse.json({ error: "No such video." }, { status: 404 });
 
   const media = body.status === "OK" ? outputUrl(body.payload) : null;
   const kind = job.engine === "music" ? "music" : video.pipeline === "clone" ? "avatar" : "lipsync";
+  /* A cut of the person's own clips: the own-clips price, or free while free exports last. */
+  let composeCost = COMPOSE_COST;
+  if (job.engine === "compose" && media) {
+    const { data: row } = await service.from("video_versions").select("plan").eq("video_id", id).eq("version", version).maybeSingle();
+    const scenes = ((row?.plan as ProductionPlan | undefined)?.scenes ?? []);
+    if (ownClipsOnly({ scenes })) composeCost = (await ownExportCharge(service, String(video.user_id), id, scenes.reduce((sum, scene) => sum + (Number(scene.duration) || 0), 0))).cost;
+  }
   await landLineJob(service, {
     videoId: id,
     version,
     job,
     mediaUrl: media,
     error: media ? null : String(body.error ?? body.payload_error ?? "fal returned no media."),
-    cost: job.engine === "compose" ? COMPOSE_COST : productionJobCost("fal", kind, 0),
+    cost: job.engine === "compose" ? composeCost : productionJobCost("fal", kind, 0),
     dedupeKey: `video-fal:${id}:${version}:${key}`,
     origin: url.origin,
   });

@@ -161,8 +161,10 @@ export function referenceFrameTimes(seconds: number): number[] {
   return [0.2, 0.5, 0.8].map((f) => Math.round(seconds * f * 100) / 100);
 }
 
-/* A prepared upload is charged once, by its kind. A failed one never is. */
+/* A prepared upload is charged once, by its kind (free today). A failed one never is. */
 async function charge(service: SupabaseClient, asset: { id: unknown; kind: unknown; user_id: unknown; name: unknown; video_id?: unknown }) {
+  /* Uploads are free to prepare now (pricing.ts); kept for a price that returns. */
+  if (prepareCredits(String(asset.kind)) <= 0) return;
   await chargeCredits(service, {
     userId: String(asset.user_id),
     action: "generate",

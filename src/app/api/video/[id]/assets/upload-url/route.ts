@@ -38,11 +38,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { count } = await supabase.from("video_assets").select("id", { count: "exact", head: true }).eq("video_id", id).neq("kind", "render");
   if ((count ?? 0) >= MAX_UPLOADS) return NextResponse.json({ error: `A video can hold ${MAX_UPLOADS} uploads. Remove one first.` }, { status: 400 });
 
-  /* Preparing it is work: it must be covered before it is sent. */
+  /* Preparing it is free today; if it is priced again it must be covered before it is sent. */
   const service = createSupabaseServiceClient();
   const balance = service ? await currentBalance(service, userId) : null;
   const price = prepareCredits(assetKind(mime));
-  if (balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < price) {
+  if (price > 0 && balance && balance.daily + balance.rollover + balance.monthly + balance.topUp < price) {
     return NextResponse.json({ error: `Preparing this upload needs ${creditsLabel(price)}. Top up to upload.` }, { status: 402 });
   }
 

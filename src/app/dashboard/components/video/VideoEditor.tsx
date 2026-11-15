@@ -67,7 +67,7 @@ import { COLOR_CSS, LABELS, resolveCut, type ResolvedCut } from "@/lib/video/cut
 import { canSplit, duplicateScene, moveScene, removeScene, segmentAt, segmentsFor, splitAt, timelineLength, trimEdge, withScenes, type MadeLibrary, type Segment } from "@/lib/video/editor-timeline";
 import type { ProductionPlan, Scene } from "@/lib/video/plan";
 import { sceneFromAsset, toggleReference, withContinuation } from "@/lib/video/timeline";
-import { REVIEW_COST, creditsLabel, cutCredits } from "@/lib/video/pricing";
+import { REVIEW_COST, creditsLabel, cutCredits, ownClipsOnly, ownCutCredits } from "@/lib/video/pricing";
 import { ONE_RUN_SECONDS } from "@/lib/video/chapters";
 import { VOICES, voiceLabel } from "@/lib/video/voices";
 
@@ -92,6 +92,8 @@ type Loaded = {
   final: string | null;
   /** Every clip and voice line made in any version, by content (state.ts). */
   library?: MadeLibrary;
+  /** "Edit my clips": the account's free exports of its own clips (free-exports.ts). */
+  freeExports?: { left: number; thisVideo: boolean; own: boolean; total: number };
 };
 type Selection = { type: "scene"; n: number } | { type: "music" } | { type: "voice" } | null;
 type Chat = { who: "you" | "ai"; text: string };
@@ -240,6 +242,38 @@ export default function VideoEditor({ id }: { id: string }) {
   /* Generated scenes with no clip yet — never filmed, or failed last time. */
   const missingScenes = segments.filter((seg) => seg.kind === "pending").length;
   const dirty = Boolean(draft && data?.latest && JSON.stringify(draft) !== JSON.stringify(data.latest.plan));
+  /* "Edit my clips", made easy: once the uploads are read they go straight
+     onto the timeline — no button to find — and every clip uploaded after
+     that lands on the end, the way clips dropped into CapCut do. A clip the
+     person took off the timeline is never put back. */
+  const ownEdit = data?.video.pipeline === "clip_edit";
+  const autoStitched = useRef(false);
+  const seenAssets = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!data || !ownEdit) return;
+    const visual = assets.filter((a) => (a.kind === "video" || a.kind === "image" || a.kind === "photo") && a.status !== "failed");
+    if (!draft) {
+      if (autoStitched.current || busy !== null || !visual.length || assets.some((a) => a.status === "processing")) return;
+      const timer = window.setTimeout(() => {
+        autoStitched.current = true;
+        void stitch();
+      }, 1200);
+      return () => window.clearTimeout(timer);
+    }
+    const ready = (a: PanelAsset) => a.status !== "processing";
+    if (seenAssets.current === null) {
+      seenAssets.current = new Set(assets.filter(ready).map((a) => a.id));
+      return;
+    }
+    const seen = seenAssets.current;
+    const onTimeline = new Set(draft.scenes.flatMap((scene) => (scene.source ? [scene.source.assetId] : [])));
+    const fresh = visual.filter((a) => ready(a) && !seen.has(a.id) && !onTimeline.has(a.id));
+    assets.filter(ready).forEach((a) => seen.add(a.id));
+    if (fresh.length) change((p) => ({ ...p, scenes: [...p.scenes, ...fresh.map((a, i) => sceneFromAsset(a, p.scenes.length + 1 + i))] }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets, draft, ownEdit, busy]);
+  const free = data?.freeExports;
+  const ownCut = Boolean(draft && ownClipsOnly(draft));
   const cut = draft ? resolveCut(draft) : null;
   const musicUrl = useMemo(() => {
     if (!draft || !cut || cut.music.source === "none") return null;
@@ -578,10 +612,23 @@ export default function VideoEditor({ id }: { id: string }) {
         </button>
         <button onClick={() => void exportVideo()} disabled={!draft || busy !== null || rendering} className="ml-auto flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-solid px-3.5 text-[12.5px] font-medium text-onSolid disabled:opacity-50 sm:ml-0">
           {busy === "export" || rendering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? (missingScenes ? `Make ${missingScenes} missing scene${missingScenes === 1 ? "" : "s"}` : "Save & export") : `Export${data.cost ? ` · ${data.cost} credit${data.cost === 1 ? "" : "s"}` : ""}`}
+          {rendering ? `Exporting ${doneRows}/${renderRows.length}` : data.renders.length ? (missingScenes ? `Make ${missingScenes} missing scene${missingScenes === 1 ? "" : "s"}` : "Save & export") : `Export${data.cost ? ` · ${creditsLabel(data.cost)}` : free?.own ? " · Free" : ""}`}
         </button>
         </div>
       </header>
+      {(ownEdit || ownCut) && free && (
+        /* Own clips: upload, arrange and trim free; only Export is paid — and the first three videos not even that. */
+        <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[12px] border border-[#E8915F]/25 bg-[#E8915F]/[0.07] px-3 py-2 text-[12.5px] text-soft">
+          <span className="font-medium text-[#E8915F]">{free.thisVideo ? "This video exports free" : free.left > 0 ? `${free.left} of ${free.total} free exports left` : `Export ${creditsLabel(ownCutCredits(total))}`}</span>
+          <span>
+            {free.thisVideo
+              ? "— it's one of your free tries. Uploading, arranging and trimming your clips is always free."
+              : free.left > 0
+                ? `— your first ${free.total} videos of your own clips export free. Uploading, arranging and trimming is always free.`
+                : "— half a credit per started minute. Uploading, arranging and trimming your clips is free."}
+          </span>
+        </p>
+      )}
       {error && <p role="alert" className="mt-3 rounded-[10px] border border-danger/30 bg-danger/[0.08] px-3 py-2 text-[12.5px] text-danger">{error}</p>}
       {note && !error && <p className="mt-3 text-[12.5px] text-emerald-400">{note}</p>}
       {data.final && !rendering && (
@@ -594,7 +641,7 @@ export default function VideoEditor({ id }: { id: string }) {
 
       {!draft ? (
         <div className="mt-4">
-          <MediaPanel videoId={id} assets={assets} title="Your clips" description="Upload the pieces of your video. They go on the timeline in the order you add them." inTimeline={new Set()} onChanged={() => load(true)}>
+          <MediaPanel videoId={id} assets={assets} title="Your clips" description={ownEdit ? "Drop in the clips you shot — any camera, any app. They go onto the timeline by themselves, in the order you add them; then trim, reorder and export." : "Upload the pieces of your video. They go on the timeline in the order you add them."} inTimeline={new Set()} onChanged={() => load(true)}>
             <button onClick={() => void stitch()} disabled={busy !== null || !assets.some((a) => a.kind !== "audio" && a.kind !== "render" && a.kind !== "document" && a.status !== "failed")} className="flex h-9 items-center gap-2 rounded-full bg-solid px-4 text-[13px] font-medium text-onSolid disabled:opacity-50">
               {busy === "stitch" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Scissors className="h-4 w-4" />} Put them on the timeline
             </button>
@@ -719,7 +766,7 @@ export default function VideoEditor({ id }: { id: string }) {
               ) : (
                 <section className="rounded-[16px] border border-line/[0.08] bg-panel p-4 text-[12.5px] leading-relaxed text-muted">
                   <p className="text-[13.5px] font-medium text-ink">Edit by hand</p>
-                  <p className="mt-1">Edit freely and Save — saving is free and never films anything. Export makes the final video ({total > ONE_RUN_SECONDS ? `up to ${creditsLabel(cutCredits(total))} — only the parts you changed are cut and charged again` : `${creditsLabel(cutCredits(total))} at this length`} — 1 credit per started minute), filming only scenes that were never made. Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
+                  <p className="mt-1">Edit freely and Save — saving is free and never films anything. {ownCut ? <>Export joins your clips into the final video ({free && (free.thisVideo || free.left > 0) ? "free — one of your free tries" : `${creditsLabel(ownCutCredits(total))} at this length — half a credit per started minute`}).</> : <>Export makes the final video ({total > ONE_RUN_SECONDS ? `up to ${creditsLabel(cutCredits(total))} — only the parts you changed are cut and charged again` : `${creditsLabel(cutCredits(total))} at this length`} — 1 credit per started minute), filming only scenes that were never made.</>} Click a clip on the timeline to trim it, change its speed or sound, its words or its voice. Drag clips to reorder; drag their edges to trim. <b className="text-soft">Space</b> plays, <b className="text-soft">S</b> splits at the playhead, <b className="text-soft">Delete</b> removes, <b className="text-soft">⌘Z</b> undoes.</p>
                   <button onClick={() => setSelection({ type: "music" })} className={`${chip} mt-3`}><Music className="h-3.5 w-3.5" /> Music and voice</button>
                 </section>
               )}

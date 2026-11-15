@@ -9,7 +9,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createSupabaseServiceClient } from "@/lib/supabase-service";
 import { parseProvider } from "@/lib/video/clip-engines";
-import { readiness, renderCost } from "@/lib/video/engines";
+import { cutCost, readiness, renderCost } from "@/lib/video/engines";
+import { freeExports } from "@/lib/video/free-exports";
+import { FREE_OWN_EXPORTS, ownClipsOnly } from "@/lib/video/pricing";
 import { clipStatus } from "@/lib/video/providers";
 import { advance, lineTaskOf } from "@/lib/video/production";
 import { settleRunwareLineJob } from "@/lib/video/line-results";
@@ -248,6 +250,11 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
      a scene whose picture was already made shows it on the timeline, not
      "Made on export" — and Export files it as it is. */
   const library = await libraryOf(supabase, id, video.current_version as number);
+  /* "Edit my clips": the account's free exports of its own clips (free-exports.ts). */
+  const latestPlan = latest ? (latest.plan as ProductionPlan) : null;
+  const free = await freeExports(supabase, String(video.user_id), id);
+  const own = Boolean(latestPlan && ownClipsOnly(latestPlan));
+  const fullCost = latestPlan ? renderCost(latestPlan, process.env, ((video.answers ?? {}) as Record<string, string>).quality ?? null) : 0;
   return NextResponse.json({
     video: { ...video, status },
     library,
@@ -256,7 +263,9 @@ export async function videoState(supabase: SupabaseClient, id: string, origin: s
     assets: studioAssets,
     readiness: latest ? readiness(latest.plan as ProductionPlan) : null,
     /* Worked out here, where FAL_KEY is visible: the button shows it. */
-    cost: latest ? renderCost(latest.plan as ProductionPlan, process.env, ((video.answers ?? {}) as Record<string, string>).quality ?? null) : 0,
+    cost: latestPlan && own && (free.thisVideo || free.left > 0) ? Math.max(0, Math.round((fullCost - cutCost(latestPlan)) * 100) / 100) : fullCost,
+    /* Own clips only: whether this export is one of the free ones, and how many are left. */
+    freeExports: { left: free.left, thisVideo: free.thisVideo, own, total: FREE_OWN_EXPORTS },
     renders,
     /* The one-file cut, when fal has composed it. */
     final: renders.find((row) => row.engine === "compose" && row.status === "done")?.url ?? parts[0] ?? null,
